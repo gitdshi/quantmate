@@ -1,0 +1,9 @@
+# To ensure app dependencies are ported from your virtual environment/host machine into your container, run 'pip freeze > requirements.txt' in the terminal to overwrite this file
+# vnpy
+vnpy==3.9.4
+vnpy-ctp==6.7.2.1
+vnpy-ctastrategy==1.2.0
+vnpy-ctabacktester==1.1.6
+vnpy-webtrader==1.0.5
+# Backtrader
+backtrader==1.9.78.123
