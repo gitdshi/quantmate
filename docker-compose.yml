@@ -6,3 +6,37 @@ services:
     build:
       context: .
       dockerfile: ./Dockerfile
+    depends_on:
+      - mysql
+    environment:
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_USER=root
+      - MYSQL_PASSWORD=password
+      # Two-database architecture
+      - TUSHARE_DATABASE_URL=mysql+pymysql://root:password@mysql:3306/tushare?charset=utf8mb4
+      - VNPY_DATABASE_URL=mysql+pymysql://root:password@mysql:3306/vnpy?charset=utf8mb4
+    networks:
+      - tradermate_network
+
+  mysql:
+    image: mysql:8.0
+    container_name: tradermate_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: password
+      # Note: init.sql creates tushare_data and vnpy_data databases
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql/init:/docker-entrypoint-initdb.d
+    networks:
+      - tradermate_network
+
+volumes:
+  mysql_data:
+
+networks:
+  tradermate_network:
+    driver: bridge

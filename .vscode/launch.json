@@ -1,6 +1,15 @@
 {
     "configurations": [
         {
+            "name": "Python: main.py",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/app/main.py",
+            "python": "${workspaceFolder}/.venv/bin/python",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
             "name": "Docker: Python - General",
             "type": "docker",
             "request": "launch",
