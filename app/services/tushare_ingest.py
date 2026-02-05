@@ -161,6 +161,57 @@ def store_financial_statement(df: pd.DataFrame, statement_type: str):
     return count
 
 
+def ingest_index_daily(ts_code=None, start_date=None, end_date=None):
+    """Ingest index daily data (e.g., HS300 399300.SZ) from Tushare."""
+    params = {'ts_code': ts_code, 'start_date': start_date, 'end_date': end_date}
+    aid = audit_start('index_daily', params)
+    max_retries = int(os.getenv('MAX_RETRIES', '3'))
+    attempt = 0
+    while attempt < max_retries:
+        try:
+            df = call_pro('index_daily', ts_code=ts_code, start_date=start_date, end_date=end_date)
+            rows = 0
+            if df is not None and not df.empty:
+                # Rename ts_code to index_code for consistency with table schema
+                df = df.rename(columns={'ts_code': 'index_code'})
+                upsert_sql = text(
+                    "INSERT INTO index_daily (index_code, trade_date, open, high, low, close, vol, amount) "
+                    "VALUES (:index_code, :trade_date, :open, :high, :low, :close, :vol, :amount) "
+                    "ON DUPLICATE KEY UPDATE open=VALUES(open), high=VALUES(high), low=VALUES(low), "
+                    "close=VALUES(close), vol=VALUES(vol), amount=VALUES(amount)"
+                )
+                def clean(v):
+                    if pd.isna(v) or v is None:
+                        return None
+                    return v
+                
+                with engine.begin() as conn:
+                    for _, row in df.iterrows():
+                        conn.execute(upsert_sql, {
+                            'index_code': row['index_code'],
+                            'trade_date': str(row['trade_date']),
+                            'open': clean(row.get('open')),
+                            'high': clean(row.get('high')),
+                            'low': clean(row.get('low')),
+                            'close': clean(row.get('close')),
+                            'vol': clean(row.get('vol')),
+                            'amount': clean(row.get('amount'))
+                        })
+                        rows += 1
+            audit_finish(aid, 'success', rows)
+            logging.info('Ingested index_daily rows: %d for %s', rows, ts_code)
+            return rows
+        except Exception as e:
+            attempt += 1
+            logging.exception('index_daily ingest attempt %d failed for %s: %s', attempt, ts_code, e)
+            if attempt < max_retries:
+                logging.info('Sleeping 5s before retrying...')
+                time.sleep(5)
+            else:
+                audit_finish(aid, 'error', 0)
+                return 0
+
+
 def ingest_daily(ts_code=None, start_date=None, end_date=None):
     params = {'ts_code': ts_code, 'start_date': start_date, 'end_date': end_date}
     aid = audit_start('daily', params)

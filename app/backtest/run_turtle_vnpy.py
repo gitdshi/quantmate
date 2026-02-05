@@ -23,6 +23,7 @@ ENGINE = ti.engine
 from vnpy.trader.object import BarData
 from vnpy.trader.constant import Exchange, Interval
 from vnpy_ctastrategy.backtesting import BacktestingEngine
+from app.backtest.ts_utils import moving_average, pct_change
 
 # Load strategy class from file
 spec2 = importlib.util.spec_from_file_location('turtle','app/strategies/turtle_trading.py')
@@ -149,6 +150,10 @@ def run_backtest(ts_code: str, start: datetime, end: datetime):
 
     # save daily results CSV
     try:
+        if df is not None and not df.empty and 'close_price' in df.columns:
+            # compute a simple MA and returns column for the CSV
+            df['ma_20'] = moving_average(df['close_price'], 20)
+            df['daily_return'] = pct_change(df['close_price'])
         df.to_csv(f'backtest_result_{ts_code.replace(".","_")}.csv', index=False)
         print('Saved CSV to backtest_result_{ts_code}.csv')
     except Exception as e:

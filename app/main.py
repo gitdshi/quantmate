@@ -77,6 +77,122 @@ def main():
     main_engine.add_app(CtaBacktesterApp)
     main_engine.add_app(DataManagerApp)
 
+    # Register custom CTA strategies (must be done BEFORE creating main_window)
+    try:
+        cta_engine = main_engine.get_engine("CtaStrategy")
+        if cta_engine:
+            # Load from project folder
+            cta_engine.load_strategy_class_from_module("app.strategies.turtle_trading")
+            cta_engine.load_strategy_class_from_module("app.strategies.triple_ma_strategy")
+            
+            # Also load from vntrader strategies folder and project-level strategies
+            from pathlib import Path
+            candidate_folders = [Path.home() / ".vntrader" / "strategies", ROOT / "strategies"]
+            import os
+            print(f"Process cwd: {os.getcwd()}")
+            print(f"Path.cwd(): {Path.cwd()}")
+            # Also show what Path.cwd()/strategies contains
+            cwd_strat = Path.cwd() / "strategies"
+            print(f"Project-level strategies path: {ROOT / 'strategies'} exists={ (ROOT / 'strategies').exists() }")
+            print(f"User vntrader strategies path: {Path.home() / '.vntrader' / 'strategies'} exists={(Path.home() / '.vntrader' / 'strategies').exists()} ")
+            print(f"Cwd strategies path: {cwd_strat} exists={cwd_strat.exists()}")
+            if cwd_strat.exists():
+                try:
+                    print("Files in cwd strategies:", [p.name for p in cwd_strat.iterdir() if p.is_file()])
+                except Exception:
+                    pass
+
+            for strategies_folder in candidate_folders:
+                if strategies_folder.exists():
+                    try:
+                        print(f"Loading strategies from {strategies_folder}")
+                        cta_engine.load_strategy_class_from_folder(strategies_folder)
+                    except Exception:
+                        print(f"Failed to load strategies from {strategies_folder}")
+                        import traceback
+                        traceback.print_exc()
+
+            print(f"Loaded strategies: {cta_engine.get_all_strategy_class_names()}")
+    except Exception as e:
+        print(f"Failed to load custom strategies: {e}")
+        import traceback
+        traceback.print_exc()
+
+    # Start a background thread to watch local strategy files and sync + reload engines
+    try:
+        import threading
+        import time
+        import shutil
+
+        def watch_and_sync():
+            watch_paths = [ROOT / "app" / "strategies"]
+            user_strat = Path.home() / ".vntrader" / "strategies"
+            project_strat = ROOT / "strategies"
+
+            # Ensure target folders exist
+            user_strat.mkdir(parents=True, exist_ok=True)
+            project_strat.mkdir(parents=True, exist_ok=True)
+
+            mtimes = {}
+
+            while True:
+                changed = False
+                for p in watch_paths:
+                    if not p.exists():
+                        continue
+                    for f in p.glob('*.py'):
+                        try:
+                            m = f.stat().st_mtime
+                        except Exception:
+                            continue
+                        key = str(f.resolve())
+                        if key not in mtimes or mtimes[key] != m:
+                            mtimes[key] = m
+                            changed = True
+                            # copy to project and user strategy folders
+                            try:
+                                shutil.copy2(f, project_strat / f.name)
+                                shutil.copy2(f, user_strat / f.name)
+                                print(f"Synced strategy {f.name} to {project_strat} and {user_strat}")
+                            except Exception:
+                                print(f"Failed to copy strategy {f}")
+                if changed:
+                    try:
+                        # reload cta strategy engine classes
+                        if main_engine:
+                            ce = main_engine.get_engine("CtaStrategy")
+                            if ce:
+                                if hasattr(ce, 'reload_strategy_class'):
+                                    ce.reload_strategy_class()
+                                else:
+                                    # fallback: re-load folders
+                                    for folder in (user_strat, project_strat):
+                                        try:
+                                            ce.load_strategy_class_from_folder(folder)
+                                        except Exception:
+                                            pass
+
+                            be = main_engine.get_engine("CtaBacktester")
+                            if be:
+                                if hasattr(be, 'reload_strategy_class'):
+                                    be.reload_strategy_class()
+                                else:
+                                    try:
+                                        be.load_strategy_class()
+                                    except Exception:
+                                        pass
+                        print("Strategy engines reloaded after sync")
+                    except Exception:
+                        import traceback
+                        traceback.print_exc()
+
+                time.sleep(2)
+
+        t = threading.Thread(target=watch_and_sync, daemon=True)
+        t.start()
+    except Exception:
+        pass
+
     main_window = MainWindow(main_engine, event_engine)
     main_window.showMaximized()
 
