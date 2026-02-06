@@ -7,6 +7,8 @@ mysql/data
 
 # Data sync daemon (removed)
 *.log
+logs
+*.out
 
 # Python
 __pycache__/
