@@ -27,6 +27,17 @@ Usage:
         ...
 """
 
+from vnpy_ctastrategy import (
+    CtaTemplate,
+    StopOrder,
+    Direction,
+    TickData,
+    BarData,
+    TradeData,
+    OrderData,
+    BarGenerator,
+    ArrayManager,
+)
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 import numpy as np
@@ -54,31 +65,6 @@ class StopLossState:
             return max(self.fixed_stop_price, self.trailing_stop_price)
         else:
             return min(self.fixed_stop_price, self.trailing_stop_price)
-
-
-class stop_loss:
-    """Alias for StopLossManager to satisfy validation."""
-    def __init__(self, *args, **kwargs):
-        self.manager = StopLossManager(*args, **kwargs)
-    
-    def on_init(self):
-        """策略初始化"""
-        pass
-    
-    def on_start(self):
-        """策略启动"""
-        pass
-    
-    def on_stop(self):
-        """策略停止"""
-        pass
-    
-    def on_bar(self, bar):
-        """K线回调"""
-        pass
-    
-    def __getattr__(self, name):
-        return getattr(self.manager, name)
 
 
 class StopLossManager:
@@ -472,3 +458,150 @@ def recover_version(version_name: str, file_path: Optional[str] = None, create_b
     os.replace(str(tmp), str(src))
     return True
 
+
+# ============================================================================
+# VNPy Strategy Example: Stop Loss Demo Strategy
+# ============================================================================
+
+class StopLossStrategy(CtaTemplate):
+    """
+    止损策略示例 - 演示如何使用StopLossManager
+    
+    这是一个简单的双均线策略，集成了固定止损和移动止损功能
+    """
+    
+    author = "TraderMate"
+    
+    # 策略参数
+    fast_window: int = 5
+    slow_window: int = 20
+    fixed_size: int = 1
+    
+    # 止损参数
+    stop_loss_window: int = 10
+    fixed_stop_multiplier: float = 2.0
+    trailing_stop_multiplier: float = 1.0
+    use_stop_loss: bool = True
+    
+    # 策略变量
+    fast_ma: float = 0
+    slow_ma: float = 0
+    entry_price: float = 0
+    fixed_stop: float = 0
+    trailing_stop: float = 0
+    
+    parameters = [
+        "fast_window", "slow_window", "fixed_size",
+        "stop_loss_window", "fixed_stop_multiplier", "trailing_stop_multiplier", "use_stop_loss"
+    ]
+    
+    variables = [
+        "fast_ma", "slow_ma", "entry_price", "fixed_stop", "trailing_stop"
+    ]
+    
+    def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
+        """初始化策略"""
+        super().__init__(cta_engine, strategy_name, vt_symbol, setting)
+        
+        self.bg = BarGenerator(self.on_bar)
+        self.am = ArrayManager()
+        
+        # 初始化止损管理器
+        self.stop_loss_manager = StopLossManager(
+            fixed_std_multiplier=self.fixed_stop_multiplier,
+            trailing_std_multiplier=self.trailing_stop_multiplier,
+            lookback_period=self.stop_loss_window,
+            use_fixed_stop=self.use_stop_loss,
+            use_trailing_stop=self.use_stop_loss
+        )
+    
+    def on_init(self):
+        """策略初始化"""
+        self.write_log("止损策略初始化")
+        self.load_bar(max(self.slow_window, self.stop_loss_window) + 10)
+    
+    def on_start(self):
+        """策略启动"""
+        self.write_log("止损策略启动")
+    
+    def on_stop(self):
+        """策略停止"""
+        self.write_log("止损策略停止")
+    
+    def on_tick(self, tick: TickData):
+        """Tick数据更新"""
+        self.bg.update_tick(tick)
+    
+    def on_bar(self, bar: BarData):
+        """K线数据更新"""
+        self.cancel_all()
+        
+        self.am.update_bar(bar)
+        if not self.am.inited:
+            return
+        
+        # 计算双均线
+        self.fast_ma = self.am.sma(self.fast_window)
+        self.slow_ma = self.am.sma(self.slow_window)
+        
+        # 获取最近收盘价用于止损计算
+        recent_closes = list(self.am.close[-self.stop_loss_window:])
+        
+        # 如果有持仓，更新移动止损
+        if self.pos != 0 and self.use_stop_loss:
+            self.stop_loss_manager.update_trailing_stop(self.vt_symbol, bar.close_price, recent_closes)
+            state = self.stop_loss_manager.get_state(self.vt_symbol)
+            
+            if state:
+                self.fixed_stop = state.fixed_stop_price
+                self.trailing_stop = state.trailing_stop_price
+                
+                # 检查是否触发止损
+                if self.stop_loss_manager.should_stop_loss(self.vt_symbol, bar.close_price):
+                    reason = self.stop_loss_manager.get_stop_reason(self.vt_symbol, bar.close_price)
+                    self.write_log(f"触发止损: {reason}, 止损价={state.get_active_stop_price():.2f}")
+                    
+                    if self.pos > 0:
+                        self.sell(bar.close_price * 0.99, abs(self.pos), False)
+                    elif self.pos < 0:
+                        self.cover(bar.close_price * 1.01, abs(self.pos), False)
+                    
+                    self.stop_loss_manager.remove_position(self.vt_symbol)
+                    return
+        
+        # 交易逻辑：简单的双均线策略
+        if self.pos == 0:
+            # 金叉开多
+            if self.fast_ma > self.slow_ma:
+                self.buy(bar.close_price * 1.01, self.fixed_size, False)
+                
+                # 开仓后设置止损
+                if self.use_stop_loss:
+                    state = self.stop_loss_manager.set_entry(
+                        self.vt_symbol,
+                        bar.close_price,
+                        recent_closes,
+                        is_long=True
+                    )
+                    self.entry_price = bar.close_price
+                    self.fixed_stop = state.fixed_stop_price
+                    self.trailing_stop = state.trailing_stop_price
+                    self.write_log(f"开多并设置止损: 固定={self.fixed_stop:.2f}, 移动={self.trailing_stop:.2f}")
+        
+        elif self.pos > 0:
+            # 死叉平多
+            if self.fast_ma < self.slow_ma:
+                self.sell(bar.close_price * 0.99, abs(self.pos), False)
+                self.stop_loss_manager.remove_position(self.vt_symbol)
+    
+    def on_order(self, order: OrderData):
+        """订单回调"""
+        pass
+    
+    def on_trade(self, trade: TradeData):
+        """成交回调"""
+        self.put_event()
+    
+    def on_stop_order(self, stop_order: StopOrder):
+        """停止单回调"""
+        pass

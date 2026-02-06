@@ -272,7 +272,8 @@ async def update_strategy(
         
         # Validate code if provided and not empty
         if strategy_data.code and strategy_data.code.strip():
-            class_name = existing.class_name
+            # Use the new class_name if provided, otherwise use existing
+            class_name = strategy_data.class_name if strategy_data.class_name else existing.class_name
             validation = validate_strategy_code(strategy_data.code, class_name)
             if not validation.valid:
                 raise HTTPException(
