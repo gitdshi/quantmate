@@ -1,0 +1,185 @@
+Starting worker for queues: ['backtest', 'optimization', 'default']
+11:10:01 Worker 5592eddb90a04b95820d45d2f73f49f9: started with PID 10475, version 2.6.1
+11:10:01 Worker 5592eddb90a04b95820d45d2f73f49f9: subscribing to channel rq:pubsub:5592eddb90a04b95820d45d2f73f49f9
+11:10:01 *** Listening on backtest, optimization, default...
+11:10:01 Acquired scheduler lock for optimization
+11:10:01 Acquired scheduler lock for backtest
+11:10:01 Acquired scheduler lock for default
+11:10:01 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: backtest
+11:10:01 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: optimization
+11:10:01 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: default
+11:23:31 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: backtest
+11:23:31 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: optimization
+11:23:31 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: default
+11:37:01 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: backtest
+11:37:01 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: optimization
+11:37:01 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: default
+11:47:41 backtest: app.api.worker.tasks.run_backtest_task(end_date='2026-02-06', initial_capital=100000, parameters={}, pricetick=0.01, rate=0.0003, size=1, slippage=0.0001, start_date='2025-02-06', strategy_class_name='TurtleTrading', strategy_code='from vnpy_ctastrategy import (\n    CtaTemplate,\n    StopOrder,\n    Dire..., strategy_id=11, symbol='601398.SSE', user_id=2) (bt_4c906269e2f34b0c)
+[Worker] Starting backtest job bt_4c906269e2f34b0c
+[Worker] Strategy: TurtleTrading, Symbol: 601398.SSE -> 601398.SSE
+[Worker] Loading data for 601398.SSE...
+2026-02-06 11:47:41.278885	Start loading historical data
+2026-02-06 11:47:41.279662	Loading progress: # [0%]
+2026-02-06 11:47:41.472248	Loading progress: # [10%]
+2026-02-06 11:47:41.481067	Loading progress: ## [20%]
+2026-02-06 11:47:41.488889	Loading progress: ### [30%]
+2026-02-06 11:47:41.497958	Loading progress: #### [39%]
+2026-02-06 11:47:41.507455	Loading progress: ##### [49%]
+2026-02-06 11:47:41.517171	Loading progress: ###### [59%]
+2026-02-06 11:47:41.525167	Loading progress: ####### [69%]
+2026-02-06 11:47:41.533752	Loading progress: ######## [79%]
+2026-02-06 11:47:41.542632	Loading progress: ######### [89%]
+2026-02-06 11:47:41.550634	Loading progress: ########## [99%]
+2026-02-06 11:47:41.552646	Historical data loading completed, data count: 242
+[Worker] Running backtest...
+2026-02-06 11:47:41.556203	Strategy initialization complete
+2026-02-06 11:47:41.556422	Start replaying historical data
+2026-02-06 11:47:41.556951	Backtesting progress: = [0%]
+2026-02-06 11:47:41.557280	Backtesting progress: == [10%]
+2026-02-06 11:47:41.557599	Backtesting progress: === [20%]
+2026-02-06 11:47:41.557919	Backtesting progress: ==== [30%]
+2026-02-06 11:47:41.561791	Backtesting progress: ===== [40%]
+2026-02-06 11:47:41.563301	Backtesting progress: ====== [50%]
+2026-02-06 11:47:41.564561	Backtesting progress: ======= [60%]
+2026-02-06 11:47:41.566900	Backtesting progress: ======== [70%]
+2026-02-06 11:47:41.568309	Backtesting progress: ========= [80%]
+2026-02-06 11:47:41.570265	Backtesting progress: ========== [90%]
+2026-02-06 11:47:41.570581	Backtesting progress: =========== [100%]
+2026-02-06 11:47:41.570773	Historical backtest complete
+[Worker] Calculating results...
+2026-02-06 11:47:41.570965	Start calculating daily mark-to-market profit and loss
+2026-02-06 11:47:41.576533	The daily mark-to-market profit and loss calculation is complete
+2026-02-06 11:47:41.576786	Start calculating strategy statistical indicators
+2026-02-06 11:47:41.591097	------------------------------
+2026-02-06 11:47:41.591354	Start Date: 	2025-02-06
+2026-02-06 11:47:41.591533	End Date: 	2026-01-28
+2026-02-06 11:47:41.591703	Total Days: 	242
+2026-02-06 11:47:41.591872	Profit Days: 	11
+2026-02-06 11:47:41.592094	Loss Days: 	14
+2026-02-06 11:47:41.592266	Capital: 	100,000.00
+2026-02-06 11:47:41.592474	End Balance: 	99,998.51
+2026-02-06 11:47:41.592646	Total Return: 	-0.00%
+2026-02-06 11:47:41.592815	Annual Return: 	-0.00%
+2026-02-06 11:47:41.592983	Max Drawdown: 	-1.57
+2026-02-06 11:47:41.593151	Max Ddpercent: -0.00%
+2026-02-06 11:47:41.593317	Max Drawdown Duration: 	133
+2026-02-06 11:47:41.593485	Total Det Pnl: 	-1.49
+2026-02-06 11:47:41.593653	Total Commission: 	0.10
+2026-02-06 11:47:41.593820	Total Slippage: 	0.00
+2026-02-06 11:47:41.593988	Total Turnover: 	349.68
+2026-02-06 11:47:41.594279	Total Trade Count: 	31
+2026-02-06 11:47:41.594472	Daily Net P&L: 	-0.01
+2026-02-06 11:47:41.594648	Daily Commission: 	0.00
+2026-02-06 11:47:41.594821	Daily Slippage: 	0.00
+2026-02-06 11:47:41.595181	Daily Turnover: 	1.44
+2026-02-06 11:47:41.595363	Daily Trade Count: 	0.128099173553719
+2026-02-06 11:47:41.595535	Daily Return: 	-0.00%
+2026-02-06 11:47:41.595705	Return Std: 	0.00%
+2026-02-06 11:47:41.595873	Sharpe Ratio：	-1.10
+2026-02-06 11:47:41.596041	EWM Sharpe：	-1.06
+2026-02-06 11:47:41.596209	Return Drawdown Ratio: 	-0.95
+2026-02-06 11:47:41.596382	RGR Ratio：	-1.31
+2026-02-06 11:47:41.597065	Strategy statistical indicators calculation completed
+[Worker] Saved backtest bt_4c906269e2f34b0c to database
+[Worker] Backtest job bt_4c906269e2f34b0c completed successfully
+11:47:41 Successfully completed app.api.worker.tasks.run_backtest_task(end_date='2026-02-06', initial_capital=100000, parameters={}, pricetick=0.01, rate=0.0003, size=1, slippage=0.0001, start_date='2025-02-06', strategy_class_name='TurtleTrading', strategy_code='from vnpy_ctastrategy import (\n    CtaTemplate,\n    StopOrder,\n    Dire..., strategy_id=11, symbol='601398.SSE', user_id=2) job in 0:00:00.476269s on worker 5592eddb90a04b95820d45d2f73f49f9
+11:47:41 backtest: Job OK (bt_4c906269e2f34b0c)
+11:47:41 Result is kept for 604800 seconds
+11:47:41 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: backtest
+11:47:41 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: optimization
+11:47:41 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: default
+12:01:11 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: backtest
+12:01:11 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: optimization
+12:01:11 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: default
+12:14:42 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: backtest
+12:14:42 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: optimization
+12:14:42 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: default
+12:28:12 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: backtest
+12:28:12 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: optimization
+12:28:12 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: default
+12:41:42 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: backtest
+12:41:42 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: optimization
+12:41:42 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: default
+12:55:12 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: backtest
+12:55:12 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: optimization
+12:55:12 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: default
+13:08:42 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: backtest
+13:08:42 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: optimization
+13:08:42 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: default
+13:22:12 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: backtest
+13:22:12 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: optimization
+13:22:12 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: default
+13:35:42 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: backtest
+13:35:42 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: optimization
+13:35:42 Worker 5592eddb90a04b95820d45d2f73f49f9: cleaning registries for queue: default
+13:43:30 backtest: app.api.worker.tasks.run_backtest_task(end_date='2026-02-06', initial_capital=100000, parameters={}, pricetick=0.01, rate=0.0003, size=1, slippage=0.0001, start_date='2025-02-06', strategy_class_name='TurtleTrading', strategy_code='from vnpy_ctastrategy import (\n    CtaTemplate,\n    StopOrder,\n    Dire..., strategy_id=11, symbol='000001.SZSE', user_id=2) (bt_ce8527db4486443d)
+[Worker] Starting backtest job bt_ce8527db4486443d
+[Worker] Strategy: TurtleTrading, Symbol: 000001.SZSE -> 000001.SZSE
+[Worker] Loading data for 000001.SZSE...
+2026-02-06 13:43:30.878244	Start loading historical data
+2026-02-06 13:43:30.879056	Loading progress: # [0%]
+2026-02-06 13:43:31.149403	Loading progress: # [10%]
+2026-02-06 13:43:31.158829	Loading progress: ## [20%]
+2026-02-06 13:43:31.167031	Loading progress: ### [30%]
+2026-02-06 13:43:31.176159	Loading progress: #### [39%]
+2026-02-06 13:43:31.185336	Loading progress: ##### [49%]
+2026-02-06 13:43:31.193719	Loading progress: ###### [59%]
+2026-02-06 13:43:31.201514	Loading progress: ####### [69%]
+2026-02-06 13:43:31.209772	Loading progress: ######## [79%]
+2026-02-06 13:43:31.217786	Loading progress: ######### [89%]
+2026-02-06 13:43:31.230321	Loading progress: ########## [99%]
+2026-02-06 13:43:31.232245	Historical data loading completed, data count: 242
+[Worker] Running backtest...
+2026-02-06 13:43:31.237222	Strategy initialization complete
+2026-02-06 13:43:31.237533	Start replaying historical data
+2026-02-06 13:43:31.238287	Backtesting progress: = [0%]
+2026-02-06 13:43:31.238755	Backtesting progress: == [10%]
+2026-02-06 13:43:31.239238	Backtesting progress: === [20%]
+2026-02-06 13:43:31.239716	Backtesting progress: ==== [30%]
+2026-02-06 13:43:31.245391	Backtesting progress: ===== [40%]
+2026-02-06 13:43:31.247022	Backtesting progress: ====== [50%]
+2026-02-06 13:43:31.248572	Backtesting progress: ======= [60%]
+2026-02-06 13:43:31.250581	Backtesting progress: ======== [70%]
+2026-02-06 13:43:31.252574	Backtesting progress: ========= [80%]
+2026-02-06 13:43:31.254456	Backtesting progress: ========== [90%]
+2026-02-06 13:43:31.254832	Backtesting progress: =========== [100%]
+2026-02-06 13:43:31.255062	Historical backtest complete
+[Worker] Calculating results...
+2026-02-06 13:43:31.255291	Start calculating daily mark-to-market profit and loss
+2026-02-06 13:43:31.266127	The daily mark-to-market profit and loss calculation is complete
+2026-02-06 13:43:31.266445	Start calculating strategy statistical indicators
+2026-02-06 13:43:31.288313	------------------------------
+2026-02-06 13:43:31.288613	Start Date: 	2025-02-06
+2026-02-06 13:43:31.288831	End Date: 	2026-01-28
+2026-02-06 13:43:31.289040	Total Days: 	242
+2026-02-06 13:43:31.289247	Profit Days: 	5
+2026-02-06 13:43:31.289459	Loss Days: 	14
+2026-02-06 13:43:31.289755	Capital: 	100,000.00
+2026-02-06 13:43:31.290035	End Balance: 	99,999.60
+2026-02-06 13:43:31.290267	Total Return: 	-0.00%
+2026-02-06 13:43:31.290479	Annual Return: 	-0.00%
+2026-02-06 13:43:31.290684	Max Drawdown: 	-2.18
+2026-02-06 13:43:31.290890	Max Ddpercent: -0.00%
+2026-02-06 13:43:31.291095	Max Drawdown Duration: 	182
+2026-02-06 13:43:31.291300	Total Det Pnl: 	-0.40
+2026-02-06 13:43:31.291506	Total Commission: 	0.09
+2026-02-06 13:43:31.291716	Total Slippage: 	0.00
+2026-02-06 13:43:31.291923	Total Turnover: 	313.28
+2026-02-06 13:43:31.292128	Total Trade Count: 	19
+2026-02-06 13:43:31.292350	Daily Net P&L: 	-0.00
+2026-02-06 13:43:31.292560	Daily Commission: 	0.00
+2026-02-06 13:43:31.292766	Daily Slippage: 	0.00
+2026-02-06 13:43:31.292972	Daily Turnover: 	1.29
+2026-02-06 13:43:31.293186	Daily Trade Count: 	0.07851239669421488
+2026-02-06 13:43:31.293393	Daily Return: 	-0.00%
+2026-02-06 13:43:31.293604	Return Std: 	0.00%
+2026-02-06 13:43:31.293809	Sharpe Ratio：	-0.20
+2026-02-06 13:43:31.294015	EWM Sharpe：	-0.46
+2026-02-06 13:43:31.294220	Return Drawdown Ratio: 	-0.18
+2026-02-06 13:43:31.294522	RGR Ratio：	-0.29
+2026-02-06 13:43:31.295345	Strategy statistical indicators calculation completed
+[Worker] Saved backtest bt_ce8527db4486443d to database
+[Worker] Backtest job bt_ce8527db4486443d completed successfully
+13:43:31 Successfully completed app.api.worker.tasks.run_backtest_task(end_date='2026-02-06', initial_capital=100000, parameters={}, pricetick=0.01, rate=0.0003, size=1, slippage=0.0001, start_date='2025-02-06', strategy_class_name='TurtleTrading', strategy_code='from vnpy_ctastrategy import (\n    CtaTemplate,\n    StopOrder,\n    Dire..., strategy_id=11, symbol='000001.SZSE', user_id=2) job in 0:00:00.610886s on worker 5592eddb90a04b95820d45d2f73f49f9
+13:43:31 backtest: Job OK (bt_ce8527db4486443d)
+13:43:31 Result is kept for 604800 seconds

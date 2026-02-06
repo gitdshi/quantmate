@@ -95,21 +95,67 @@ def get_benchmark_data(start_date: date, end_date: date, benchmark_symbol: str =
         if not rows or len(rows) < 2:
             return None
         
-        # Calculate daily returns
+        # Extract dates and closes
+        dates = [row.trade_date for row in rows]
         closes = np.array([float(row.close) for row in rows])
+        
+        # Calculate daily returns
         daily_returns = np.diff(closes) / closes[:-1]
         
         # Calculate total return
         total_return = (closes[-1] - closes[0]) / closes[0] * 100
         
+        # Format prices for chart
+        prices = []
+        for date_str, close_val in zip(dates, closes):
+            # Convert YYYYMMDD to ISO format
+            dt_obj = datetime.strptime(date_str, "%Y%m%d")
+            prices.append({
+                "datetime": dt_obj.isoformat(),
+                "close": float(close_val)
+            })
+        
         return {
             "returns": daily_returns,
             "total_return": float(total_return),
-            "closes": closes.tolist()
+            "closes": closes.tolist(),
+            "prices": prices
         }
         
     except Exception as e:
         print(f"Error fetching benchmark data: {e}")
+        return None
+    finally:
+        conn.close()
+
+
+def get_stock_name(ts_code: str) -> Optional[str]:
+    """
+    Get stock name from stock_basic table.
+    
+    Args:
+        ts_code: Stock code (e.g., '000001.SZ')
+    
+    Returns:
+        Stock name or None if not found
+    """
+    conn = get_tushare_connection()
+    
+    try:
+        query = """
+            SELECT name
+            FROM stock_basic
+            WHERE ts_code = :ts_code
+            LIMIT 1
+        """
+        
+        result = conn.execute(text(query), {"ts_code": ts_code})
+        row = result.fetchone()
+        
+        return row.name if row else None
+        
+    except Exception as e:
+        print(f"Error fetching stock name: {e}")
         return None
     finally:
         conn.close()
@@ -255,6 +301,11 @@ class BacktestService:
             total_trades=int(stats.get("total_trade_count", 0)),
         )
         
+        # Get stock name
+        stock_name = get_stock_name(vt_symbol)
+        if stock_name:
+            result.symbol_name = stock_name
+        
         # Add daily returns and equity curve if available
         strategy_daily_returns = None
         if df is not None and not df.empty:
@@ -266,6 +317,16 @@ class BacktestService:
                 balance_series = df["balance"].values
                 strategy_daily_returns = np.diff(balance_series) / balance_series[:-1]
         
+        # Add stock price curve from historical data
+        if engine.history_data:
+            stock_prices = []
+            for bar in engine.history_data:
+                stock_prices.append({
+                    "datetime": bar.datetime.isoformat() if bar.datetime else None,
+                    "close": bar.close_price
+                })
+            result.stock_price_curve = stock_prices
+        
         # Calculate alpha and beta against HS300 benchmark
         benchmark_data = get_benchmark_data(start_date, end_date, "000300.SH")
         if benchmark_data and strategy_daily_returns is not None:
@@ -274,6 +335,10 @@ class BacktestService:
             result.beta = beta
             result.benchmark_return = benchmark_data["total_return"]
             result.benchmark_symbol = "000300.SH"
+            
+            # Add benchmark price curve
+            if "prices" in benchmark_data:
+                result.benchmark_curve = benchmark_data["prices"]
         
         # Add trade list
         if engine.trades:

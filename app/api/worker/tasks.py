@@ -347,7 +347,7 @@ def run_backtest_task(
         
         # Update job storage for API status tracking
         job_storage = get_job_storage()
-        job_storage.update_job_status(job_id, "completed")
+        job_storage.update_job_status(job_id, "finished")
         job_storage.save_result(job_id, result)
         
         print(f"[Worker] Backtest job {job_id} completed successfully")

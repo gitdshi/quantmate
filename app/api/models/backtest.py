@@ -72,6 +72,9 @@ class BacktestResult(BaseModel):
     daily_returns: Optional[List[Dict[str, Any]]] = None
     equity_curve: Optional[List[Dict[str, Any]]] = None
     trades: Optional[List[Dict[str, Any]]] = None
+    stock_price_curve: Optional[List[Dict[str, Any]]] = None
+    benchmark_curve: Optional[List[Dict[str, Any]]] = None
+    symbol_name: Optional[str] = None
 
 
 class BacktestJob(BaseModel):
