@@ -87,12 +87,27 @@ async def delete_job(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     
-    # Delete from storage
+    # Delete from Redis storage
     job_storage = get_job_storage()
     deleted = job_storage.delete_job(job_id)
     
     if not deleted:
         raise HTTPException(status_code=500, detail="Failed to delete job")
+    
+    # Also delete from database backtest_history table
+    from app.api.services.db import get_db_connection
+    from sqlalchemy import text
+    conn = get_db_connection()
+    try:
+        conn.execute(
+            text("DELETE FROM backtest_history WHERE job_id = :job_id AND user_id = :user_id"),
+            {"job_id": job_id, "user_id": current_user.user_id}
+        )
+        conn.commit()
+    except Exception as e:
+        print(f"Error deleting from database: {e}")
+    finally:
+        conn.close()
     
     return {"message": "Job deleted", "job_id": job_id}
 
