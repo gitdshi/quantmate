@@ -33,3 +33,4 @@ pip-delete-this-directory.txt
 .DS_Store
 Thumbs.db
 mysql/query.sql
+_diag.py

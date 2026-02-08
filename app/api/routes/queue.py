@@ -1,6 +1,7 @@
 """Queue monitoring and management routes."""
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Optional, List, Dict, Any
+from sqlalchemy import text
 
 from app.api.middleware.auth import get_current_user
 from app.api.models.user import TokenData
@@ -30,14 +31,41 @@ async def list_jobs(
     limit: int = 50,
     current_user: TokenData = Depends(get_current_user)
 ) -> List[Dict[str, Any]]:
-    """List user's jobs."""
+    """List user's jobs, enriched with bulk metrics from DB."""
     service = get_backtest_service_v2()
     jobs = service.list_user_jobs(
         user_id=current_user.user_id,
         status=status,
         limit=limit
     )
-    
+
+    # Enrich bulk jobs with best_return/best_symbol from bulk_backtest table
+    bulk_ids = [j["job_id"] for j in jobs if j.get("job_id", "").startswith("bulk_")]
+    if bulk_ids:
+        from app.api.services.db import get_db_connection
+        conn = get_db_connection()
+        try:
+            placeholders = ",".join([f":id{i}" for i in range(len(bulk_ids))])
+            params = {f"id{i}": bid for i, bid in enumerate(bulk_ids)}
+            rows = conn.execute(
+                text(f"SELECT job_id, best_return, best_symbol, completed_count, status as bulk_status FROM bulk_backtest WHERE job_id IN ({placeholders})"),
+                params
+            ).fetchall()
+            bulk_map = {r.job_id: r for r in rows}
+            for j in jobs:
+                row = bulk_map.get(j.get("job_id"))
+                if row:
+                    if not j.get("result"):
+                        j["result"] = {}
+                    if row.best_return is not None:
+                        j["result"]["best_return"] = float(row.best_return)
+                    j["result"]["best_symbol"] = row.best_symbol
+                    j["result"]["completed_count"] = row.completed_count
+        except Exception as e:
+            print(f"[Queue] Error enriching bulk jobs: {e}")
+        finally:
+            conn.close()
+
     return jobs
 
 

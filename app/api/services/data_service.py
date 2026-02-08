@@ -248,20 +248,21 @@ class DataService:
             conn.close()
 
     def get_exchanges(self) -> List[Dict[str, Any]]:
-        """Get exchange-level groupings with counts."""
+        """Get exchange-level groupings with counts, derived from ts_code suffix."""
         conn = get_tushare_connection()
         try:
             result = conn.execute(text("""
-                SELECT exchange, COUNT(*) as count
+                SELECT SUBSTRING_INDEX(ts_code, '.', -1) AS exch, COUNT(*) as count
                 FROM stock_basic
-                WHERE list_status = 'L'
-                GROUP BY exchange
+                GROUP BY exch
                 ORDER BY count DESC
             """))
             exchange_map = {"SZ": "SZSE", "SH": "SSE", "BJ": "BSE"}
+            name_map = {"SZ": "深圳证券交易所", "SH": "上海证券交易所", "BJ": "北京证券交易所"}
             return [
-                {"code": exchange_map.get(row.exchange, row.exchange),
-                 "name": row.exchange, "count": row.count}
+                {"code": exchange_map.get(row.exch, row.exch),
+                 "name": name_map.get(row.exch, row.exch),
+                 "count": row.count}
                 for row in result.fetchall()
             ]
         finally:
@@ -273,13 +274,13 @@ class DataService:
         exchange: Optional[str] = None,
         limit: int = 500,
     ) -> List[Dict[str, Any]]:
-        """Get symbols filtered by industry and/or exchange."""
+        """Get symbols filtered by industry and/or exchange (exchange derived from ts_code suffix)."""
         conn = get_tushare_connection()
         try:
             query = """
-                SELECT ts_code, name, exchange, industry
+                SELECT ts_code, name, industry
                 FROM stock_basic
-                WHERE (list_status = 'L' OR list_status IS NULL)
+                WHERE 1=1
             """
             params: Dict[str, Any] = {}
 
@@ -290,8 +291,9 @@ class DataService:
             if exchange:
                 exch_map = {"SZSE": "SZ", "SSE": "SH", "BSE": "BJ",
                             "SZ": "SZ", "SH": "SH", "BJ": "BJ"}
-                query += " AND exchange = :exchange"
-                params["exchange"] = exch_map.get(exchange.upper(), exchange)
+                suffix = exch_map.get(exchange.upper(), exchange)
+                query += " AND ts_code LIKE :exch_suffix"
+                params["exch_suffix"] = f"%.{suffix}"
 
             query += " ORDER BY ts_code LIMIT :limit"
             params["limit"] = limit

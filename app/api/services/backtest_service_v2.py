@@ -222,21 +222,24 @@ class BacktestServiceV2:
         queue = get_queue('backtest')
         queue.enqueue(
             run_bulk_backtest_task,
-            strategy_code=strategy_code,
-            strategy_class_name=strategy_class_name,
-            symbols=symbols,
-            start_date=start_date.isoformat(),
-            end_date=end_date.isoformat(),
-            initial_capital=initial_capital,
-            rate=rate,
-            slippage=slippage,
-            size=size,
-            pricetick=pricetick,
-            parameters=parameters,
-            benchmark=benchmark,
+            kwargs={
+                "strategy_code": strategy_code,
+                "strategy_class_name": strategy_class_name,
+                "symbols": symbols,
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "initial_capital": initial_capital,
+                "rate": rate,
+                "slippage": slippage,
+                "size": size,
+                "pricetick": pricetick,
+                "parameters": parameters,
+                "benchmark": benchmark,
+                "bulk_job_id": job_id,
+                "user_id": user_id,
+                "strategy_id": strategy_id,
+            },
             job_id=job_id,
-            user_id=user_id,
-            strategy_id=strategy_id,
             job_timeout=7200,  # 2 hours
             result_ttl=86400 * 7,
         )
@@ -348,6 +351,29 @@ class BacktestServiceV2:
             "updated_at": metadata.get("updated_at"),
             "result": result,
         }
+
+        # For bulk jobs, also load best metrics from the bulk_backtest DB table
+        if job_id.startswith("bulk_"):
+            try:
+                from app.api.services.db import get_db_connection
+                conn = get_db_connection()
+                try:
+                    row = conn.execute(
+                        text("SELECT best_return, best_symbol, completed_count, status as bulk_status FROM bulk_backtest WHERE job_id = :jid"),
+                        {"jid": job_id}
+                    ).fetchone()
+                    if row:
+                        if row.best_return is not None:
+                            # Store in result so frontend can access via job.result.best_return
+                            if not response["result"]:
+                                response["result"] = {}
+                            response["result"]["best_return"] = float(row.best_return)
+                            response["result"]["best_symbol"] = row.best_symbol
+                            response["result"]["completed_count"] = row.completed_count
+                finally:
+                    conn.close()
+            except Exception:
+                pass
 
         # Merge selected metadata fields at top level for backwards compatibility
         for key in ["symbol", "symbol_name", "strategy_id", "strategy_class", "strategy_name", "strategy_version", "start_date", "end_date", "initial_capital", "rate", "slippage", "benchmark", "parameters", "symbols", "total_symbols"]:

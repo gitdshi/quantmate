@@ -488,7 +488,7 @@ def run_bulk_backtest_task(
     pricetick: float,
     parameters: Optional[Dict[str, Any]] = None,
     benchmark: str = "399300.SZ",
-    job_id: str = None,
+    bulk_job_id: str = None,
     user_id: int = None,
     strategy_id: int = None,
 ) -> Dict[str, Any]:
@@ -496,7 +496,15 @@ def run_bulk_backtest_task(
     Run bulk backtest task – one strategy against many symbols sequentially.
     Each child result is saved to backtest_history with bulk_job_id.
     Progress is reported after every symbol completes.
+
+    Note: We use `bulk_job_id` instead of `job_id` because RQ intercepts
+    `job_id` as a special enqueue parameter and does not forward it to
+    the function. The actual RQ job ID is retrieved via get_current_job().
     """
+    # Resolve the actual RQ job ID (should match bulk_job_id)
+    current_job = get_current_job()
+    job_id = current_job.id if current_job else bulk_job_id
+
     job_storage = get_job_storage()
     total = len(symbols)
     successful = 0
@@ -523,6 +531,8 @@ def run_bulk_backtest_task(
             child_job_id = f"{job_id}__{symbol}"
             try:
                 print(f"[Worker] [{idx+1}/{total}] Processing {symbol}...")
+                # Pass user_id=None so run_backtest_task does NOT save its own DB row;
+                # we save the child row ourselves via _save_bulk_child with the bulk_job_id link.
                 result = run_backtest_task(
                     strategy_code=strategy_code,
                     strategy_class_name=strategy_class_name,
@@ -536,7 +546,7 @@ def run_bulk_backtest_task(
                     pricetick=pricetick,
                     parameters=parameters,
                     benchmark=benchmark,
-                    user_id=user_id,
+                    user_id=None,
                     strategy_id=strategy_id,
                 )
 
@@ -600,7 +610,8 @@ def run_bulk_backtest_task(
             job_storage.update_job_status(job_id, "failed", error=error_msg)
         except Exception:
             pass
-        _finish_bulk_row(job_id, "failed", best_return, best_symbol, successful + failed_count)
+        if job_id:
+            _finish_bulk_row(job_id, "failed", best_return, best_symbol, successful + failed_count)
         return {
             "job_id": job_id,
             "status": "failed",
