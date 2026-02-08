@@ -325,11 +325,12 @@ class BacktestServiceV2:
         Returns:
             Job status dict or None
         """
-        # Get metadata
+        # Get metadata from Redis
         metadata = self.job_storage.get_job_metadata(job_id)
 
         if not metadata:
-            return None
+            # Fallback: look up bulk child jobs in MySQL backtest_history
+            return self._get_child_job_from_db(job_id, user_id)
 
         # Check authorization
         if metadata.get("user_id") != user_id:
@@ -454,6 +455,98 @@ class BacktestServiceV2:
             
             return row.code, row.class_name, row.version
             
+        finally:
+            conn.close()
+
+    def _get_child_job_from_db(self, job_id: str, user_id: int) -> Optional[Dict[str, Any]]:
+        """Fallback: load a bulk-child backtest result from MySQL backtest_history."""
+        import json as _json
+        conn = get_db_connection()
+        try:
+            row = conn.execute(
+                text("""
+                    SELECT job_id, user_id, bulk_job_id, strategy_id, strategy_class,
+                           strategy_version, vt_symbol, start_date, end_date,
+                           parameters, status, result, error, created_at, completed_at
+                    FROM backtest_history
+                    WHERE job_id = :jid
+                    LIMIT 1
+                """),
+                {"jid": job_id}
+            ).fetchone()
+            if not row:
+                return None
+            if row.user_id != user_id:
+                return None
+
+            # Parse the JSON result blob
+            result_data = None
+            if row.result:
+                try:
+                    result_data = _json.loads(row.result) if isinstance(row.result, str) else row.result
+                except Exception:
+                    result_data = None
+
+            # Look up symbol name
+            symbol_name = ""
+            try:
+                from app.api.services.db import get_tushare_connection
+                ts_conn = get_tushare_connection()
+                try:
+                    srow = ts_conn.execute(
+                        text("SELECT name FROM stock_basic WHERE ts_code = :s LIMIT 1"),
+                        {"s": row.vt_symbol}
+                    ).fetchone()
+                    if srow:
+                        symbol_name = srow.name
+                finally:
+                    ts_conn.close()
+            except Exception:
+                pass
+
+            # Look up strategy name
+            strategy_name = row.strategy_class or ""
+            if row.strategy_id:
+                try:
+                    srow = conn.execute(
+                        text("SELECT name FROM strategies WHERE id = :sid LIMIT 1"),
+                        {"sid": row.strategy_id}
+                    ).fetchone()
+                    if srow:
+                        strategy_name = srow.name
+                except Exception:
+                    pass
+
+            params = {}
+            if row.parameters:
+                try:
+                    params = _json.loads(row.parameters) if isinstance(row.parameters, str) else row.parameters
+                except Exception:
+                    pass
+
+            return {
+                "job_id": job_id,
+                "status": row.status or "completed",
+                "type": "backtest",
+                "progress": 100 if row.status == "completed" else 0,
+                "progress_message": "",
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+                "updated_at": row.completed_at.isoformat() if row.completed_at else None,
+                "result": result_data,
+                "symbol": row.vt_symbol,
+                "symbol_name": symbol_name,
+                "strategy_id": row.strategy_id,
+                "strategy_class": row.strategy_class,
+                "strategy_name": strategy_name,
+                "strategy_version": row.strategy_version,
+                "start_date": row.start_date.isoformat() if row.start_date else None,
+                "end_date": row.end_date.isoformat() if row.end_date else None,
+                "parameters": params,
+                "bulk_job_id": row.bulk_job_id,
+            }
+        except Exception as e:
+            print(f"[Service] Error loading child job {job_id} from DB: {e}")
+            return None
         finally:
             conn.close()
 
