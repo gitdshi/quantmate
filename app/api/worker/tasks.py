@@ -140,7 +140,7 @@ def calculate_alpha_beta_for_worker(strategy_returns: np.ndarray, benchmark_retu
 def save_backtest_to_db(job_id: str, user_id: int, strategy_id: Optional[int], 
                         strategy_class: str, symbol: str, start_date: str, 
                         end_date: str, parameters: Dict, status: str, 
-                        result: Dict, error: str = None):
+                        result: Dict, error: str = None, strategy_version: int = None):
     """Save backtest result to database for permanent storage."""
     conn = get_db_connection()
     try:
@@ -148,11 +148,11 @@ def save_backtest_to_db(job_id: str, user_id: int, strategy_id: Optional[int],
         conn.execute(
             text("""
                 INSERT INTO backtest_history 
-                (user_id, job_id, strategy_id, strategy_class, vt_symbol, 
+                (user_id, job_id, strategy_id, strategy_class, strategy_version, vt_symbol, 
                  start_date, end_date, parameters, status, result, error, 
                  created_at, completed_at)
                 VALUES 
-                (:user_id, :job_id, :strategy_id, :strategy_class, :vt_symbol,
+                (:user_id, :job_id, :strategy_id, :strategy_class, :strategy_version, :vt_symbol,
                  :start_date, :end_date, :parameters, :status, :result, :error,
                  :created_at, :completed_at)
                 ON DUPLICATE KEY UPDATE
@@ -163,6 +163,7 @@ def save_backtest_to_db(job_id: str, user_id: int, strategy_id: Optional[int],
                 "job_id": job_id,
                 "strategy_id": strategy_id,
                 "strategy_class": strategy_class,
+                "strategy_version": strategy_version,
                 "vt_symbol": symbol,
                 "start_date": start_date,
                 "end_date": end_date,
@@ -396,6 +397,15 @@ def run_backtest_task(
         
         # Save to database for permanent storage
         if user_id:
+            # Read strategy_version from job metadata (set by submit_backtest)
+            _strategy_version = None
+            try:
+                _meta = get_job_storage().get_job_metadata(job_id)
+                if _meta:
+                    _sv = _meta.get("strategy_version")
+                    _strategy_version = int(_sv) if _sv is not None else None
+            except Exception:
+                pass
             save_backtest_to_db(
                 job_id=job_id,
                 user_id=user_id,
@@ -406,7 +416,8 @@ def run_backtest_task(
                 end_date=end_date,
                 parameters=parameters or {},
                 status="completed",
-                result=result
+                result=result,
+                strategy_version=_strategy_version,
             )
         
         # Update job storage for API status tracking
@@ -431,6 +442,15 @@ def run_backtest_task(
         
         # Save failed job to database
         if user_id:
+            # Read strategy_version from job metadata (set by submit_backtest)
+            _strategy_version = None
+            try:
+                _meta = get_job_storage().get_job_metadata(job_id)
+                if _meta:
+                    _sv = _meta.get("strategy_version")
+                    _strategy_version = int(_sv) if _sv is not None else None
+            except Exception:
+                pass
             save_backtest_to_db(
                 job_id=job_id,
                 user_id=user_id,
@@ -442,7 +462,8 @@ def run_backtest_task(
                 parameters=parameters or {},
                 status="failed",
                 result=None,
-                error=error_msg
+                error=error_msg,
+                strategy_version=_strategy_version,
             )
         
         return {

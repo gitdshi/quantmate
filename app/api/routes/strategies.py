@@ -93,7 +93,7 @@ async def list_strategies(current_user: TokenData = Depends(get_current_user)):
     try:
         result = conn.execute(
             text("""
-                SELECT id, name, class_name, description, is_active, created_at, updated_at
+                SELECT id, name, class_name, description, version, is_active, created_at, updated_at
                 FROM strategies
                 WHERE user_id = :user_id
                 ORDER BY updated_at DESC
@@ -108,6 +108,7 @@ async def list_strategies(current_user: TokenData = Depends(get_current_user)):
                 name=row.name,
                 class_name=row.class_name,
                 description=row.description,
+                version=row.version,
                 is_active=row.is_active,
                 created_at=row.created_at,
                 updated_at=row.updated_at
@@ -155,8 +156,8 @@ async def create_strategy(
         import json
         result = conn.execute(
             text("""
-                INSERT INTO strategies (user_id, name, class_name, description, parameters, code, is_active, created_at, updated_at)
-                VALUES (:user_id, :name, :class_name, :description, :parameters, :code, 1, :created_at, :updated_at)
+                INSERT INTO strategies (user_id, name, class_name, description, parameters, code, version, is_active, created_at, updated_at)
+                VALUES (:user_id, :name, :class_name, :description, :parameters, :code, 1, 1, :created_at, :updated_at)
             """),
             {
                 "user_id": current_user.user_id,
@@ -190,6 +191,7 @@ async def create_strategy(
             description=strategy_data.description,
             parameters=strategy_data.parameters,
             code=strategy_data.code or "",  # Default to empty string if None
+            version=1,
             is_active=True,
             created_at=now,
             updated_at=now
@@ -209,7 +211,7 @@ async def get_strategy(
     try:
         result = conn.execute(
             text("""
-                SELECT id, user_id, name, class_name, description, parameters, code, is_active, created_at, updated_at
+                SELECT id, user_id, name, class_name, description, parameters, code, version, is_active, created_at, updated_at
                 FROM strategies
                 WHERE id = :strategy_id AND user_id = :user_id
             """),
@@ -232,6 +234,7 @@ async def get_strategy(
             description=row.description,
             parameters=json.loads(row.parameters) if row.parameters else {},
             code=row.code,
+            version=row.version,
             is_active=row.is_active,
             created_at=row.created_at,
             updated_at=row.updated_at
@@ -308,12 +311,16 @@ async def update_strategy(
         updates = []
         params = {"strategy_id": strategy_id, "user_id": current_user.user_id}
         
+        # Track whether a substantive change requires version bump
+        version_bump = False
+        
         if strategy_data.name is not None:
             updates.append("name = :name")
             params["name"] = strategy_data.name
         if strategy_data.class_name is not None:
             updates.append("class_name = :class_name")
             params["class_name"] = strategy_data.class_name
+            version_bump = True
         if strategy_data.description is not None:
             updates.append("description = :description")
             params["description"] = strategy_data.description
@@ -321,12 +328,18 @@ async def update_strategy(
             import json
             updates.append("parameters = :parameters")
             params["parameters"] = json.dumps(strategy_data.parameters)
+            version_bump = True
         if strategy_data.code is not None:
             updates.append("code = :code")
             params["code"] = strategy_data.code
+            version_bump = True
         if strategy_data.is_active is not None:
             updates.append("is_active = :is_active")
             params["is_active"] = strategy_data.is_active
+        
+        # Auto-increment version when code, parameters, or class_name changes
+        if version_bump:
+            updates.append("version = version + 1")
         
         updates.append("updated_at = :updated_at")
         params["updated_at"] = datetime.utcnow()
@@ -545,7 +558,7 @@ async def restore_strategy_code_history(
 
         # Restore the history code to the strategy
         conn.execute(
-            text("UPDATE strategies SET code = :code, updated_at = :updated_at WHERE id = :sid"),
+            text("UPDATE strategies SET code = :code, version = version + 1, updated_at = :updated_at WHERE id = :sid"),
             {"code": history_row.code, "updated_at": datetime.utcnow(), "sid": strategy_id}
         )
         conn.commit()
@@ -586,6 +599,7 @@ async def list_builtin_strategies():
                         name=name,
                         class_name=name,
                         description=obj.__doc__ or f"Built-in {name}",
+                        version=0,
                         is_active=True,
                         created_at=datetime.utcnow(),
                         updated_at=datetime.utcnow()

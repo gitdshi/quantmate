@@ -54,8 +54,9 @@ class BacktestServiceV2:
         
         # Get strategy code if custom strategy
         strategy_code = None
+        strategy_version = None
         if strategy_id:
-            strategy_code, strategy_class_name = self._get_strategy_from_db(strategy_id, user_id)
+            strategy_code, strategy_class_name, strategy_version = self._get_strategy_from_db(strategy_id, user_id)
         
         # If symbol_name not provided, try to fetch from stock_basic table
         if not symbol_name:
@@ -82,6 +83,7 @@ class BacktestServiceV2:
             "strategy_id": strategy_id,
             "strategy_class": strategy_class_name,
             "strategy_name": strategy_name,
+            "strategy_version": strategy_version,
             "symbol": symbol,
             "symbol_name": symbol_name,
             "start_date": start_date.isoformat(),
@@ -148,7 +150,7 @@ class BacktestServiceV2:
         # Get strategy code if custom strategy
         strategy_code = None
         if strategy_id:
-            strategy_code, strategy_class_name = self._get_strategy_from_db(strategy_id, user_id)
+            strategy_code, strategy_class_name, _ = self._get_strategy_from_db(strategy_id, user_id)
         
         # Save job metadata
         metadata = {
@@ -217,7 +219,7 @@ class BacktestServiceV2:
         # Get strategy code if custom strategy
         strategy_code = None
         if strategy_id:
-            strategy_code, strategy_class_name = self._get_strategy_from_db(strategy_id, user_id)
+            strategy_code, strategy_class_name, _ = self._get_strategy_from_db(strategy_id, user_id)
         
         # Save job metadata
         metadata = {
@@ -297,7 +299,7 @@ class BacktestServiceV2:
         }
 
         # Merge selected metadata fields at top level for backwards compatibility
-        for key in ["symbol", "symbol_name", "strategy_id", "strategy_class", "strategy_name", "start_date", "end_date", "initial_capital", "rate", "slippage", "benchmark", "parameters"]:
+        for key in ["symbol", "symbol_name", "strategy_id", "strategy_class", "strategy_name", "strategy_version", "start_date", "end_date", "initial_capital", "rate", "slippage", "benchmark", "parameters"]:
             if key in metadata:
                 response[key] = metadata.get(key)
 
@@ -350,20 +352,20 @@ class BacktestServiceV2:
     
     def _get_strategy_from_db(self, strategy_id: int, user_id: int) -> tuple:
         """
-        Get strategy code and class name from database.
+        Get strategy code, class name, and version from database.
         
         Args:
             strategy_id: Strategy ID
             user_id: User ID (for authorization)
         
         Returns:
-            Tuple of (code, class_name)
+            Tuple of (code, class_name, version)
         """
         conn = get_db_connection()
         try:
             result = conn.execute(
                 text(
-                    "SELECT code, class_name FROM strategies "
+                    "SELECT code, class_name, version FROM strategies "
                     "WHERE id = :id AND user_id = :user_id"
                 ),
                 {"id": strategy_id, "user_id": user_id}
@@ -373,7 +375,7 @@ class BacktestServiceV2:
             if not row:
                 raise ValueError(f"Strategy {strategy_id} not found or access denied")
             
-            return row.code, row.class_name
+            return row.code, row.class_name, row.version
             
         finally:
             conn.close()

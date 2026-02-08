@@ -143,7 +143,7 @@ async def list_backtest_history(
         # Get paginated results
         result = conn.execute(
             text("""
-                SELECT id, job_id, strategy_id, strategy_class, vt_symbol,
+                SELECT id, job_id, strategy_id, strategy_class, strategy_version, vt_symbol,
                        start_date, end_date, status, result, created_at, completed_at
                 FROM backtest_history
                 WHERE user_id = :user_id
@@ -173,6 +173,7 @@ async def list_backtest_history(
                 "job_id": row.job_id,
                 "strategy_id": row.strategy_id,
                 "strategy_class": row.strategy_class,
+                "strategy_version": row.strategy_version,
                 "vt_symbol": row.vt_symbol,
                 "start_date": str(row.start_date) if row.start_date else None,
                 "end_date": str(row.end_date) if row.end_date else None,
@@ -198,7 +199,7 @@ async def get_backtest_history_detail(
     try:
         result = conn.execute(
             text("""
-                SELECT id, job_id, strategy_id, strategy_class, vt_symbol,
+                SELECT id, job_id, strategy_id, strategy_class, strategy_version, vt_symbol,
                        start_date, end_date, parameters, status, result, error,
                        created_at, completed_at
                 FROM backtest_history
@@ -224,6 +225,7 @@ async def get_backtest_history_detail(
             "job_id": row.job_id,
             "strategy_id": row.strategy_id,
             "strategy_class": row.strategy_class,
+            "strategy_version": row.strategy_version,
             "vt_symbol": row.vt_symbol,
             "start_date": str(row.start_date) if row.start_date else None,
             "end_date": str(row.end_date) if row.end_date else None,

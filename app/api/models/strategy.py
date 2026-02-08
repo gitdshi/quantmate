@@ -32,6 +32,7 @@ class Strategy(StrategyBase):
     id: int
     code: str
     user_id: int
+    version: int = 1
     is_active: bool = True
     created_at: datetime
     updated_at: datetime
@@ -51,6 +52,7 @@ class StrategyListItem(BaseModel):
     name: str
     class_name: str
     description: Optional[str] = None
+    version: int = 1
     is_active: bool
     created_at: datetime
     updated_at: datetime
