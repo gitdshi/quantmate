@@ -39,19 +39,38 @@ async def list_jobs(
         limit=limit
     )
 
-    # Enrich bulk jobs with best_return/best_symbol from bulk_backtest table
+    # Enrich bulk jobs with best symbol's full metrics from backtest_history
     bulk_ids = [j["job_id"] for j in jobs if j.get("job_id", "").startswith("bulk_")]
     if bulk_ids:
         from app.api.services.db import get_db_connection
+        import json as _json
         conn = get_db_connection()
         try:
             placeholders = ",".join([f":id{i}" for i in range(len(bulk_ids))])
             params = {f"id{i}": bid for i, bid in enumerate(bulk_ids)}
+            # Get bulk_backtest row + best child's full statistics
             rows = conn.execute(
-                text(f"SELECT job_id, best_return, best_symbol, completed_count, status as bulk_status FROM bulk_backtest WHERE job_id IN ({placeholders})"),
+                text(f"SELECT job_id, best_return, best_symbol, completed_count, total_symbols, status as bulk_status FROM bulk_backtest WHERE job_id IN ({placeholders})"),
                 params
             ).fetchall()
             bulk_map = {r.job_id: r for r in rows}
+
+            # Fetch best child result for each bulk job
+            best_child_map: Dict[str, Any] = {}
+            for r in rows:
+                if r.best_symbol:
+                    child_id = f"{r.job_id}__{r.best_symbol}"
+                    child_row = conn.execute(
+                        text("SELECT result FROM backtest_history WHERE job_id = :cid LIMIT 1"),
+                        {"cid": child_id}
+                    ).fetchone()
+                    if child_row and child_row.result:
+                        try:
+                            parsed = _json.loads(child_row.result) if isinstance(child_row.result, str) else child_row.result
+                            best_child_map[r.job_id] = parsed.get("statistics", {})
+                        except Exception:
+                            pass
+
             for j in jobs:
                 row = bulk_map.get(j.get("job_id"))
                 if row:
@@ -61,6 +80,13 @@ async def list_jobs(
                         j["result"]["best_return"] = float(row.best_return)
                     j["result"]["best_symbol"] = row.best_symbol
                     j["result"]["completed_count"] = row.completed_count
+                    j["result"]["total_symbols"] = row.total_symbols
+                    # Attach best child's full statistics
+                    best_stats = best_child_map.get(j.get("job_id"))
+                    if best_stats:
+                        j["result"]["best_annual_return"] = best_stats.get("annual_return")
+                        j["result"]["best_sharpe_ratio"] = best_stats.get("sharpe_ratio")
+                        j["result"]["best_max_drawdown"] = best_stats.get("max_drawdown_percent") or best_stats.get("max_drawdown")
         except Exception as e:
             print(f"[Queue] Error enriching bulk jobs: {e}")
         finally:
@@ -303,6 +329,128 @@ async def get_bulk_job_results(
             "page": page,
             "page_size": page_size,
             "sort_order": sort_order,
+        }
+
+    finally:
+        conn.close()
+
+
+@router.get("/bulk-jobs/{job_id}/summary")
+async def get_bulk_job_summary(
+    job_id: str,
+    current_user: TokenData = Depends(get_current_user)
+):
+    """
+    Get aggregated summary statistics for a completed bulk backtest job.
+    Computes winning/losing counts, averages, and top 10 from child results.
+    """
+    from app.api.services.db import get_db_connection
+    import json as _json
+
+    conn = get_db_connection()
+    try:
+        # Verify ownership
+        owner = conn.execute(
+            text("SELECT user_id FROM bulk_backtest WHERE job_id = :jid"),
+            {"jid": job_id}
+        ).fetchone()
+        if not owner or owner.user_id != current_user.user_id:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        # Load all completed children with their statistics
+        rows = conn.execute(
+            text("""
+                SELECT job_id, vt_symbol, status, result, error
+                FROM backtest_history
+                WHERE bulk_job_id = :bjid AND user_id = :uid
+            """),
+            {"bjid": job_id, "uid": current_user.user_id}
+        ).fetchall()
+
+        total = len(rows)
+        completed = []
+        failed_list = []
+
+        for r in rows:
+            if r.status in ("completed", "finished") and r.result:
+                try:
+                    parsed = _json.loads(r.result) if isinstance(r.result, str) else r.result
+                    stats = parsed.get("statistics", {})
+                    completed.append({
+                        "symbol": r.vt_symbol,
+                        "symbol_name": parsed.get("symbol_name", ""),
+                        "total_return": stats.get("total_return"),
+                        "annual_return": stats.get("annual_return"),
+                        "sharpe_ratio": stats.get("sharpe_ratio"),
+                        "max_drawdown": stats.get("max_drawdown_percent") or stats.get("max_drawdown"),
+                        "total_trades": stats.get("total_trades"),
+                        "winning_rate": stats.get("winning_rate"),
+                        "profit_factor": stats.get("profit_factor"),
+                    })
+                except Exception:
+                    failed_list.append({"symbol": r.vt_symbol, "error": "Parse error"})
+            elif r.status == "failed":
+                failed_list.append({"symbol": r.vt_symbol, "error": r.error or "Unknown error"})
+
+        # Compute aggregates from completed results
+        n = len(completed)
+        winning = [c for c in completed if c["total_return"] is not None and c["total_return"] > 0]
+        losing = [c for c in completed if c["total_return"] is not None and c["total_return"] <= 0]
+
+        def safe_avg(vals):
+            filtered = [v for v in vals if v is not None]
+            return sum(filtered) / len(filtered) if filtered else None
+
+        avg_metrics = {
+            "total_return": safe_avg([c["total_return"] for c in completed]),
+            "annual_return": safe_avg([c["annual_return"] for c in completed]),
+            "sharpe_ratio": safe_avg([c["sharpe_ratio"] for c in completed]),
+            "max_drawdown": safe_avg([c["max_drawdown"] for c in completed]),
+            "winning_rate": safe_avg([c["winning_rate"] for c in completed]),
+            "profit_factor": safe_avg([c["profit_factor"] for c in completed]),
+            "total_trades": safe_avg([c["total_trades"] for c in completed]),
+        }
+
+        # Top 10 and bottom 10 by total_return
+        sorted_by_return = sorted(
+            [c for c in completed if c["total_return"] is not None],
+            key=lambda x: x["total_return"], reverse=True
+        )
+        top10 = sorted_by_return[:10]
+        bottom10 = sorted_by_return[-10:][::-1] if len(sorted_by_return) > 10 else sorted_by_return[::-1]
+
+        # Distribution buckets for returns
+        buckets = {"<-20%": 0, "-20%~-10%": 0, "-10%~0%": 0, "0%~10%": 0, "10%~20%": 0, ">20%": 0}
+        for c in completed:
+            ret = c.get("total_return")
+            if ret is None:
+                continue
+            if ret < -20:
+                buckets["<-20%"] += 1
+            elif ret < -10:
+                buckets["-20%~-10%"] += 1
+            elif ret < 0:
+                buckets["-10%~0%"] += 1
+            elif ret < 10:
+                buckets["0%~10%"] += 1
+            elif ret < 20:
+                buckets["10%~20%"] += 1
+            else:
+                buckets[">20%"] += 1
+
+        return {
+            "job_id": job_id,
+            "total_symbols": total,
+            "completed_count": n,
+            "failed_count": len(failed_list),
+            "winning_count": len(winning),
+            "losing_count": len(losing),
+            "win_rate": len(winning) / n * 100 if n > 0 else 0,
+            "avg_metrics": avg_metrics,
+            "top10": top10,
+            "bottom10": bottom10,
+            "return_distribution": buckets,
+            "failed_symbols": failed_list,
         }
 
     finally:
