@@ -42,6 +42,64 @@ def convert_to_vnpy_symbol(ts_symbol: str) -> str:
     return f"{code}.{vnpy_exchange}"
 
 
+def resolve_symbol_name(input_symbol: str) -> str:
+    """Resolve a human-readable symbol name from `tushare.stock_basic.name`.
+
+    This function attempts several fallbacks to map various symbol formats
+    (ts_code like '000001.SZ', vnpy like '000001.SZSE', or plain symbol)
+    to the `stock_basic.name` field.
+    """
+    if not input_symbol:
+        return ""
+
+    conn = None
+    try:
+        conn = get_tushare_connection()
+
+        # 1) Direct match against ts_code or symbol
+        row = conn.execute(
+            text("SELECT name FROM stock_basic WHERE ts_code = :s OR symbol = :s LIMIT 1"),
+            {"s": input_symbol}
+        ).fetchone()
+        if row:
+            return row.name if hasattr(row, 'name') else list(row)[0]
+
+        # 2) If input looks like a vnpy symbol (e.g. '000001.SZSE'), try to convert
+        if "." in input_symbol:
+            code, suffix = input_symbol.rsplit('.', 1)
+            # Map common vnpy exchange suffixes back to tushare suffixes
+            rev_map = {"SZSE": "SZ", "SSE": "SH", "BSE": "BJ"}
+            ts_suffix = rev_map.get(suffix.upper())
+            if ts_suffix:
+                alt = f"{code}.{ts_suffix}"
+                row2 = conn.execute(
+                    text("SELECT name FROM stock_basic WHERE ts_code = :s OR symbol = :sym LIMIT 1"),
+                    {"s": alt, "sym": code}
+                ).fetchone()
+                if row2:
+                    return row2.name if hasattr(row2, 'name') else list(row2)[0]
+
+        # 3) Try numeric-only symbol (strip non-digits)
+        numeric = ''.join(ch for ch in input_symbol if ch.isdigit())
+        if numeric:
+            row3 = conn.execute(
+                text("SELECT name FROM stock_basic WHERE symbol = :sym LIMIT 1"),
+                {"sym": numeric}
+            ).fetchone()
+            if row3:
+                return row3.name if hasattr(row3, 'name') else list(row3)[0]
+
+        return ""
+    except Exception:
+        return ""
+    finally:
+        try:
+            if conn:
+                conn.close()
+        except Exception:
+            pass
+
+
 def get_benchmark_data_for_worker(start_date: str, end_date: str, benchmark_symbol: str = "399300.SZ") -> Optional[Dict]:
     """
     Fetch HS300 benchmark data for the given period (worker version).
@@ -343,22 +401,8 @@ def run_backtest_task(
             benchmark_curve = benchmark_data["prices"]
         
         # Build result with all metrics
-        # Try to fetch human-readable symbol name from DB
-        symbol_name = ""
-        try:
-            conn = get_db_connection()
-            try:
-                row = conn.execute(
-                    text("SELECT name FROM stock_basic WHERE ts_code = :s OR symbol = :s LIMIT 1"),
-                    {"s": symbol}
-                ).fetchone()
-                if row:
-                    symbol_name = row.name if hasattr(row, 'name') else list(row)[0]
-            finally:
-                conn.close()
-        except Exception:
-            # ignore DB lookup errors
-            symbol_name = ""
+        # Resolve human-readable symbol name from tushare.stock_basic
+        symbol_name = resolve_symbol_name(symbol) or resolve_symbol_name(vnpy_symbol)
 
         result = {
             "job_id": job_id,
