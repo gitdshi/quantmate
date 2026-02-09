@@ -17,6 +17,8 @@ import importlib.util
 from pydantic import BaseModel
 
 
+router = APIRouter(prefix="/strategy-files", tags=["Strategy Files"])
+
 
 class LintRequest(BaseModel):
     content: str
@@ -122,14 +124,12 @@ async def lint_strategy_code_pyright(data: LintRequest):
                             'message': d.get('message', '')
                         })
 
-            return {'pyright': j, 'diagnostics': diagnostics}
+                    return {'pyright': j, 'diagnostics': diagnostics}
     except HTTPException:
         raise
     except Exception as e:
         return {'error': str(e), 'diagnostics': []}
 
-
-router = APIRouter(prefix="/strategy-files", tags=["Strategy Files"])
 
 
 class StrategyFileInfo(BaseModel):
@@ -162,12 +162,7 @@ class StrategyFileUpdate(BaseModel):
     source: str = Field("data", description="Target folder: 'data' or 'project'")
 
 
-class SyncResult(BaseModel):
-    """Sync operation result."""
-    copied_to_data: int
-    copied_to_project: int
-    unchanged: int
-    errors: List[str]
+
 
 
 class ComparisonResult(BaseModel):
@@ -311,26 +306,7 @@ async def delete_strategy_file(
     return {"success": True, "message": message}
 
 
-@router.post("/sync")
-async def sync_strategies(
-    direction: str = Body("bidirectional", embed=True),
-    current_user: TokenData = Depends(get_current_user)
-):
-    """Perform a one-time sync between data and project folders.
-    
-    Args:
-        direction: 'data_to_project', 'project_to_data', or 'bidirectional'
-    """
-    if direction not in ('data_to_project', 'project_to_data', 'bidirectional'):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="direction must be 'data_to_project', 'project_to_data', or 'bidirectional'"
-        )
-    
-    manager = get_strategy_manager()
-    result = manager.sync_once(direction=direction)
-    
-    return SyncResult(**result)
+
 
 
 @router.get("/compare/all", response_model=List[ComparisonResult])

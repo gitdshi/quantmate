@@ -233,46 +233,14 @@ class StrategyManager:
         Returns:
             Sync statistics dict
         """
-        stats = {
+        # Folder-level synchronization has been disabled per configuration.
+        # Keep this stub so callers (if any remain) get a predictable response.
+        return {
             'copied_to_data': 0,
             'copied_to_project': 0,
             'unchanged': 0,
-            'errors': []
+            'errors': ['folder synchronization disabled']
         }
-        
-        if direction in ('bidirectional', 'project_to_data'):
-            for path in self.project_dir.glob('*.py'):
-                if self._is_ignored(path.name):
-                    continue
-                dst = self.data_dir / path.name
-                try:
-                    if not dst.exists() or self._hash_file(path) != self._hash_file(dst):
-                        shutil.copy2(str(path), str(dst))
-                        stats['copied_to_data'] += 1
-                    else:
-                        stats['unchanged'] += 1
-                except Exception as e:
-                    stats['errors'].append(f"Error copying {path.name} to data: {str(e)}")
-        
-        if direction in ('bidirectional', 'data_to_project'):
-            for path in self.data_dir.glob('*.py'):
-                if self._is_ignored(path.name):
-                    continue
-                dst = self.project_dir / path.name
-                try:
-                    if not dst.exists() or self._hash_file(path) != self._hash_file(dst):
-                        # Only copy if data is newer or project doesn't exist
-                        if not dst.exists() or path.stat().st_mtime > dst.stat().st_mtime:
-                            shutil.copy2(str(path), str(dst))
-                            stats['copied_to_project'] += 1
-                        else:
-                            stats['unchanged'] += 1
-                    else:
-                        stats['unchanged'] += 1
-                except Exception as e:
-                    stats['errors'].append(f"Error copying {path.name} to project: {str(e)}")
-        
-        return stats
 
     def compare_strategies(self) -> List[Dict[str, any]]:
         """Compare strategies between data and project folders.
