@@ -316,6 +316,17 @@ async def get_bulk_job_results(
                     parsed_result = _json.loads(r.result) if isinstance(r.result, str) else r.result
                 except Exception:
                     parsed_result = None
+            # Parse parameters from stored DB row if present
+            parsed_parameters = {}
+            try:
+                if r.result:
+                    # prefer parameters inside result JSON
+                    parsed_parameters = parsed_result.get("parameters") if isinstance(parsed_result, dict) and parsed_result.get("parameters") is not None else json.loads(r.parameters) if r.parameters else {}
+                else:
+                    parsed_parameters = json.loads(r.parameters) if r.parameters else {}
+            except Exception:
+                parsed_parameters = {}
+
             results.append({
                 "job_id": r.job_id,
                 "symbol": r.vt_symbol,
@@ -325,6 +336,7 @@ async def get_bulk_job_results(
                 "completed_at": r.completed_at.isoformat() if r.completed_at else None,
                 "statistics": parsed_result.get("statistics") if parsed_result else None,
                 "symbol_name": parsed_result.get("symbol_name", "") if parsed_result else "",
+                "parameters": parsed_parameters,
             })
 
         return {

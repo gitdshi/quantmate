@@ -413,6 +413,7 @@ def run_backtest_task(
             "end_date": end_date,
             "initial_capital": initial_capital,
             "benchmark": benchmark,
+            "parameters": parameters or {},
             "statistics": {
                 "total_return": float(statistics.get("total_return", 0)),
                 "annual_return": float(statistics.get("annual_return", 0)),
@@ -642,6 +643,7 @@ def run_bulk_backtest_task(
             "best_return": best_return,
             "best_symbol": best_symbol,
             "best_symbol_name": best_symbol_name,
+            "parameters": parameters or {},
             "completed_at": datetime.now().isoformat(),
         }
         job_storage.update_job_status(job_id, "finished")

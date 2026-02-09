@@ -61,6 +61,17 @@ class JobStorage:
             result: Result data
         """
         key = f"{self.result_prefix}{job_id}"
+        # Ensure result includes parameters when available in metadata
+        try:
+            metadata = self.get_job_metadata(job_id)
+            if metadata and "parameters" in metadata and "parameters" not in result:
+                # copy result to avoid mutating caller dict
+                result = dict(result)
+                result["parameters"] = metadata.get("parameters", {})
+        except Exception:
+            # ignore metadata merge errors and save original result
+            pass
+
         self.redis.setex(key, self.ttl, json.dumps(result))
     
     def get_result(self, job_id: str) -> Optional[Dict[str, Any]]:

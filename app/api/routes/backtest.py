@@ -19,6 +19,8 @@ from app.api.models.backtest import (
 )
 from app.api.middleware.auth import get_current_user
 from app.api.services.backtest_service import BacktestService
+from app.api.worker.tasks import save_backtest_to_db
+from app.api.services.job_storage import get_job_storage
 
 router = APIRouter(prefix="/backtest", tags=["Backtest"])
 
@@ -285,12 +287,67 @@ async def run_backtest_task(job_id: str, request: BacktestRequest, user_id: int)
         job.progress = 100.0
         job.result = result
         job.message = "Backtest completed successfully"
+        # Persist to database and job storage for history and UI
+        try:
+            # Convert result to serializable dict
+            res_dict = result.dict() if hasattr(result, 'dict') else result
+        except Exception:
+            res_dict = None
+
+        try:
+            save_backtest_to_db(
+                job_id=job_id,
+                user_id=user_id,
+                strategy_id=request.strategy_id,
+                strategy_class=request.strategy_class,
+                symbol=request.vt_symbol,
+                start_date=str(request.start_date),
+                end_date=str(request.end_date),
+                parameters=(res_dict.get('parameters') if isinstance(res_dict, dict) and res_dict.get('parameters') is not None else request.parameters),
+                status='completed',
+                result=res_dict,
+            )
+        except Exception:
+            # Don't block the response on DB persistence
+            pass
+
+        try:
+            # Save result to Redis job storage for UI consistency
+            js = get_job_storage()
+            js.save_job_metadata(job_id, {
+                'job_id': job_id,
+                'user_id': user_id,
+                'type': 'backtest',
+                'status': 'finished',
+                'created_at': datetime.utcnow().isoformat(),
+                'updated_at': datetime.utcnow().isoformat(),
+                'parameters': res_dict.get('parameters') if isinstance(res_dict, dict) else request.parameters,
+            })
+            js.save_result(job_id, res_dict or {})
+        except Exception:
+            pass
         
     except Exception as e:
         job.status = BacktestStatus.FAILED
         job.completed_at = datetime.utcnow()
         job.error = str(e)
         job.message = f"Backtest failed: {str(e)}"
+        try:
+            save_backtest_to_db(
+                job_id=job_id,
+                user_id=user_id,
+                strategy_id=request.strategy_id,
+                strategy_class=request.strategy_class,
+                symbol=request.vt_symbol,
+                start_date=str(request.start_date),
+                end_date=str(request.end_date),
+                parameters=request.parameters,
+                status='failed',
+                result=None,
+                error=str(e),
+            )
+        except Exception:
+            pass
 
 
 async def run_batch_backtest_task(job_id: str, request: BatchBacktestRequest, user_id: int):
@@ -322,6 +379,24 @@ async def run_batch_backtest_task(job_id: str, request: BatchBacktestRequest, us
                 )
                 if result:
                     results.append(result)
+                    # Persist child result into backtest_history for batch runs
+                    try:
+                        child_job_id = f"{job_id}__{symbol}"
+                        res_dict = result.dict() if hasattr(result, 'dict') else result
+                        save_backtest_to_db(
+                            job_id=child_job_id,
+                            user_id=user_id,
+                            strategy_id=request.strategy_id,
+                            strategy_class=request.strategy_class,
+                            symbol=symbol,
+                            start_date=str(request.start_date),
+                            end_date=str(request.end_date),
+                            parameters=(res_dict.get('parameters') if isinstance(res_dict, dict) and res_dict.get('parameters') is not None else request.parameters),
+                            status='completed',
+                            result=res_dict,
+                        )
+                    except Exception:
+                        pass
             except Exception as e:
                 errors.append({"symbol": symbol, "error": str(e)})
             

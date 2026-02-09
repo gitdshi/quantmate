@@ -75,6 +75,8 @@ class BacktestResult(BaseModel):
     stock_price_curve: Optional[List[Dict[str, Any]]] = None
     benchmark_curve: Optional[List[Dict[str, Any]]] = None
     symbol_name: Optional[str] = None
+    # Parameters used for the backtest (merged defaults + overrides)
+    parameters: Optional[Dict[str, Any]] = None
 
 
 class BacktestJob(BaseModel):

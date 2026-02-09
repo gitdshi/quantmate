@@ -299,6 +299,7 @@ class BacktestService:
             max_drawdown_percent=float(stats.get("max_ddpercent", 0)),
             sharpe_ratio=float(stats.get("sharpe_ratio", 0)),
             total_trades=int(stats.get("total_trade_count", 0)),
+            parameters=setting,
         )
         
         # Get stock name
