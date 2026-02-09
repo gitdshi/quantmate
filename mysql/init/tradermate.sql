@@ -145,41 +145,7 @@ CREATE TABLE IF NOT EXISTS optimization_results (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Strategy optimization results';
 
 -- -----------------------------------------------------------------------------
--- Strategy files metadata - stores file-based strategy info (data/project)
--- Links to strategies table as the main strategy record
--- -----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS strategy_files (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    strategy_id INT NOT NULL,
-    name VARCHAR(100) NOT NULL,
-    filename VARCHAR(200) NOT NULL,
-    source VARCHAR(20) NOT NULL,
-    path VARCHAR(500),
-    size BIGINT,
-    modified DATETIME,
-    hash VARCHAR(128),
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (strategy_id) REFERENCES strategies(id) ON DELETE CASCADE,
-    UNIQUE KEY unique_file (name, source),
-    INDEX idx_strategy_id (strategy_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='File-based strategy metadata linked to strategies table';
-
--- -----------------------------------------------------------------------------
--- Strategy file history - stores snapshots of file contents (rotated externally)
--- -----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS strategy_file_history (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    strategy_file_id INT,
-    name VARCHAR(200),
-    content LONGTEXT,
-    created_at DATETIME NOT NULL,
-    FOREIGN KEY (strategy_file_id) REFERENCES strategy_files(id) ON DELETE CASCADE,
-    INDEX idx_strategy_file_id (strategy_file_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='History snapshots for file-based strategies';
-
--- -----------------------------------------------------------------------------
--- Strategy code history - stores historical snapshots of DB-managed strategy code
+-- Strategy code history - stores historical snapshots of strategy code
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS strategy_code_history (
     id INT AUTO_INCREMENT PRIMARY KEY,
