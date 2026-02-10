@@ -17,8 +17,32 @@ engine = create_engine(TUSHARE_DB_URL, pool_pre_ping=True)
 pro = ts.pro_api(TS_TOKEN) if TS_TOKEN else ts.pro_api()
 
 # Rate limiting configuration: max calls per minute to Tushare API
-CALLS_PER_MIN = int(os.getenv('TUSHARE_CALLS_PER_MIN', '50'))
-_MIN_INTERVAL = 60.0 / max(1, CALLS_PER_MIN)
+DEFAULT_CALLS_PER_MIN = int(os.getenv('TUSHARE_CALLS_PER_MIN', '50'))
+
+# Per-endpoint calls-per-minute overrides. Adjust as needed via env vars if desired.
+# Example: TUSHARE_RATE_daily=60
+def _env_rate(name, default):
+    try:
+        return int(os.getenv(f'TUSHARE_RATE_{name}', str(default)))
+    except Exception:
+        return default
+
+RATE_LIMITS = {
+    'daily': _env_rate('daily', 60),
+    'index_daily': _env_rate('index_daily', 30),
+    'stock_basic': _env_rate('stock_basic', 5),
+    'adj_factor': _env_rate('adj_factor', 10),
+    'dividend': _env_rate('dividend', 10),
+    'top10_holders': _env_rate('top10_holders', 10),
+    'daily_basic': _env_rate('daily_basic', 60),
+    # fallback default
+    '__default__': DEFAULT_CALLS_PER_MIN
+}
+
+
+def _min_interval_for(api_name: str) -> float:
+    calls = RATE_LIMITS.get(api_name, RATE_LIMITS.get('__default__', DEFAULT_CALLS_PER_MIN))
+    return 60.0 / max(1, int(calls))
 
 
 def call_pro(api_name: str, max_retries: int = None, backoff_base: int = 5, **kwargs):
@@ -28,39 +52,101 @@ def call_pro(api_name: str, max_retries: int = None, backoff_base: int = 5, **kw
     """
     if max_retries is None:
         max_retries = int(os.getenv('MAX_RETRIES', '3'))
+    # metrics hook (callable) can be set via set_metrics_hook
+    if not hasattr(call_pro, '_metrics_hook'):
+        call_pro._metrics_hook = None
 
-    # simple per-process last-call timestamp stored on function
+    # per-endpoint last-call timestamps
     if not hasattr(call_pro, '_last_call'):
-        call_pro._last_call = 0.0
+        call_pro._last_call = {}
 
+    start_time = None
     attempt = 0
     while attempt < max_retries:
-        # enforce spacing between calls
-        elapsed = time.time() - call_pro._last_call
-        if elapsed < _MIN_INTERVAL:
-            to_sleep = _MIN_INTERVAL - elapsed
-            logging.debug('Sleeping %.3fs to respect rate limit', to_sleep)
+        # enforce per-endpoint spacing between calls
+        min_interval = _min_interval_for(api_name)
+        last = call_pro._last_call.get(api_name, 0.0)
+        elapsed = time.time() - last
+        if elapsed < min_interval:
+            to_sleep = min_interval - elapsed
+            logging.debug('Sleeping %.3fs to respect %s rate limit', to_sleep, api_name)
             time.sleep(to_sleep)
-
         try:
+            start_time = time.time()
             fn = getattr(pro, api_name)
             res = fn(**kwargs)
-            call_pro._last_call = time.time()
+            duration = time.time() - start_time
+            call_pro._last_call[api_name] = time.time()
+            # emit metrics if hook present
+            hook = call_pro._metrics_hook
+            if hook:
+                try:
+                    hook({
+                        'api': api_name,
+                        'attempt': attempt + 1,
+                        'success': True,
+                        'duration_s': duration,
+                        'rate_config_calls_per_min': RATE_LIMITS.get(api_name, RATE_LIMITS.get('__default__')),
+                        'next_allowed_in_s': _min_interval_for(api_name)
+                    })
+                except Exception:
+                    logging.exception('metrics hook failed')
             return res
         except Exception as e:
+            duration = (time.time() - start_time) if start_time else None
             attempt += 1
             msg = str(e)
             # detect common Tushare rate-limit message (Chinese/English) and backoff
-            if '每分钟最多访问' in msg or 'rate limit' in msg.lower() or 'limit' in msg.lower():
-                sleep_time = backoff_base * attempt
+            is_rate = ('每分钟最多访问' in msg) or ('rate limit' in msg.lower()) or ('限' in msg and '访问' in msg)
+            if is_rate:
+                # exponential backoff, also respect configured per-endpoint spacing
+                sleep_time = backoff_base * (2 ** (attempt - 1))
+                sleep_time = max(sleep_time, min_interval)
                 logging.warning('Tushare rate-limit detected for %s: sleeping %ds (attempt %d/%d): %s', api_name, sleep_time, attempt, max_retries, msg)
+                # emit metrics for rate-limit event
+                hook = call_pro._metrics_hook
+                if hook:
+                    try:
+                        hook({
+                            'api': api_name,
+                            'attempt': attempt,
+                            'success': False,
+                            'rate_limited': True,
+                            'duration_s': duration,
+                            'rate_config_calls_per_min': RATE_LIMITS.get(api_name, RATE_LIMITS.get('__default__')),
+                            'sleeping_for_s': sleep_time
+                        })
+                    except Exception:
+                        logging.exception('metrics hook failed')
                 time.sleep(sleep_time)
                 continue
             logging.exception('Tushare API call %s failed (attempt %d/%d): %s', api_name, attempt, max_retries, e)
+            hook = call_pro._metrics_hook
+            if hook:
+                try:
+                    hook({
+                        'api': api_name,
+                        'attempt': attempt,
+                        'success': False,
+                        'rate_limited': False,
+                        'duration_s': duration,
+                        'error': msg
+                    })
+                except Exception:
+                    logging.exception('metrics hook failed')
             if attempt < max_retries:
                 time.sleep(5 * attempt)
                 continue
             raise
+
+
+def set_metrics_hook(fn):
+    """Register a callable to receive metrics dicts for each API attempt.
+
+    The callable will be invoked with a single dict argument containing keys such as:
+    - api, attempt, success, duration_s, rate_config_calls_per_min, next_allowed_in_s, rate_limited
+    """
+    call_pro._metrics_hook = fn
 
 
 def audit_start(api_name, params):

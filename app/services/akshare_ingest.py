@@ -30,18 +30,109 @@ AKSHARE_DB_URL = os.getenv('AKSHARE_DATABASE_URL', 'mysql+pymysql://root:passwor
 akshare_engine = create_engine(AKSHARE_DB_URL, pool_pre_ping=True)
 
 # Rate limiting
-CALLS_PER_MIN = int(os.getenv('AKSHARE_CALLS_PER_MIN', '30'))
-_MIN_INTERVAL = 60.0 / max(1, CALLS_PER_MIN)
-_last_call = 0.0
+DEFAULT_CALLS_PER_MIN = int(os.getenv('AKSHARE_CALLS_PER_MIN', '30'))
+
+def _env_rate(name, default):
+    try:
+        return int(os.getenv(f'AKSHARE_RATE_{name}', str(default)))
+    except Exception:
+        return default
+
+RATE_LIMITS = {
+    'stock_zh_index_daily': _env_rate('stock_zh_index_daily', 60),
+    # fallback
+    '__default__': DEFAULT_CALLS_PER_MIN
+}
 
 
-def rate_limit():
-    """Simple rate limiter for API calls."""
-    global _last_call
-    elapsed = time.time() - _last_call
-    if elapsed < _MIN_INTERVAL:
-        time.sleep(_MIN_INTERVAL - elapsed)
-    _last_call = time.time()
+def _min_interval_for(api_name: str) -> float:
+    calls = RATE_LIMITS.get(api_name, RATE_LIMITS.get('__default__', DEFAULT_CALLS_PER_MIN))
+    return 60.0 / max(1, int(calls))
+
+
+def call_ak(api_name: str, fn, max_retries: int = 3, backoff_base: int = 5, **kwargs):
+    """Call an AkShare function with per-endpoint rate limiting and retry/backoff."""
+    if not hasattr(call_ak, '_last_call'):
+        call_ak._last_call = {}
+
+    # metrics hook
+    if not hasattr(call_ak, '_metrics_hook'):
+        call_ak._metrics_hook = None
+
+    attempt = 0
+    while attempt < max_retries:
+        min_interval = _min_interval_for(api_name)
+        last = call_ak._last_call.get(api_name, 0.0)
+        elapsed = time.time() - last
+        if elapsed < min_interval:
+            time.sleep(min_interval - elapsed)
+        try:
+            start = time.time()
+            res = fn(**kwargs)
+            duration = time.time() - start
+            call_ak._last_call[api_name] = time.time()
+            hook = call_ak._metrics_hook
+            if hook:
+                try:
+                    hook({
+                        'api': api_name,
+                        'attempt': attempt + 1,
+                        'success': True,
+                        'duration_s': duration,
+                        'rate_config_calls_per_min': RATE_LIMITS.get(api_name, RATE_LIMITS.get('__default__')),
+                        'next_allowed_in_s': _min_interval_for(api_name)
+                    })
+                except Exception:
+                    logger.exception('metrics hook failed')
+            return res
+        except Exception as e:
+            attempt += 1
+            msg = str(e)
+            is_rate = ('429' in msg) or ('频率' in msg) or ('rate limit' in msg.lower()) or ('限' in msg and '访问' in msg)
+            duration = (time.time() - start) if 'start' in locals() else None
+            if is_rate:
+                sleep_time = backoff_base * (2 ** (attempt - 1))
+                sleep_time = max(sleep_time, min_interval)
+                logger.warning('AkShare rate-limit detected for %s: sleeping %ds (attempt %d/%d): %s', api_name, sleep_time, attempt, max_retries, msg)
+                hook = call_ak._metrics_hook
+                if hook:
+                    try:
+                        hook({
+                            'api': api_name,
+                            'attempt': attempt,
+                            'success': False,
+                            'rate_limited': True,
+                            'duration_s': duration,
+                            'rate_config_calls_per_min': RATE_LIMITS.get(api_name, RATE_LIMITS.get('__default__')),
+                            'sleeping_for_s': sleep_time
+                        })
+                    except Exception:
+                        logger.exception('metrics hook failed')
+                time.sleep(sleep_time)
+                continue
+            logger.exception('AkShare API %s failed (attempt %d/%d): %s', api_name, attempt, max_retries, e)
+            hook = call_ak._metrics_hook
+            if hook:
+                try:
+                    hook({
+                        'api': api_name,
+                        'attempt': attempt,
+                        'success': False,
+                        'rate_limited': False,
+                        'duration_s': duration,
+                        'error': msg
+                    })
+                except Exception:
+                    logger.exception('metrics hook failed')
+            if attempt < max_retries:
+                time.sleep(2 * attempt)
+                continue
+            raise
+
+
+def set_metrics_hook(fn):
+    """Register a callable to receive metrics dicts for each AkShare API attempt."""
+    call_ak._metrics_hook = fn
 
 
 def audit_start(api_name: str, params: dict) -> int:
@@ -93,11 +184,9 @@ def ingest_index_daily(symbol: str = 'sh000300', start_date: str = None) -> int:
     audit_id = audit_start('index_daily', params)
     
     try:
-        rate_limit()
         logger.info(f"Fetching index daily data for {symbol}...")
-        
-        # Fetch data from AkShare
-        df = ak.stock_zh_index_daily(symbol=symbol)
+        # Fetch data from AkShare with per-endpoint rate limiting
+        df = call_ak('stock_zh_index_daily', ak.stock_zh_index_daily, symbol=symbol)
         
         if df is None or df.empty:
             logger.warning(f"No data returned for {symbol}")
