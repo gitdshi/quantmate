@@ -90,7 +90,7 @@ def init_db():
                 name VARCHAR(100) NOT NULL,
                 class_name VARCHAR(100) NOT NULL,
                 description TEXT,
-                parameters JSON,
+                parameters TEXT,
                 code LONGTEXT NOT NULL,
                 is_active BOOLEAN DEFAULT TRUE,
                 created_at DATETIME NOT NULL,
@@ -166,7 +166,7 @@ def init_db():
                 class_name VARCHAR(200),
                 description TEXT,
                 version INT,
-                parameters JSON,
+                parameters TEXT,
                 code LONGTEXT,
                 created_at DATETIME NOT NULL,
                 FOREIGN KEY (strategy_id) REFERENCES strategies(id) ON DELETE CASCADE,
@@ -180,7 +180,7 @@ def init_db():
                 ("class_name", "VARCHAR(200)"),
                 ("description", "TEXT"),
                 ("version", "INT"),
-                ("parameters", "JSON"),
+                ("parameters", "TEXT"),
             ]
             for col_name, col_def in cols:
                 exists = conn.execute(text("""
@@ -193,7 +193,23 @@ def init_db():
         except Exception:
             # best-effort migration; ignore errors
             pass
-        
+
+        # Migrate parameters columns from JSON to TEXT to preserve key order.
+        # MySQL's JSON type normalises keys (sorted by length then alphabetically),
+        # which destroys the user-defined parameter sequence.
+        for tbl, col in [("strategies", "parameters"), ("strategy_history", "parameters")]:
+            try:
+                row = conn.execute(text(
+                    "SELECT DATA_TYPE FROM information_schema.COLUMNS "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :tbl AND COLUMN_NAME = :col"
+                ), {"tbl": tbl, "col": col}).fetchone()
+                if row and row[0].upper() == "JSON":
+                    conn.execute(text(f"ALTER TABLE {tbl} MODIFY COLUMN {col} TEXT"))
+                    conn.commit()
+                    print(f"Migrated {tbl}.{col} from JSON to TEXT")
+            except Exception:
+                pass
+
         conn.commit()
         print("Database tables initialized successfully")
         

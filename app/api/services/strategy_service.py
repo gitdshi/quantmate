@@ -209,26 +209,34 @@ def parse_strategy_file(content: str) -> dict:
             if key not in available_defaults:
                 available_defaults[key] = value
         
-        # Step 2c: Filter to ONLY parameters in the parameters list
+        # Step 2c: Determine parameter order and build defaults in that order
+        parameter_order = []
         if parameters_list is not None:
-            # We have an explicit parameters list - only include those
+            # Explicit parameters specified in the class/module
             if isinstance(parameters_list, dict):
                 # Dict format: {param: default}
-                class_info["defaults"] = parameters_list
+                parameter_order = list(parameters_list.keys())
+                for name in parameter_order:
+                    # Use explicit default from the dict when present, else fall back
+                    class_info["defaults"][name] = parameters_list.get(name, available_defaults.get(name, None))
             elif isinstance(parameters_list, (list, tuple)):
-                # List format: ['param1', 'param2'] or [('param1', default), ...]
                 for entry in parameters_list:
                     if isinstance(entry, str):
-                        # Simple string - look up default
+                        parameter_order.append(entry)
                         class_info["defaults"][entry] = available_defaults.get(entry, None)
                     elif isinstance(entry, (list, tuple)) and len(entry) >= 1:
-                        # Tuple format: (name, default)
                         param_name = entry[0]
                         param_default = entry[1] if len(entry) > 1 else available_defaults.get(param_name, None)
+                        parameter_order.append(param_name)
                         class_info["defaults"][param_name] = param_default
         else:
-            # No parameters list - return all available defaults
-            class_info["defaults"] = available_defaults
+            # No explicit parameters list - preserve the order of discovered defaults
+            parameter_order = list(available_defaults.keys())
+            for name in parameter_order:
+                class_info["defaults"][name] = available_defaults.get(name)
+
+        # Expose the explicit parameter order for consumers that need sequence
+        class_info["parameter_order"] = parameter_order
         
         result["classes"].append(class_info)
 
