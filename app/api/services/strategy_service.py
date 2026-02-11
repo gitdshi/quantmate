@@ -106,3 +106,59 @@ def compile_strategy(code: str, class_name: str):
         
     except Exception as e:
         return None
+
+
+def parse_strategy_file(content: str) -> dict:
+    """Parse Python source and extract class definitions and simple defaults.
+
+    Returns a dict with:
+      - classes: list of {name, lineno, defaults: {attr: value_or_source}}
+
+    Uses `ast.literal_eval` where possible to convert simple constant expressions
+    (numbers, strings, lists, dicts). Falls back to returning the source string
+    for complex expressions.
+    """
+    result = {"classes": []}
+    try:
+        tree = ast.parse(content)
+    except SyntaxError:
+        return result
+
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef):
+            class_name = node.name
+            class_info = {"name": class_name, "lineno": node.lineno, "defaults": {}}
+            for item in node.body:
+                # Handle simple assignments: x = 5
+                if isinstance(item, ast.Assign):
+                    for target in item.targets:
+                        if isinstance(target, ast.Name):
+                            key = target.id
+                            val_node = item.value
+                            val = None
+                            try:
+                                val = ast.literal_eval(val_node)
+                            except Exception:
+                                try:
+                                    val = ast.get_source_segment(content, val_node)
+                                except Exception:
+                                    val = None
+                            class_info["defaults"][key] = val
+                # Handle annotated assignments: x: int = 5
+                elif isinstance(item, ast.AnnAssign):
+                    if isinstance(item.target, ast.Name) and item.value is not None:
+                        key = item.target.id
+                        val_node = item.value
+                        val = None
+                        try:
+                            val = ast.literal_eval(val_node)
+                        except Exception:
+                            try:
+                                val = ast.get_source_segment(content, val_node)
+                            except Exception:
+                                val = None
+                        class_info["defaults"][key] = val
+
+            result["classes"].append(class_info)
+
+    return result

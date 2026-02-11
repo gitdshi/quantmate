@@ -15,6 +15,7 @@ from app.api.config import get_settings
 from app.api.services.db import init_db
 from app.api.routes import auth, strategies, data, backtest, queue
 from app.api.routes import system
+from app.api.routes import strategy_files
 
 settings = get_settings()
 
@@ -61,6 +62,7 @@ app.include_router(data.router, prefix="/api")
 app.include_router(backtest.router, prefix="/api")
 app.include_router(queue.router, prefix="/api")
 app.include_router(system.router, prefix="/api")
+app.include_router(strategy_files.router)
 
 
 @app.get("/")
