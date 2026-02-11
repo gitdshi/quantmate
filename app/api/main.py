@@ -8,6 +8,11 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+# Configure logging (ensure timestamps are present in logs)
+from app.api.logging_setup import configure_logging, get_logger  # noqa: E402
+configure_logging()
+logger = get_logger(__name__)
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -15,7 +20,7 @@ from app.api.config import get_settings
 from app.api.services.db import init_db
 from app.api.routes import auth, strategies, data, backtest, queue
 from app.api.routes import system
-from app.api.routes import strategy_files
+from app.api.routes import strategy_code
 
 settings = get_settings()
 
@@ -24,17 +29,17 @@ settings = get_settings()
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
     # Startup
-    print("Starting TraderMate API...")
+    logger.info("Starting TraderMate API...")
     try:
         init_db()
-        print("Database initialized")
+        logger.info("Database initialized")
     except Exception as e:
-        print(f"Database initialization warning: {e}")
+        logger.warning("Database initialization warning: %s", e)
     
     yield
     
     # Shutdown
-    print("Shutting down TraderMate API...")
+    logger.info("Shutting down TraderMate API...")
 
 
 app = FastAPI(
@@ -62,7 +67,7 @@ app.include_router(data.router, prefix="/api")
 app.include_router(backtest.router, prefix="/api")
 app.include_router(queue.router, prefix="/api")
 app.include_router(system.router, prefix="/api")
-app.include_router(strategy_files.router)
+app.include_router(strategy_code.router, prefix="/api")
 
 
 @app.get("/")

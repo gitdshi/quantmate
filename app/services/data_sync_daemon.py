@@ -61,11 +61,9 @@ except ImportError:
     AKSHARE_AVAILABLE = False
     ak = None
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+from app.api.logging_setup import configure_logging, get_logger  # noqa: E402
+configure_logging()
+logger = get_logger(__name__)
 
 # Database URLs
 TUSHARE_DB_URL = os.getenv('TUSHARE_DATABASE_URL', 'mysql+pymysql://root:password@127.0.0.1/tushare?charset=utf8mb4')

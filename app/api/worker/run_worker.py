@@ -17,6 +17,11 @@ os.chdir(ROOT)
 from dotenv import load_dotenv
 load_dotenv()
 
+# Configure logging early so worker logs include timestamps
+from app.api.logging_setup import configure_logging, get_logger  # noqa: E402
+configure_logging()
+logger = get_logger(__name__)
+
 # Import to register tasks
 from app.api.worker import tasks  # noqa
 from app.api.worker.config import redis_conn, QUEUES
@@ -31,10 +36,10 @@ if __name__ == "__main__":
     queues = [QUEUES[name] for name in queue_names if name in QUEUES]
     
     if not queues:
-        print("No valid queues specified. Available queues:", list(QUEUES.keys()))
+        logger.error("No valid queues specified. Available queues: %s", list(QUEUES.keys()))
         sys.exit(1)
-    
-    print(f"Starting worker for queues: {queue_names}")
+
+    logger.info("Starting worker for queues: %s", queue_names)
     
     # Create and start worker
     worker = Worker(queues, connection=redis_conn)
