@@ -17,7 +17,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.config import get_settings
-from app.api.services.db import init_db
+# Note: schema creation/migrations are handled outside the running app.
 from app.api.routes import auth, strategies, data, backtest, queue
 from app.api.routes import system
 from app.api.routes import strategy_code
@@ -30,11 +30,7 @@ async def lifespan(app: FastAPI):
     """Application lifespan events."""
     # Startup
     logger.info("Starting TraderMate API...")
-    try:
-        init_db()
-        logger.info("Database initialized")
-    except Exception as e:
-        logger.warning("Database initialization warning: %s", e)
+    logger.info("Database migrations should be applied during provisioning; skipping runtime init")
     
     yield
     

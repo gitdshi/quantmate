@@ -1,7 +1,43 @@
--- Create missing tables in vnpy_data database
+-- =============================================================================
+-- vnpy database initialization for TraderMate
+-- Creates `vnpy` database and required tables for VeighNa trading platform
+-- =============================================================================
 
-USE vnpy_data;
+CREATE DATABASE IF NOT EXISTS vnpy CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE vnpy;
 
+-- Bar data table (OHLCV for backtesting and live trading)
+CREATE TABLE IF NOT EXISTS dbbardata (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    symbol VARCHAR(45) NOT NULL,
+    exchange VARCHAR(45) NOT NULL,
+    `datetime` DATETIME NOT NULL,
+    `interval` VARCHAR(45) NOT NULL,
+    volume DOUBLE,
+    turnover DOUBLE,
+    open_interest DOUBLE,
+    open_price DOUBLE,
+    high_price DOUBLE,
+    low_price DOUBLE,
+    close_price DOUBLE,
+    UNIQUE KEY idx_bar_unique (symbol, exchange, `interval`, `datetime`),
+    INDEX idx_bar_symbol_exchange (symbol, exchange),
+    INDEX idx_bar_datetime (`datetime`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Bar overview table (summary of available bar data)
+CREATE TABLE IF NOT EXISTS dbbaroverview (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    symbol VARCHAR(45) NOT NULL,
+    exchange VARCHAR(45) NOT NULL,
+    `interval` VARCHAR(45) NOT NULL,
+    count INT,
+    start DATETIME,
+    end DATETIME,
+    UNIQUE KEY idx_overview_unique (symbol, exchange, `interval`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Tick data table
 CREATE TABLE IF NOT EXISTS dbtickdata (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     symbol VARCHAR(45) NOT NULL,

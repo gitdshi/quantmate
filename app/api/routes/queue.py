@@ -2,10 +2,10 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Optional, List, Dict, Any
 
-from app.api.middleware.auth import get_current_user
+from app.api.services.auth_service import get_current_user
 from app.api.models.user import TokenData
 from app.api.services.backtest_service import get_backtest_service
-from app.api.services.job_storage import get_job_storage
+from app.api.services.job_storage_service import get_job_storage
 
 from app.domains.jobs.service import JobsService
 from app.domains.backtests.service import BulkBacktestQueryService

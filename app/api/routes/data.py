@@ -4,7 +4,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from app.api.middleware.auth import get_current_user, get_current_user_optional
+from app.api.services.auth_service import get_current_user, get_current_user_optional
 from app.api.models.user import TokenData
 from app.api.services.data_service import DataService
 

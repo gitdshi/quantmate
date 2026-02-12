@@ -4,7 +4,7 @@ from typing import List, Optional, Dict, Any
 import pandas as pd
 
 from app.api.config import get_settings
-from app.backtest.ts_utils import moving_average, pct_change
+from app.utils.ts_utils import moving_average, pct_change
 
 from app.domains.market.service import MarketService
 

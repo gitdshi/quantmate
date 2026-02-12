@@ -15,7 +15,11 @@ from sqlalchemy import text
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.api.services.db import get_akshare_connection, get_tushare_connection, get_db_connection
+from app.infrastructure.db.connections import (
+    get_akshare_connection,
+    get_tushare_connection,
+    get_tradermate_connection,
+)
 from app.services import akshare_ingest, tushare_ingest
 
 
@@ -92,7 +96,7 @@ def check_stock_basic():
     print("\n=== Checking stock_basic data ===")
     
     ts_conn = get_tushare_connection()
-    vnpy_conn = get_db_connection()
+    vnpy_conn = get_tradermate_connection()
     
     try:
         # Check if tushare stock_basic has data
@@ -194,7 +198,7 @@ def check_data_freshness():
     
     ak_conn = get_akshare_connection()
     ts_conn = get_tushare_connection()
-    vnpy_conn = get_db_connection()
+    vnpy_conn = get_tradermate_connection()
     
     try:
         tables = [

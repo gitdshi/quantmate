@@ -123,8 +123,10 @@ app/api/
 ## Testing
 
 ```bash
-# Test basic endpoints
-python scripts/test_api.py
+
+# Test basic endpoints (use curl/Postman; legacy `scripts/test_api.py` removed)
+# Example:
+# curl -sS -X GET http://localhost:8000/
 
 # Run all tests (when implemented)
 pytest tests/

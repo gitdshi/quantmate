@@ -27,7 +27,7 @@ from app.api.worker.tasks import (
     run_bulk_backtest_task,
     run_optimization_task,
 )
-from app.api.services.job_storage import get_job_storage
+from app.api.services.job_storage_service import get_job_storage
 
 from app.domains.backtests.dao.akshare_benchmark_dao import AkshareBenchmarkDao
 from app.domains.backtests.dao.backtest_history_dao import BacktestHistoryDao

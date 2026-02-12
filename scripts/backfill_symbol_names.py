@@ -4,7 +4,7 @@ Usage:
     PYTHONPATH=. .venv/bin/python3 scripts/backfill_symbol_names.py
 """
 import json
-from app.api.services.db import get_db_connection
+from app.infrastructure.db.connections import get_tradermate_connection
 from sqlalchemy import text
 from app.api.worker.tasks import resolve_symbol_name
 
@@ -57,7 +57,7 @@ def backfill_bulk_best_names(conn):
 
 
 def main():
-    conn = get_db_connection()
+    conn = get_tradermate_connection()
     try:
         backfill_children(conn)
         backfill_bulk_best_names(conn)

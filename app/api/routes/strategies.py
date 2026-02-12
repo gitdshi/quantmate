@@ -11,7 +11,7 @@ from app.api.models.strategy import (
     StrategyListItem,
     StrategyValidation,
 )
-from app.api.middleware.auth import get_current_user
+from app.api.services.auth_service import get_current_user
 from app.api.services.strategy_service import validate_strategy_code
 
 from app.domains.strategies.service import StrategiesService

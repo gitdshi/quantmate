@@ -15,10 +15,10 @@ from app.api.models.backtest import (
     BatchBacktestJob,
     BacktestStatus,
 )
-from app.api.middleware.auth import get_current_user
+from app.api.services.auth_service import get_current_user
 from app.api.services.backtest_service import BacktestService
 from app.api.worker.tasks import save_backtest_to_db
-from app.api.services.job_storage import get_job_storage
+from app.api.services.job_storage_service import get_job_storage
 
 from app.domains.backtests.dao.backtest_history_dao import BacktestHistoryDao
 

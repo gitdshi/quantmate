@@ -1,4 +1,8 @@
-"""JWT Authentication middleware and utilities."""
+"""Authentication utilities and dependencies.
+
+Moved from `app.api.middleware.auth` to `app.api.services.auth_service` to keep
+auth-related helpers alongside other API services.
+"""
 from datetime import datetime, timedelta
 from typing import Optional
 import jwt

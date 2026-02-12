@@ -53,11 +53,8 @@ Successfully implemented a complete FastAPI backend with authentication, strateg
 - ✅ Watchlist support
 
 #### 7. Deployment
-- ✅ Docker configuration (Dockerfile.api)
-- ✅ Docker Compose with API + Worker + Redis
-- ✅ Environment variable management
-- ✅ Startup scripts (scripts/start_api.sh)
-- ✅ API testing utilities (scripts/test_api.py)
+ ✅ Startup scripts (scripts/start_api.sh)
+ ✅ API testing utilities (legacy test script removed)
 
 ### API Endpoints
 

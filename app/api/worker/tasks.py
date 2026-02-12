@@ -15,9 +15,9 @@ if str(ROOT) not in sys.path:
 from rq import get_current_job
 from vnpy.trader.constant import Interval
 from vnpy_ctastrategy.backtesting import BacktestingEngine
-from app.backtest.ts_utils import moving_average, pct_change
+from app.utils.ts_utils import moving_average, pct_change
 from app.api.services.strategy_service import compile_strategy
-from app.api.services.job_storage import get_job_storage
+from app.api.services.job_storage_service import get_job_storage
 
 from app.domains.market.service import MarketService
 from app.domains.backtests.dao.akshare_benchmark_dao import AkshareBenchmarkDao

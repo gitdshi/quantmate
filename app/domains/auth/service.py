@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Optional
 
 from app.api.config import get_settings
-from app.api.middleware.auth import (
+from app.api.services.auth_service import (
     create_access_token,
     create_refresh_token,
     decode_token,

@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from app.api.services.backtest_service import get_backtest_service
-from app.api.services.job_storage import get_job_storage
+from app.api.services.job_storage_service import get_job_storage
 from app.domains.backtests.dao.backtest_history_dao import BacktestHistoryDao
 from app.domains.backtests.dao.bulk_backtest_dao import BulkBacktestDao
 
