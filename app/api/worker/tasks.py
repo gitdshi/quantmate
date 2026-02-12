@@ -296,22 +296,54 @@ def run_backtest_task(
         print(f"[Worker] Strategy: {strategy_class_name}, Symbol: {symbol} -> {vnpy_symbol}")
         
         # Load strategy class
+        # Jobs MUST include the strategy. If `strategy_code` is provided, compile it.
+        # Otherwise attempt to load the strategy source from the tradermate `strategies`
+        # table (by `strategy_id` or `strategy_class_name`). Do NOT fall back to
+        # embedded/builtin VNpy strategy classes here.
+        strategy_class = None
         if strategy_code:
-            # Compile custom strategy
+            # Compile custom strategy provided with the job
             strategy_class = compile_strategy(strategy_code, strategy_class_name)
         else:
-            # Load builtin strategy
-            from app.strategies.triple_ma_strategy import TripleMAStrategy
-            from app.strategies.turtle_trading import TurtleTradingStrategy
-            
-            builtin_strategies = {
-                'TripleMAStrategy': TripleMAStrategy,
-                'TurtleTradingStrategy': TurtleTradingStrategy,
-            }
-            strategy_class = builtin_strategies.get(strategy_class_name)
-            
-            if not strategy_class:
-                raise ValueError(f"Unknown builtin strategy: {strategy_class_name}")
+            # Attempt to load strategy source from tradermate DB
+            conn = get_db_connection()
+            try:
+                row = None
+                if strategy_id is not None:
+                    row = conn.execute(
+                        text("SELECT * FROM strategies WHERE id = :id LIMIT 1"),
+                        {"id": strategy_id}
+                    ).fetchone()
+
+                if not row and strategy_class_name:
+                    row = conn.execute(
+                        text("SELECT * FROM strategies WHERE class_name = :classname LIMIT 1"),
+                        {"classname": strategy_class_name}
+                    ).fetchone()
+
+                if not row:
+                    raise ValueError("No strategy code provided and no matching strategy found in database; jobs must include `strategy_code` or a valid `strategy_id`")
+
+                # Convert row to dict and look for common code fields
+                rowdict = dict(row)
+                code_candidates = [
+                    'code', 'strategy_code', 'source', 'content', 'strategy_source', 'script'
+                ]
+                strategy_code_db = None
+                for k in code_candidates:
+                    if k in rowdict and rowdict[k]:
+                        strategy_code_db = rowdict[k]
+                        break
+
+                if not strategy_code_db:
+                    raise ValueError("Found strategy record in DB but no code/source column available to compile")
+
+                strategy_class = compile_strategy(strategy_code_db, strategy_class_name)
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
         
         # Initialize backtest engine
         engine = BacktestingEngine()
@@ -327,6 +359,10 @@ def run_backtest_task(
             capital=initial_capital,
         )
         
+        # Ensure a valid strategy class was compiled/loaded
+        if not strategy_class:
+            raise RuntimeError(f"Strategy class '{strategy_class_name}' not loaded or compiled successfully")
+
         # Add strategy
         if parameters:
             engine.add_strategy(strategy_class, parameters)

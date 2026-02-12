@@ -94,18 +94,20 @@ def compile_strategy(code: str, class_name: str):
     try:
         # Create a restricted namespace
         namespace = {}
-        
+
         # Execute the code in the namespace
         exec(code, namespace)
-        
+
         # Get the class
         if class_name in namespace:
             return namespace[class_name]
-        
-        return None
-        
-    except Exception as e:
-        return None
+
+        # Class not found after successful exec: raise explicit error
+        raise RuntimeError(f"Compiled code did not expose class '{class_name}'")
+
+    except Exception:
+        # Re-raise with full traceback to surface useful debugging info to callers
+        raise
 
 
 def parse_strategy_file(content: str) -> dict:
