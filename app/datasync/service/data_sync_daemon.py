@@ -12,9 +12,9 @@ Architecture:
 - vnpy: Formatted data for vnpy trading platform (derived)
 
 Usage:
-    python app/services/data_sync_daemon.py --once          # Run once for latest trade date
-    python app/services/data_sync_daemon.py --daemon        # Run as daemon (daily at 02:00)
-    python app/services/data_sync_daemon.py --sync-vnpy     # Sync to vnpy only
+    python -m app.datasync.service.data_sync_daemon.py --once          # Run once for latest trade date
+    python -m app.datasync.service.data_sync_daemon.py --daemon        # Run as daemon (daily at 02:00)
+    python -m app.datasync.service.data_sync_daemon.py --sync-vnpy     # Sync to vnpy only
 """
 
 import os
@@ -35,7 +35,7 @@ from sqlalchemy.engine import Engine
 # Add project root to path
 sys.path.insert(0, str(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
-from app.services.tushare_ingest import (
+from app.datasync.service.tushare_ingest import (
     ingest_daily,
     ingest_stock_basic,
     ingest_daily_basic,
@@ -48,7 +48,7 @@ from app.services.tushare_ingest import (
     engine as tushare_engine,
     pro
 )
-from app.services.akshare_ingest import (
+from app.datasync.service.akshare_ingest import (
     ingest_index_daily as ak_ingest_index_daily,
     akshare_engine
 )
@@ -61,7 +61,7 @@ except ImportError:
     AKSHARE_AVAILABLE = False
     ak = None
 
-from app.api.logging_setup import configure_logging, get_logger  # noqa: E402
+from app.infrastructure.logging import configure_logging, get_logger  # noqa: E402
 configure_logging()
 logger = get_logger(__name__)
 
@@ -326,7 +326,7 @@ class DataSyncDaemon:
         # Only ingest index_daily from AkShare. Stock-level ingestion disabled.
         target_date_dash = sync_date.strftime('%Y-%m-%d')
         try:
-            from app.services.akshare_ingest import INDEX_MAPPING
+            from app.datasync.service.akshare_ingest import INDEX_MAPPING
             index_symbols = list(INDEX_MAPPING.keys())
         except Exception:
             index_symbols = []
@@ -414,7 +414,7 @@ class DataSyncDaemon:
                 df = call_pro('daily', trade_date=target)
                 if df is not None and not df.empty:
                     # Use existing upsert_daily function from tushare_ingest.py
-                    from app.services.tushare_ingest import upsert_daily
+                    from app.datasync.service.tushare_ingest import upsert_daily
                     rows = upsert_daily(df)
                     total_rows += rows
                     logger.info("[Tushare %s] stock_daily ingested: %d rows", target, rows)
@@ -989,22 +989,22 @@ def main():
         epilog="""
 Examples:
   # Run as persistent daemon (auto-retry failed, auto-backfill missing)
-  python app/services/data_sync_daemon.py --daemon
+  python -m app.datasync.service.data_sync_daemon.py --daemon
   
   # Run once for yesterday's trade date
-  python app/services/data_sync_daemon.py --once
+  python -m app.datasync.service.data_sync_daemon.py --once
   
   # Sync specific date
-  python app/services/data_sync_daemon.py --date 2026-02-09
+  python -m app.datasync.service.data_sync_daemon.py --date 2026-02-09
   
   # Backfill last 30 days
-  python app/services/data_sync_daemon.py --backfill 30
+  python -m app.datasync.service.data_sync_daemon.py --backfill 30
   
   # Retry failed syncs from last 7 days
-  python app/services/data_sync_daemon.py --retry-failed
+  python -m app.datasync.service.data_sync_daemon.py --retry-failed
   
   # Check sync status
-  python app/services/data_sync_daemon.py --status
+  python -m app.datasync.service.data_sync_daemon.py --status
         """
     )
     parser.add_argument('--once', action='store_true', help='Run sync once for yesterday and exit')

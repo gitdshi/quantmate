@@ -20,7 +20,7 @@ from app.infrastructure.db.connections import (
     get_tushare_connection,
     get_tradermate_connection,
 )
-from app.services import akshare_ingest, tushare_ingest
+from app.datasync.service import akshare_ingest, tushare_ingest
 
 
 def check_index_daily():

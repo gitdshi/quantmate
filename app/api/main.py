@@ -9,14 +9,14 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 # Configure logging (ensure timestamps are present in logs)
-from app.api.logging_setup import configure_logging, get_logger  # noqa: E402
+from app.infrastructure.logging import configure_logging, get_logger  # noqa: E402
 configure_logging()
 logger = get_logger(__name__)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.config import get_settings
+from app.infrastructure.config import get_settings
 # Note: schema creation/migrations are handled outside the running app.
 from app.api.routes import auth, strategies, data, backtest, queue
 from app.api.routes import system

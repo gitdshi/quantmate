@@ -5,9 +5,9 @@ This script reads from the tushare_data.stock_daily table and syncs bars
 into vnpy_data.dbbardata table so they are visible in the Data Manager GUI.
 
 Usage:
-    python app/scripts/import_tushare_to_vnpy.py --symbol 000001.SZ
-    python app/scripts/import_tushare_to_vnpy.py --all          # Sync all symbols
-    python app/scripts/import_tushare_to_vnpy.py --full-refresh # Re-sync all data
+    python tradermate/scripts/import_tushare_to_vnpy.py --symbol 000001.SZ
+    python tradermate/scripts/import_tushare_to_vnpy.py --all          # Sync all symbols
+    python tradermate/scripts/import_tushare_to_vnpy.py --full-refresh # Re-sync all data
 """
 
 import os
@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, date
 from typing import List, Optional
 
 # Add project root to path
-sys.path.insert(0, str(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+sys.path.insert(0, str(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))) )
 
 from sqlalchemy import create_engine, text
 
@@ -209,11 +209,9 @@ def main():
             symbol = get_symbol(ts_code)
             exchange = map_exchange(ts_code)
             
-            # Determine start date for incremental sync
             if args.full_refresh or args.start:
                 start_date = datetime.strptime(args.start, '%Y-%m-%d').date() if args.start else None
             else:
-                # Incremental: start from last synced date + 1 day
                 last_sync = get_last_sync_date(vnpy_engine, symbol, exchange)
                 start_date = last_sync + timedelta(days=1) if last_sync else None
             

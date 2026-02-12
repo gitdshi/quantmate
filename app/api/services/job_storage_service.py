@@ -9,7 +9,7 @@ from redis import Redis
 from rq.job import Job
 from rq import Queue
 
-from app.api.config import get_settings
+from app.infrastructure.config import get_settings
 
 settings = get_settings()
 
@@ -128,7 +128,7 @@ class JobStorage:
         return deleted
     
     def get_queue_stats(self) -> Dict[str, Any]:
-        from app.worker.config import QUEUES
+        from app.worker.service.config import QUEUES
         stats = {}
         for name, queue in QUEUES.items():
             stats[name] = {

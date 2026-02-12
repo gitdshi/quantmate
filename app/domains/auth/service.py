@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from app.api.config import get_settings
+from app.infrastructure.config import get_settings
 from app.api.services.auth_service import (
     create_access_token,
     create_refresh_token,

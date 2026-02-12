@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import sys
 sys.path.insert(0,'.')
-from app.services.data_sync_daemon import DataSyncDaemon
+from app.datasync.service.data_sync_daemon import DataSyncDaemon
 from datetime import date, timedelta
 from sqlalchemy import text
 import pandas as pd

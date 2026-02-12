@@ -1,7 +1,7 @@
 """Worker and Queue Configuration."""
 from redis import Redis
 from rq import Queue
-from app.api.config import get_settings
+from app.infrastructure.config import get_settings
 
 settings = get_settings()
 

@@ -6,7 +6,13 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
 from app.domains.sync.dao.sync_log_dao import SyncLogDao
-from app.services.data_sync_daemon import DataSyncDaemon, BACKFILL_DAYS, REQUIRED_ENDPOINTS, SYNC_HOUR, SYNC_MINUTE
+from app.datasync.service.data_sync_daemon import (
+    DataSyncDaemon,
+    BACKFILL_DAYS,
+    REQUIRED_ENDPOINTS,
+    SYNC_HOUR,
+    SYNC_MINUTE,
+)
 
 
 def _status_from_last_run(last_run_at: Optional[datetime], running_count: int) -> str:

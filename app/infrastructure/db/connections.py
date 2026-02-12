@@ -15,7 +15,7 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Connection
 
-from app.api.config import get_settings
+from app.infrastructure.config import get_settings
 
 settings = get_settings()
 

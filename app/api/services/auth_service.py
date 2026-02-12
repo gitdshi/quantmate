@@ -10,7 +10,7 @@ from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
-from app.api.config import get_settings
+from app.infrastructure.config import get_settings
 from app.api.models.user import TokenData
 
 settings = get_settings()

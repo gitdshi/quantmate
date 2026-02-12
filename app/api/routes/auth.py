@@ -1,7 +1,7 @@
 """Authentication routes."""
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.api.config import get_settings
+from app.infrastructure.config import get_settings
 from app.api.models.user import UserCreate, UserLogin, User, Token, TokenData
 from app.api.services.auth_service import (
     get_current_user,

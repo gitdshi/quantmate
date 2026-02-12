@@ -3,7 +3,7 @@ from datetime import date, datetime
 from typing import List, Optional, Dict, Any
 import pandas as pd
 
-from app.api.config import get_settings
+from app.infrastructure.config import get_settings
 from app.utils.ts_utils import moving_average, pct_change
 
 from app.domains.market.service import MarketService
