@@ -475,9 +475,16 @@ def daily_ingest(target_date: Optional[date] = None, continue_on_error: bool = T
     logger.info("[Step 1/7] AkShare Index Daily")
     # Defensive check: skip if already successfully synced
     existing_status = get_step_status(target_date, SyncStep.AKSHARE_INDEX.value)
-    if existing_status and existing_status.get('status') == SyncStatus.SUCCESS.value:
+    status_val = None
+    rows_proc = 0
+    if isinstance(existing_status, str):
+        status_val = existing_status
+    elif isinstance(existing_status, dict):
+        status_val = existing_status.get('status')
+        rows_proc = existing_status.get('rows_processed', 0)
+    if status_val == SyncStatus.SUCCESS.value:
         logger.info("[Step 1/7] akshare_index already synced (status=success), skipping")
-        results['akshare_index'] = {'status': 'success', 'rows': existing_status.get('rows_processed', 0), 'error': None, 'skipped': True}
+        results['akshare_index'] = {'status': 'success', 'rows': rows_proc, 'error': None, 'skipped': True}
     else:
         write_step_status(target_date, SyncStep.AKSHARE_INDEX.value, SyncStatus.RUNNING.value)
         try:
@@ -496,9 +503,16 @@ def daily_ingest(target_date: Optional[date] = None, continue_on_error: bool = T
     logger.info("[Step 2a/7] Tushare Stock Basic")
     # Defensive check: skip if already successfully synced
     existing_status = get_step_status(target_date, SyncStep.TUSHARE_STOCK_BASIC.value)
-    if existing_status and existing_status.get('status') == SyncStatus.SUCCESS.value:
+    status_val = None
+    rows_proc = 0
+    if isinstance(existing_status, str):
+        status_val = existing_status
+    elif isinstance(existing_status, dict):
+        status_val = existing_status.get('status')
+        rows_proc = existing_status.get('rows_processed', 0)
+    if status_val == SyncStatus.SUCCESS.value:
         logger.info("[Step 2a/7] tushare_stock_basic already synced (status=success), skipping")
-        results['tushare_stock_basic'] = {'status': 'success', 'rows': existing_status.get('rows_processed', 0), 'error': None, 'skipped': True}
+        results['tushare_stock_basic'] = {'status': 'success', 'rows': rows_proc, 'error': None, 'skipped': True}
     else:
         write_step_status(target_date, SyncStep.TUSHARE_STOCK_BASIC.value, SyncStatus.RUNNING.value)
         try:
@@ -517,9 +531,16 @@ def daily_ingest(target_date: Optional[date] = None, continue_on_error: bool = T
     logger.info("[Step 2b/7] Tushare Stock Daily")
     # Defensive check: skip if already successfully synced
     existing_status = get_step_status(target_date, SyncStep.TUSHARE_STOCK_DAILY.value)
-    if existing_status and existing_status.get('status') == SyncStatus.SUCCESS.value:
+    status_val = None
+    rows_proc = 0
+    if isinstance(existing_status, str):
+        status_val = existing_status
+    elif isinstance(existing_status, dict):
+        status_val = existing_status.get('status')
+        rows_proc = existing_status.get('rows_processed', 0)
+    if status_val == SyncStatus.SUCCESS.value:
         logger.info("[Step 2b/7] tushare_stock_daily already synced (status=success), skipping")
-        results['tushare_stock_daily'] = {'status': 'success', 'rows': existing_status.get('rows_processed', 0), 'error': None, 'skipped': True}
+        results['tushare_stock_daily'] = {'status': 'success', 'rows': rows_proc, 'error': None, 'skipped': True}
     else:
         write_step_status(target_date, SyncStep.TUSHARE_STOCK_DAILY.value, SyncStatus.RUNNING.value)
         try:
@@ -538,9 +559,16 @@ def daily_ingest(target_date: Optional[date] = None, continue_on_error: bool = T
     logger.info("[Step 2c/7] Tushare Adj Factor")
     # Defensive check: skip if already successfully synced
     existing_status = get_step_status(target_date, SyncStep.TUSHARE_ADJ_FACTOR.value)
-    if existing_status and existing_status.get('status') == SyncStatus.SUCCESS.value:
+    status_val = None
+    rows_proc = 0
+    if isinstance(existing_status, str):
+        status_val = existing_status
+    elif isinstance(existing_status, dict):
+        status_val = existing_status.get('status')
+        rows_proc = existing_status.get('rows_processed', 0)
+    if status_val == SyncStatus.SUCCESS.value:
         logger.info("[Step 2c/7] tushare_adj_factor already synced (status=success), skipping")
-        results['tushare_adj_factor'] = {'status': 'success', 'rows': existing_status.get('rows_processed', 0), 'error': None, 'skipped': True}
+        results['tushare_adj_factor'] = {'status': 'success', 'rows': rows_proc, 'error': None, 'skipped': True}
     else:
         write_step_status(target_date, SyncStep.TUSHARE_ADJ_FACTOR.value, SyncStatus.RUNNING.value)
         try:
@@ -559,9 +587,16 @@ def daily_ingest(target_date: Optional[date] = None, continue_on_error: bool = T
     logger.info("[Step 2d/7] Tushare Dividend")
     # Defensive check: skip if already successfully synced
     existing_status = get_step_status(target_date, SyncStep.TUSHARE_DIVIDEND.value)
-    if existing_status and existing_status.get('status') == SyncStatus.SUCCESS.value:
+    status_val = None
+    rows_proc = 0
+    if isinstance(existing_status, str):
+        status_val = existing_status
+    elif isinstance(existing_status, dict):
+        status_val = existing_status.get('status')
+        rows_proc = existing_status.get('rows_processed', 0)
+    if status_val == SyncStatus.SUCCESS.value:
         logger.info("[Step 2d/7] tushare_dividend already synced (status=success), skipping")
-        results['tushare_dividend'] = {'status': 'success', 'rows': existing_status.get('rows_processed', 0), 'error': None, 'skipped': True}
+        results['tushare_dividend'] = {'status': 'success', 'rows': rows_proc, 'error': None, 'skipped': True}
     else:
         write_step_status(target_date, SyncStep.TUSHARE_DIVIDEND.value, SyncStatus.RUNNING.value)
         try:
@@ -580,9 +615,16 @@ def daily_ingest(target_date: Optional[date] = None, continue_on_error: bool = T
     logger.info("[Step 2e/7] Tushare Top10 Holders")
     # Defensive check: skip if already successfully synced
     existing_status = get_step_status(target_date, SyncStep.TUSHARE_TOP10_HOLDERS.value)
-    if existing_status and existing_status.get('status') == SyncStatus.SUCCESS.value:
+    status_val = None
+    rows_proc = 0
+    if isinstance(existing_status, str):
+        status_val = existing_status
+    elif isinstance(existing_status, dict):
+        status_val = existing_status.get('status')
+        rows_proc = existing_status.get('rows_processed', 0)
+    if status_val == SyncStatus.SUCCESS.value:
         logger.info("[Step 2e/7] tushare_top10_holders already synced (status=success), skipping")
-        results['tushare_top10_holders'] = {'status': 'success', 'rows': existing_status.get('rows_processed', 0), 'error': None, 'skipped': True}
+        results['tushare_top10_holders'] = {'status': 'success', 'rows': rows_proc, 'error': None, 'skipped': True}
     else:
         write_step_status(target_date, SyncStep.TUSHARE_TOP10_HOLDERS.value, SyncStatus.RUNNING.value)
         try:
@@ -601,9 +643,16 @@ def daily_ingest(target_date: Optional[date] = None, continue_on_error: bool = T
     logger.info("[Step 3/7] VNPy Sync")
     # Defensive check: skip if already successfully synced
     existing_status = get_step_status(target_date, SyncStep.VNPY_SYNC.value)
-    if existing_status and existing_status.get('status') == SyncStatus.SUCCESS.value:
+    status_val = None
+    rows_proc = 0
+    if isinstance(existing_status, str):
+        status_val = existing_status
+    elif isinstance(existing_status, dict):
+        status_val = existing_status.get('status')
+        rows_proc = existing_status.get('rows_processed', 0)
+    if status_val == SyncStatus.SUCCESS.value:
         logger.info("[Step 3/7] vnpy_sync already synced (status=success), skipping")
-        results['vnpy_sync'] = {'status': 'success', 'rows': existing_status.get('rows_processed', 0), 'error': None, 'skipped': True}
+        results['vnpy_sync'] = {'status': 'success', 'rows': rows_proc, 'error': None, 'skipped': True}
     else:
         write_step_status(target_date, SyncStep.VNPY_SYNC.value, SyncStatus.RUNNING.value)
         try:

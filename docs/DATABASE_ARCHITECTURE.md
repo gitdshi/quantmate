@@ -89,17 +89,16 @@ INGEST_ALL_DAILY=1 python app/datasync/service/tushare_ingest.py
 
 ### 2. Sync to vnpy
 
-Transfer data from tushare to vnpy:
+Transfer data from tushare to vnpy.
+
+The previous one-off script `scripts/import_tushare_to_vnpy.py` has been removed. Use the datasync service to sync formatted data into the vnpy database:
 
 ```bash
-# Sync a single symbol
-python app/scripts/import_tushare_to_vnpy.py --symbol 000001.SZ
+# Sync vnpy from datasync (no Tushare fetch)
+.venv/bin/python3 app/datasync/service/data_sync_daemon.py --sync-vnpy
 
-# Sync all symbols
-python app/scripts/import_tushare_to_vnpy.py --all
-
-# Full refresh (re-sync all data)
-python app/scripts/import_tushare_to_vnpy.py --all --full-refresh
+# Or use the lifecycle script which supports vnpy sync
+./scripts/datasync_service.sh start|stop|restart|status
 ```
 
 ### 3. Daily Sync Daemon

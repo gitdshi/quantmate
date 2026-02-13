@@ -251,7 +251,45 @@ def ingest_dividend(ts_code=None):
     aid = audit_start('dividend', params)
     try:
         df = call_pro('dividend', ts_code=ts_code)
-        rows = upsert_dividend_df(df)
+        rows = 0
+        if df is not None and not df.empty:
+            # Parse dates and fill missing ann_date with imp_ann_date
+            try:
+                df['ann_date'] = pd.to_datetime(df.get('ann_date'), errors='coerce')
+                df['imp_ann_date'] = pd.to_datetime(df.get('imp_ann_date'), errors='coerce')
+                # Fill ann_date with imp_ann_date when missing
+                df['ann_date'] = df['ann_date'].fillna(df['imp_ann_date'])
+                # Drop rows where ann_date is still missing (cannot dedupe without a key)
+                missing = df['ann_date'].isna().sum()
+                if missing:
+                    logging.warning('ingest_dividend: %d rows missing ann_date and imp_ann_date, skipping', missing)
+                    df = df.dropna(subset=['ann_date'])
+            except Exception:
+                logging.exception('Failed to normalize dividend dates, proceeding with original dataframe')
+
+            if df is not None and not df.empty:
+                # Convert pandas timestamps/NaT to Python date or None so DAO doesn't send NaT to DB
+                def _to_date_or_none(x):
+                    try:
+                        if pd.isna(x):
+                            return None
+                    except Exception:
+                        pass
+                    if isinstance(x, pd.Timestamp):
+                        return x.date()
+                    if hasattr(x, 'date'):
+                        try:
+                            return x.date()
+                        except Exception:
+                            return None
+                    try:
+                        return pd.to_datetime(x).date()
+                    except Exception:
+                        return None
+
+                df['ann_date'] = df['ann_date'].apply(_to_date_or_none)
+                df['imp_ann_date'] = df['imp_ann_date'].apply(_to_date_or_none)
+                rows = upsert_dividend_df(df)
         audit_finish(aid, 'success', rows)
         logging.info('Ingested dividend rows: %d', rows)
     except Exception as e:
@@ -408,13 +446,30 @@ def ingest_dividend_by_date_range(start_date: str, end_date: str, batch_size: in
                     continue
                 rows_to_insert = []
                 for r in df.to_dict(orient='records'):
-                    ann = (pd.to_datetime(r.get('ann_date')).date().isoformat() if r.get('ann_date') else None)
+                    # Prefer ann_date; if missing, use imp_ann_date as fallback
+                    ann_raw = r.get('ann_date')
+                    imp_raw = r.get('imp_ann_date')
+                    ann_dt = None
+                    try:
+                        if ann_raw:
+                            ann_dt = pd.to_datetime(ann_raw).date()
+                        elif imp_raw:
+                            ann_dt = pd.to_datetime(imp_raw).date()
+                    except Exception:
+                        ann_dt = None
+
+                    if not ann_dt:
+                        # Skip rows that have neither ann_date nor imp_ann_date
+                        logging.debug('Skipping dividend row without ann_date and imp_ann_date for %s', r.get('ts_code'))
+                        continue
+
+                    ann = ann_dt.isoformat()
                     key = (r.get('ts_code'), ann)
-                    if ann and key in existing:
+                    if key in existing:
                         continue
                     rows_to_insert.append({
                         'ts_code': r.get('ts_code'),
-                        'ann_date': (pd.to_datetime(r.get('ann_date')).date() if r.get('ann_date') else None),
+                        'ann_date': ann_dt,
                         'imp_ann_date': (pd.to_datetime(r.get('imp_ann_date')).date() if r.get('imp_ann_date') else None),
                         'record_date': (pd.to_datetime(r.get('record_date')).date() if r.get('record_date') else None),
                         'ex_date': (pd.to_datetime(r.get('ex_date')).date() if r.get('ex_date') else None),
