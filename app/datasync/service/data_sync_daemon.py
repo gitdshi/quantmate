@@ -45,6 +45,10 @@ from app.datasync.service.tushare_ingest import (
     ingest_adj_factor,
     ingest_dividend,
     ingest_top10_holders,
+    ingest_daily_basic,
+    ingest_repo,
+    ingest_all_other_data,
+    ingest_all_daily,
     ingest_dividend_by_date_range,
     ingest_top10_holders_by_date_range,
     ingest_adj_factor_by_date_range,
@@ -85,6 +89,15 @@ from app.domains.extdata.dao.tushare_dao import (
     upsert_dividend_df,
     fetch_stock_daily_rows,
 )
+# Legacy sync log DAO (used by Tushare-specific helpers)
+from app.domains.extdata.dao.sync_log_dao import (
+    write_tushare_stock_sync_log as dao_write_tushare_stock_sync_log,
+    get_last_success_tushare_sync_date as dao_get_last_success_tushare_sync_date,
+)
+
+# Tushare daemon compatibility flags
+DRY_RUN = os.getenv('DRY_RUN', '0') == '1'
+
 
 # Import AkShare for trade calendar
 try:
@@ -204,6 +217,102 @@ def refresh_trade_calendar():
         logger.info('Refreshed trade calendar: %d dates cached', len(df))
     except Exception as e:
         logger.exception('Failed to refresh trade calendar: %s', e)
+# =========================================================================
+# Tushare-sync compatibility helpers (merged from tushare_sync_daemon.py)
+# =========================================================================
+
+ENDPOINTS = {
+    'daily': lambda dt: ingest_all_daily(start_date=None, sleep_between=0.02) if 'ingest_all_daily' in globals() else None,
+    'daily_by_date': None,
+    'daily_basic': lambda dt: ingest_daily_basic() if 'ingest_daily_basic' in globals() else None,
+    'adj_factor': lambda dt: ingest_all_other_data() if 'ingest_all_other_data' in globals() else None,
+    'moneyflow': lambda dt: ingest_all_other_data() if 'ingest_all_other_data' in globals() else None,
+    'dividend': lambda dt: ingest_all_other_data() if 'ingest_all_other_data' in globals() else None,
+    'top10_holders': lambda dt: ingest_all_other_data() if 'ingest_all_other_data' in globals() else None,
+    'margin': lambda dt: ingest_all_other_data() if 'ingest_all_other_data' in globals() else None,
+    'block_trade': lambda dt: ingest_all_other_data() if 'ingest_all_other_data' in globals() else None,
+    'repo': lambda dt: ingest_repo(repo_date=dt.strftime('%Y-%m-%d')) if 'ingest_repo' in globals() else None,
+}
+
+
+def get_trade_days(start_d: date, end_d: date) -> List[str]:
+    s = start_d.strftime('%Y%m%d')
+    e = end_d.strftime('%Y%m%d')
+    try:
+        df = call_pro('trade_cal', exchange='SSE', start_date=s, end_date=e)
+        if df is None:
+            raise Exception('trade_cal returned None')
+        df = df[df['is_open'] == 1]
+        col = 'calendar_date' if 'calendar_date' in df.columns else ('cal_date' if 'cal_date' in df.columns else None)
+        dates = [str(pd.to_datetime(d).date()) for d in df[col]] if col else []
+        return dates
+    except Exception as exc:
+        logger.warning('Could not use trade_cal (fallback to weekdays): %s', exc)
+        days = []
+        cur = start_d
+        while cur <= end_d:
+            if cur.weekday() < 5:
+                days.append(str(cur))
+            cur = cur + timedelta(days=1)
+        return days
+
+
+def write_sync_log(sync_date: date, endpoint: str, status: str, rows: int = 0, err: Optional[str] = None):
+    if DRY_RUN:
+        logger.info('DRY RUN - skip writing sync log: %s %s %s', sync_date, endpoint, status)
+        return
+    dao_write_tushare_stock_sync_log(sync_date, endpoint, status, rows, err)
+
+
+def get_last_success_date(endpoint: str):
+    return dao_get_last_success_tushare_sync_date(endpoint)
+
+
+def sync_daily_for_date(d: date):
+    logger.info('Starting daily sync for %s', d)
+    ts_codes = get_all_ts_codes()
+    total = len(ts_codes)
+    rows_total = 0
+    failures = 0
+    for i, ts_code in enumerate(ts_codes, start=1):
+        try:
+            ingest_daily(ts_code=ts_code, start_date=d.strftime('%Y%m%d'), end_date=d.strftime('%Y%m%d'))
+        except Exception as e:
+            failures += 1
+            logger.warning('Failed daily for %s on %s: %s', ts_code, d, e)
+        time.sleep(0.02)
+        if i % 500 == 0:
+            logger.info('Daily sync progress: %d/%d', i, total)
+    status = 'success' if failures == 0 else 'partial' if failures < total else 'error'
+    write_sync_log(d, 'daily', status, rows_total, f'failures={failures}' if failures else None)
+    logger.info('Daily sync finished for %s: status=%s failures=%d', d, status, failures)
+
+
+def run_sync_for_date(d: date, allowed_endpoints: list):
+    logger.info('Running sync for date %s, endpoints: %s', d, allowed_endpoints)
+    for ep in allowed_endpoints:
+        try:
+            if ep == 'daily':
+                sync_daily_for_date(d)
+            elif ep == 'repo':
+                try:
+                    if not DRY_RUN:
+                        ingest_repo(repo_date=d.strftime('%Y-%m-%d'))
+                        write_sync_log(d, 'repo', 'success', 0, None)
+                except Exception as e:
+                    write_sync_log(d, 'repo', 'error', 0, str(e))
+            else:
+                try:
+                    if ep == 'daily_basic':
+                        ingest_daily_basic()
+                    if ep in ('daily_basic','adj_factor','moneyflow','dividend','top10_holders','margin','block_trade'):
+                        ingest_all_other_data()
+                        write_sync_log(d, ep, 'success', 0, None)
+                except Exception as e:
+                    write_sync_log(d, ep, 'error', 0, str(e))
+        except Exception as e:
+            logger.exception('Error syncing endpoint %s for %s: %s', ep, d, e)
+            write_sync_log(d, ep, 'error', 0, str(e))
 
 
 # =============================================================================
