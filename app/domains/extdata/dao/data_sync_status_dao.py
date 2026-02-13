@@ -247,3 +247,80 @@ def truncate_trade_cal():
     """Truncate the akshare.trade_cal table."""
     with engine_ak.begin() as conn:
         conn.execute(text("TRUNCATE TABLE trade_cal"))
+
+
+# =============================================================================
+# Backfill Lock Management (DB-based concurrency control)
+# =============================================================================
+
+BACKFILL_LOCK_SQL = """
+CREATE TABLE IF NOT EXISTS backfill_lock (
+    id INT PRIMARY KEY DEFAULT 1,
+    is_locked TINYINT NOT NULL DEFAULT 0,
+    locked_at TIMESTAMP NULL,
+    locked_by VARCHAR(255),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CHECK (id = 1)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+"""
+
+
+def ensure_backfill_lock_table():
+    """Ensure backfill_lock table exists."""
+    logger.info('Ensuring backfill_lock table in tradermate DB')
+    with engine_tm.begin() as conn:
+        conn.execute(text(BACKFILL_LOCK_SQL))
+        # Initialize with unlocked state
+        conn.execute(text("""
+            INSERT IGNORE INTO backfill_lock (id, is_locked) VALUES (1, 0)
+        """))
+
+
+def acquire_backfill_lock() -> bool:
+    """Acquire backfill lock. Returns True if acquired, False if already locked."""
+    ensure_backfill_lock_table()
+    import socket
+    hostname = socket.gethostname()
+    
+    with engine_tm.begin() as conn:
+        result = conn.execute(text("""
+            UPDATE backfill_lock 
+            SET is_locked = 1, 
+                locked_at = CURRENT_TIMESTAMP, 
+                locked_by = :hostname
+            WHERE id = 1 AND is_locked = 0
+        """), {'hostname': hostname})
+        
+        if result.rowcount > 0:
+            logger.info('Acquired backfill lock (host: %s)', hostname)
+            return True
+        else:
+            logger.warning('Failed to acquire backfill lock (already locked)')
+            return False
+
+
+def release_backfill_lock():
+    """Release backfill lock."""
+    ensure_backfill_lock_table()
+    with engine_tm.begin() as conn:
+        conn.execute(text("""
+            UPDATE backfill_lock 
+            SET is_locked = 0, 
+                locked_at = NULL, 
+                locked_by = NULL
+            WHERE id = 1
+        """))
+    logger.info('Released backfill lock')
+
+
+def is_backfill_locked() -> bool:
+    """Check if backfill is currently locked."""
+    ensure_backfill_lock_table()
+    with engine_tm.connect() as conn:
+        result = conn.execute(text("""
+            SELECT is_locked FROM backfill_lock WHERE id = 1
+        """))
+        row = result.fetchone()
+        return bool(row[0]) if row else False
+
