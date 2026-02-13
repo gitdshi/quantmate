@@ -209,6 +209,7 @@ CREATE TABLE IF NOT EXISTS stock_dividend (
     div_stock DECIMAL(20,2),
     bonus_ratio DECIMAL(10,2),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE INDEX ux_stock_dividend_ts_ann (ts_code, ann_date),
     INDEX idx_div_ts_ann (ts_code, ann_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -220,6 +221,7 @@ CREATE TABLE IF NOT EXISTS top10_holders (
     holder_name VARCHAR(255),
     hold_amount DECIMAL(20,2),
     hold_ratio DECIMAL(8,2),
+    UNIQUE INDEX ux_top10_holders_ts_end_holder (ts_code, end_date, holder_name),
     INDEX idx_top10_ts_end (ts_code, end_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
