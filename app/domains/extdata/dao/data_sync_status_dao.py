@@ -364,6 +364,83 @@ def release_backfill_lock():
     logger.info('Released backfill lock')
 
 
+def acquire_backfill_lock_with_token(token: str) -> bool:
+    """Acquire backfill lock using an owner token (host:pid:uuid).
+
+    Returns True if acquired, False if already locked.
+    """
+    ensure_backfill_lock_table()
+    try:
+        stale_hours = int(os.getenv('BACKFILL_LOCK_STALE_HOURS', '6'))
+    except Exception:
+        stale_hours = 6
+    try:
+        release_stale_backfill_lock(stale_hours)
+    except Exception:
+        logger.exception('Failed to release stale backfill lock')
+
+    with engine_tm.begin() as conn:
+        result = conn.execute(text("""
+            UPDATE backfill_lock
+            SET is_locked = 1,
+                locked_at = CURRENT_TIMESTAMP,
+                locked_by = :token
+            WHERE id = 1 AND is_locked = 0
+        """), {'token': token})
+        if result.rowcount > 0:
+            logger.info('Acquired backfill lock (token: %s)', token)
+            return True
+        else:
+            logger.warning('Failed to acquire backfill lock (already locked)')
+            return False
+
+
+def refresh_backfill_lock(token: str) -> bool:
+    """Refresh the lock timestamp while owning the lock.
+
+    Returns True if refreshed (owner matched), False otherwise.
+    """
+    ensure_backfill_lock_table()
+    with engine_tm.begin() as conn:
+        result = conn.execute(text(
+            """
+            UPDATE backfill_lock
+            SET locked_at = CURRENT_TIMESTAMP
+            WHERE id = 1 AND is_locked = 1 AND locked_by = :token
+            """
+        ), {'token': token})
+        if result.rowcount > 0:
+            logger.debug('Refreshed backfill lock for token %s', token)
+            return True
+        else:
+            logger.warning('Failed to refresh backfill lock for token %s (owner mismatch)', token)
+            return False
+
+
+def release_backfill_lock_token(token: str) -> bool:
+    """Release backfill lock only if owned by `token`.
+
+    Returns True if released, False otherwise.
+    """
+    ensure_backfill_lock_table()
+    with engine_tm.begin() as conn:
+        result = conn.execute(text(
+            """
+            UPDATE backfill_lock
+            SET is_locked = 0,
+                locked_at = NULL,
+                locked_by = NULL
+            WHERE id = 1 AND locked_by = :token
+            """
+        ), {'token': token})
+        if result.rowcount > 0:
+            logger.info('Released backfill lock for token %s', token)
+            return True
+        else:
+            logger.warning('Did not release backfill lock for token %s (owner mismatch or not locked)', token)
+            return False
+
+
 def is_backfill_locked() -> bool:
     """Check if backfill is currently locked."""
     ensure_backfill_lock_table()

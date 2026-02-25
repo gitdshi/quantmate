@@ -67,8 +67,35 @@ case "${1-}" in
   status)
     status
     ;;
+  unlock)
+    echo "Releasing backfill_lock via DAO..."
+    "$VENV_PY" - <<'PY'
+from __future__ import annotations
+import sys, os
+sys.path.insert(0, os.path.abspath('.'))
+from app.domains.extdata.dao import data_sync_status_dao as dao
+from sqlalchemy import text
+try:
+    with dao.engine_tm.connect() as conn:
+        row = conn.execute(text('SELECT id,is_locked,locked_at,locked_by FROM backfill_lock WHERE id = 1')).fetchone()
+        print('BEFORE:', row)
+except Exception as e:
+    print('ERR reading before:', e)
+try:
+    dao.release_backfill_lock()
+    print('Called release_backfill_lock()')
+except Exception as e:
+    print('ERR releasing:', e)
+try:
+    with dao.engine_tm.connect() as conn:
+        row = conn.execute(text('SELECT id,is_locked,locked_at,locked_by FROM backfill_lock WHERE id = 1')).fetchone()
+        print('AFTER:', row)
+except Exception as e:
+    print('ERR reading after:', e)
+PY
+    ;;
   *)
-    echo "Usage: $0 {start|stop|restart|status}"
+    echo "Usage: $0 {start|stop|restart|status|unlock}"
     exit 2
     ;;
 esac

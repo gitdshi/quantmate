@@ -36,7 +36,18 @@ def get_tradermate_engine():
 
 
 def get_vnpy_engine():
-    return get_tradermate_engine()
+    global _vnpy_engine
+    try:
+        _vnpy_engine
+    except NameError:
+        _vnpy_engine = None
+    if _vnpy_engine is None:
+        # Allow overriding via environment variable like AKSHARE_DATABASE_URL
+        vnpy_url = os.getenv("VNPY_DATABASE_URL")
+        if not vnpy_url:
+            vnpy_url = f"{settings.mysql_url}/vnpy?charset=utf8mb4"
+        _vnpy_engine = create_engine(vnpy_url, pool_pre_ping=True)
+    return _vnpy_engine
 
 
 def get_tushare_engine():

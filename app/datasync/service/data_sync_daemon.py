@@ -34,6 +34,8 @@ from typing import List, Optional, Tuple, Dict
 from enum import Enum
 
 import pandas as pd
+import threading
+import uuid
 
 # Add project root to path
 sys.path.insert(0, str(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
@@ -84,6 +86,9 @@ from app.domains.extdata.dao.data_sync_status_dao import (
     acquire_backfill_lock,
     release_backfill_lock,
     is_backfill_locked,
+    acquire_backfill_lock_with_token,
+    refresh_backfill_lock,
+    release_backfill_lock_token,
 )
 from app.domains.extdata.dao.tushare_dao import (
     upsert_dividend_df,
@@ -119,6 +124,30 @@ BATCH_SIZE = int(os.getenv('BATCH_SIZE', '100'))
 MAX_RETRIES = int(os.getenv('MAX_RETRIES', '3'))
 TIMEZONE = 'Asia/Shanghai'
 
+# Backwards-compatible aliases used by other modules
+BACKFILL_DAYS = LOOKBACK_DAYS
+
+
+class DataSyncDaemon:
+    """Lightweight compatibility shim for legacy imports.
+
+    Provides a minimal `find_missing_trade_dates` implementation used by
+    the API to show missing trade dates. This intentionally avoids
+    side-effects and delegates to DAO helpers.
+    """
+    def __init__(self) -> None:
+        pass
+
+    def find_missing_trade_dates(self, lookback_days: int = None):
+        if lookback_days is None:
+            lookback_days = BACKFILL_DAYS
+        try:
+            failed = get_failed_steps(lookback_days)
+            missing_dates = sorted({d for d, _ in failed})
+            return missing_dates
+        except Exception:
+            return []
+
 
 class SyncStep(str, Enum):
     """Sync step identifiers matching DB enum"""
@@ -138,6 +167,10 @@ class SyncStatus(str, Enum):
     SUCCESS = 'success'
     PARTIAL = 'partial'
     ERROR = 'error'
+
+
+# Backwards-compatible list of required endpoints used by other modules
+REQUIRED_ENDPOINTS = [step.value for step in SyncStep]
 
 
 # =============================================================================
@@ -686,13 +719,41 @@ def missing_data_backfill(lookback_days: int = None):
         logger.warning("Backfill already running (DB locked), skipping this run")
         return
     
-    # Acquire lock
+    # Prepare owner token and acquire lock (token: host:pid:uuid)
+    import socket as _socket
+    token = f"{_socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex}"
+
+    # Acquire lock with token
     try:
-        acquire_backfill_lock()
-        logger.info("Acquired backfill lock")
+        ok = acquire_backfill_lock_with_token(token)
+        if not ok:
+            logger.warning("Failed to acquire backfill lock (already locked)")
+            return
+        logger.info("Acquired backfill lock (token=%s)", token)
     except Exception as e:
         logger.warning("Failed to acquire backfill lock: %s", e)
         return
+
+    # Start heartbeat thread to refresh locked_at while job is running
+    stop_event = threading.Event()
+    heartbeat_interval = int(os.getenv('BACKFILL_LOCK_HEARTBEAT_SEC', '30'))
+
+    def _heartbeat():
+        try:
+            while not stop_event.wait(heartbeat_interval):
+                try:
+                    refreshed = refresh_backfill_lock(token)
+                    if not refreshed:
+                        logger.warning('Heartbeat failed to refresh lock for token %s', token)
+                        break
+                except Exception:
+                    logger.exception('Exception during backfill lock heartbeat')
+                    break
+        finally:
+            logger.debug('Backfill heartbeat thread exiting')
+
+    hb_thread = threading.Thread(target=_heartbeat, name='backfill-heartbeat', daemon=True)
+    hb_thread.start()
     
     try:
         logger.info("Starting missing data backfill (lookback=%d days)", lookback_days)
@@ -787,12 +848,22 @@ def missing_data_backfill(lookback_days: int = None):
         logger.info("Backfill complete")
     
     finally:
-        # Release lock
+        # Stop heartbeat and release lock (conditional on token)
         try:
-            release_backfill_lock()
-            logger.info("Released backfill lock")
+            stop_event.set()
+            if 'hb_thread' in locals():
+                hb_thread.join(timeout=5)
+        except Exception:
+            logger.exception('Error stopping heartbeat thread')
+
+        try:
+            released = release_backfill_lock_token(token)
+            if released:
+                logger.info('Released backfill lock (token=%s)', token)
+            else:
+                logger.warning('Could not release backfill lock with token %s (owner mismatch?)', token)
         except Exception as e:
-            logger.warning("Failed to release backfill lock: %s", e)
+            logger.warning('Failed to release backfill lock: %s', e)
 
 
 def group_dates_by_month(dates: List[date]) -> List[Tuple[date, date]]:
