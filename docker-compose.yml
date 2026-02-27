@@ -10,8 +10,10 @@ services:
     container_name: tradermate_api
     restart: unless-stopped
     depends_on:
-      - mysql
-      - redis
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       # App Settings
       - APP_NAME=TraderMate
@@ -41,6 +43,12 @@ services:
       - ./logs:/app/logs
     networks:
       - tradermate_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   # Background Worker Service
   worker:
@@ -101,6 +109,12 @@ services:
       - ./mysql/init:/docker-entrypoint-initdb.d
     networks:
       - tradermate_network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-ppassword"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   # Redis (for job queue)
   redis:
@@ -113,6 +127,11 @@ services:
       - redis_data:/data
     networks:
       - tradermate_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # Frontend (tradermate-portal)
   portal:
