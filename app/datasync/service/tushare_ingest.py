@@ -345,10 +345,17 @@ def ingest_repo(repo_date=None):
     try:
         df = call_pro('repo', repo_date=repo_date) if repo_date else call_pro('repo')
         rows = 0
-        if not df.empty:
-            # Delegate repo upserts to DAO
-            from app.domains.extdata.dao.tushare_dao import upsert_repo_df
-            rows = upsert_repo_df(df)
+        if df is None:
+            audit_finish(aid, 'error', 0)
+            logging.warning('repo ingest: API returned None (possibly rate-limited or no permission)')
+            return
+        if df.empty:
+            audit_finish(aid, 'success', 0)
+            logging.info('Ingested repo rows: 0')
+            return
+        # Delegate repo upserts to DAO
+        from app.domains.extdata.dao.tushare_dao import upsert_repo_df
+        rows = upsert_repo_df(df)
         audit_finish(aid, 'success', rows)
         logging.info('Ingested repo rows: %d', rows)
     except Exception as e:
