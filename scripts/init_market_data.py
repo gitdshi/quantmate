@@ -117,7 +117,15 @@ def apply_schema_files() -> None:
             sql_text = file_path.read_text(encoding='utf-8')
             statements = split_sql_statements(sql_text)
             for stmt in statements:
-                conn.exec_driver_sql(stmt)
+                try:
+                    conn.exec_driver_sql(stmt)
+                except Exception as e:
+                    msg = str(e)
+                    # Ignore duplicate-index errors when applying schema repeatedly
+                    if 'Duplicate key name' in msg or '(1061' in msg:
+                        logger.warning('Ignoring duplicate index/schema error: %s', msg)
+                        continue
+                    raise
 
 
 def print_summary() -> None:
