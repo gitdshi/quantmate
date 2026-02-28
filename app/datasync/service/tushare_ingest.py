@@ -605,7 +605,7 @@ def get_max_trade_date(ts_code):
     return dao_get_max_trade_date(ts_code)
 
 
-def ingest_all_daily(batch_size:int=None, sleep_between:float=0.2):
+def ingest_all_daily(batch_size:int=None, sleep_between:float=0.2, force_full_per_stock: bool = False):
     """Bulk ingest daily for all ts_code in stock_basic.
 
     - batch_size: number of symbols to process per loop iteration (uses env BATCH_SIZE if None)
@@ -623,7 +623,7 @@ def ingest_all_daily(batch_size:int=None, sleep_between:float=0.2):
         logging.info('Processing chunk %d - %d', i+1, i+len(chunk))
         for ts_code in chunk:
             # determine resume point
-            last_date = get_max_trade_date(ts_code)
+            last_date = None if force_full_per_stock else get_max_trade_date(ts_code)
             # If we have a last_date in DB, fetch only missing days (existing behavior)
             if last_date:
                 try:

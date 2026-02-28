@@ -179,7 +179,9 @@ def main() -> int:
                 raise
 
     logger.info('Rebuilding full Tushare stock_daily history (this can take a long time)')
-    ingest_all_daily(batch_size=args.batch_size, sleep_between=args.sleep_between)
+    # Force full-history per stock during init to avoid per-date iteration and ensure
+    # we fetch all available bars for each symbol and dedupe against DB.
+    ingest_all_daily(batch_size=args.batch_size, sleep_between=args.sleep_between, force_full_per_stock=True)
 
     logger.info('Rebuilding AkShare index history')
     ingest_all_indexes()
