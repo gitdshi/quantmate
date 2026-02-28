@@ -1,5 +1,7 @@
 """TraderMate API - FastAPI Application."""
 import sys
+import os
+import secrets
 from pathlib import Path
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -14,8 +16,10 @@ from app.infrastructure.logging import configure_logging, get_logger  # noqa: E4
 configure_logging()
 logger = get_logger(__name__)
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, HTTPException, status, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from typing import Optional
 
 from app.infrastructure.config import get_settings
 # Note: schema creation/migrations are handled outside the running app.
@@ -23,7 +27,44 @@ from app.api.routes import auth, strategies, data, backtest, queue
 from app.api.routes import system
 from app.api.routes import strategy_code
 
+from app.domains.auth.dao.user_dao import UserDao
+from app.api.services.auth_service import get_password_hash
+
 settings = get_settings()
+
+security = HTTPBearer()
+
+async def ensure_password_changed(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
+):
+    """Global dependency to enforce password change on first login for admin."""
+    exempt_paths = [
+        "/api/auth/login",
+        "/api/auth/register",
+        "/api/auth/refresh",
+        "/api/auth/change-password",
+        "/docs",
+        "/redoc",
+        "/openapi.json",
+    ]
+    path = request.url.path
+    if any(path.startswith(p) for p in exempt_paths):
+        return
+    if credentials is None:
+        return  # No credentials; let route's own dependency handle it if needed
+    try:
+        from app.api.services.auth_service import decode_token
+        token_data = decode_token(credentials.credentials)
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
+    if token_data is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
+    if token_data.must_change_password:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Password change required. Please change your password first."
+        )
 
 
 @asynccontextmanager
@@ -32,9 +73,57 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting TraderMate API...")
     logger.info("Database migrations should be applied during runtime init")
-    
+
+    # Admin user initialization
+    try:
+        admin_username = os.getenv("ADMIN_USERNAME", "admin")
+        admin_email = os.getenv("ADMIN_EMAIL", "admin@tradermate.local")
+        admin_password = os.getenv("ADMIN_PASSWORD")
+        is_production = not settings.debug
+
+        user_dao = UserDao()
+        # Check if admin exists
+        admin_user = user_dao.get_user_for_login(admin_username)
+
+        if admin_user is None:
+            # Admin user does not exist, create it
+            if is_production and not admin_password:
+                raise RuntimeError("ADMIN_PASSWORD environment variable must be set in production mode")
+            if not admin_password:
+                # Generate a secure random password (20+ chars)
+                admin_password = secrets.token_urlsafe(32)
+                logger.info(f"Generated random admin password: {admin_password}")
+            hashed = get_password_hash(admin_password)
+            now = datetime.utcnow()
+            user_dao.insert_user(
+                username=admin_username,
+                email=admin_email,
+                hashed_password=hashed,
+                created_at=now,
+                must_change_password=True
+            )
+            logger.info(f"Admin user '{admin_username}' created. First login will require password change.")
+        else:
+            # Existing admin: upgrade if necessary
+            DEFAULT_ADMIN_HASH = "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5GyYqVvmvhxKe"
+            if admin_user["hashed_password"] == DEFAULT_ADMIN_HASH:
+                # Force password change for default hash
+                if admin_user.get("must_change_password") is False:
+                    user_dao.update_user_password(
+                        admin_user["id"],
+                        admin_user["hashed_password"],
+                        must_change_password=True
+                    )
+                    logger.info("Marked existing default admin user as requiring password change.")
+            # Ensure column exists: could attempt to ALTER TABLE if needed, but skip for now
+    except Exception as e:
+        logger.error(f"Admin initialization failed: {e}")
+        if is_production:
+            raise
+        # In development, continue even if admin init fails (e.g., DB not ready)
+
     yield
-    
+
     # Shutdown
     logger.info("Shutting down TraderMate API...")
 
@@ -45,7 +134,8 @@ app = FastAPI(
     description="TraderMate Trading Platform API - Strategy Management, Backtesting, and Market Research",
     docs_url="/docs",
     redoc_url="/redoc",
-    lifespan=lifespan
+    lifespan=lifespan,
+    dependencies=[Depends(ensure_password_changed)]
 )
 
 # CORS middleware

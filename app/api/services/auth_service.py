@@ -31,30 +31,32 @@ def get_password_hash(password: str) -> str:
     return pwd_context.hash(password, scheme="argon2")
 
 
-def create_access_token(user_id: int, username: str, expires_delta: Optional[timedelta] = None) -> str:
+def create_access_token(user_id: int, username: str, expires_delta: Optional[timedelta] = None, must_change_password: bool = False) -> str:
     """Create a JWT access token."""
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
         expire = datetime.utcnow() + timedelta(minutes=settings.access_token_expire_minutes)
-    
+
     payload = {
         "user_id": user_id,
         "username": username,
         "exp": expire,
-        "type": "access"
+        "type": "access",
+        "must_change_password": must_change_password,
     }
     return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
 
 
-def create_refresh_token(user_id: int, username: str) -> str:
+def create_refresh_token(user_id: int, username: str, must_change_password: bool = False) -> str:
     """Create a JWT refresh token."""
     expire = datetime.utcnow() + timedelta(days=settings.refresh_token_expire_days)
     payload = {
         "user_id": user_id,
         "username": username,
         "exp": expire,
-        "type": "refresh"
+        "type": "refresh",
+        "must_change_password": must_change_password,
     }
     return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
 
@@ -66,7 +68,8 @@ def decode_token(token: str) -> Optional[TokenData]:
         return TokenData(
             user_id=payload["user_id"],
             username=payload["username"],
-            exp=datetime.fromtimestamp(payload["exp"])
+            exp=datetime.fromtimestamp(payload["exp"]),
+            must_change_password=payload.get("must_change_password", False)
         )
     except jwt.ExpiredSignatureError:
         return None

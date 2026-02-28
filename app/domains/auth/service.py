@@ -29,13 +29,14 @@ class AuthService:
             raise ValueError("Email already registered")
 
         now = datetime.utcnow()
-        user_id = self._users.insert_user(username, email, get_password_hash(password), now)
+        user_id = self._users.insert_user(username, email, get_password_hash(password), now, must_change_password=False)
         return {
             "id": user_id,
             "username": username,
             "email": email,
             "is_active": True,
             "created_at": now,
+            "must_change_password": False,
         }
 
     def login(self, username: str, password: str) -> dict:
@@ -47,13 +48,15 @@ class AuthService:
         if not user.get("is_active"):
             raise PermissionError("User account is disabled")
 
-        access_token = create_access_token(user["id"], user["username"])
-        refresh_token = create_refresh_token(user["id"], user["username"])
+        must_change = user.get("must_change_password", False)
+        access_token = create_access_token(user["id"], user["username"], must_change_password=must_change)
+        refresh_token = create_refresh_token(user["id"], user["username"], must_change_password=must_change)
         return {
             "access_token": access_token,
             "refresh_token": refresh_token,
             "token_type": "bearer",
             "expires_in": settings.access_token_expire_minutes * 60,
+            "must_change_password": must_change,
         }
 
     def refresh(self, refresh_token: str) -> dict:
@@ -65,13 +68,15 @@ class AuthService:
         if not user or not user.get("is_active"):
             raise PermissionError("User not found or inactive")
 
-        new_access_token = create_access_token(user["id"], user["username"])
-        new_refresh_token = create_refresh_token(user["id"], user["username"])
+        must_change = user.get("must_change_password", False)
+        new_access_token = create_access_token(user["id"], user["username"], must_change_password=must_change)
+        new_refresh_token = create_refresh_token(user["id"], user["username"], must_change_password=must_change)
         return {
             "access_token": new_access_token,
             "refresh_token": new_refresh_token,
             "token_type": "bearer",
             "expires_in": settings.access_token_expire_minutes * 60,
+            "must_change_password": must_change,
         }
 
     def me(self, user_id: int) -> dict:
@@ -79,3 +84,14 @@ class AuthService:
         if not user:
             raise KeyError("User not found")
         return user
+
+    def change_password(self, user_id: int, current_password: str, new_password: str) -> None:
+        """Change user's password. Verifies current password and clears must_change_password flag."""
+        user = self._users.get_user_by_id(user_id)
+        if not user:
+            raise KeyError("User not found")
+        if not verify_password(current_password, user["hashed_password"]):
+            raise PermissionError("Incorrect current password")
+        new_hash = get_password_hash(new_password)
+        # Clear the must_change_password flag on successful change
+        self._users.update_user_password(user_id, new_hash, must_change_password=False)

@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.infrastructure.config import get_settings
-from app.api.models.user import UserCreate, UserLogin, User, Token, TokenData
+from app.api.models.user import UserCreate, UserLogin, User, Token, TokenData, PasswordChangeRequest
 from app.api.services.auth_service import (
     get_current_user,
 )
@@ -48,6 +48,7 @@ async def login(credentials: UserLogin):
         refresh_token=t["refresh_token"],
         token_type=t["token_type"],
         expires_in=t["expires_in"],
+        must_change_password=t.get("must_change_password", False),
     )
 
 
@@ -65,6 +66,7 @@ async def refresh_token(refresh_token: str):
         refresh_token=t["refresh_token"],
         token_type=t["token_type"],
         expires_in=t["expires_in"],
+        must_change_password=t.get("must_change_password", False),
     )
 
 
@@ -84,3 +86,19 @@ async def get_me(current_user: TokenData = Depends(get_current_user)):
         is_active=u.get("is_active", True),
         created_at=u["created_at"],
     )
+
+
+@router.post("/change-password")
+async def change_password(
+    request: PasswordChangeRequest,
+    current_user: TokenData = Depends(get_current_user)
+):
+    """Change the current user's password. Required if must_change_password flag is set."""
+    service = AuthService()
+    try:
+        service.change_password(current_user.user_id, request.current_password, request.new_password)
+    except PermissionError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except KeyError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    return {"detail": "Password changed successfully"}

@@ -42,6 +42,7 @@ class Token(BaseModel):
     refresh_token: str
     token_type: str = "bearer"
     expires_in: int  # seconds
+    must_change_password: bool = False
 
 
 class TokenData(BaseModel):
@@ -49,3 +50,10 @@ class TokenData(BaseModel):
     user_id: int
     username: str
     exp: datetime
+    must_change_password: bool = False
+
+
+class PasswordChangeRequest(BaseModel):
+    """Request to change password."""
+    current_password: str = Field(..., min_length=1, max_length=100)
+    new_password: str = Field(..., min_length=6, max_length=100)

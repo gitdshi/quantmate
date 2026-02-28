@@ -19,6 +19,7 @@ class UserRow:
     email: Optional[str]
     hashed_password: str
     is_active: bool
+    must_change_password: bool
     created_at: datetime
 
 
@@ -43,20 +44,21 @@ class UserDao:
             ).fetchone()
             return bool(row)
 
-    def insert_user(self, username: str, email: Optional[str], hashed_password: str, created_at: datetime) -> int:
+    def insert_user(self, username: str, email: Optional[str], hashed_password: str, created_at: datetime, must_change_password: bool = False) -> int:
         with connection("tradermate") as conn:
             from sqlalchemy import text
             result = conn.execute(
                 text(
                     """
-                    INSERT INTO users (username, email, hashed_password, is_active, created_at)
-                    VALUES (:username, :email, :hashed_password, 1, :created_at)
+                    INSERT INTO users (username, email, hashed_password, is_active, must_change_password, created_at)
+                    VALUES (:username, :email, :hashed_password, 1, :must_change_password, :created_at)
                     """
                 ),
                 {
                     "username": username,
                     "email": email,
                     "hashed_password": hashed_password,
+                    "must_change_password": must_change_password,
                     "created_at": created_at,
                 },
             )
@@ -67,7 +69,7 @@ class UserDao:
         with connection("tradermate") as conn:
             from sqlalchemy import text
             row = conn.execute(
-                text("SELECT id, username, hashed_password, is_active FROM users WHERE username = :u"),
+                text("SELECT id, username, hashed_password, is_active, must_change_password FROM users WHERE username = :u"),
                 {"u": username},
             ).fetchone()
             if not row:
@@ -77,13 +79,14 @@ class UserDao:
                 "username": row.username,
                 "hashed_password": row.hashed_password,
                 "is_active": bool(row.is_active),
+                "must_change_password": bool(row.must_change_password),
             }
 
     def get_user_by_id(self, user_id: int) -> Optional[dict]:
         with connection("tradermate") as conn:
             from sqlalchemy import text
             row = conn.execute(
-                text("SELECT id, username, email, is_active, created_at FROM users WHERE id = :uid"),
+                text("SELECT id, username, email, is_active, must_change_password, created_at FROM users WHERE id = :uid"),
                 {"uid": user_id},
             ).fetchone()
             if not row:
@@ -93,5 +96,22 @@ class UserDao:
                 "username": row.username,
                 "email": row.email,
                 "is_active": bool(row.is_active),
+                "must_change_password": bool(row.must_change_password),
                 "created_at": row.created_at,
             }
+
+    def update_user_password(self, user_id: int, new_hashed_password: str, must_change_password: bool = False) -> None:
+        """Update user's password and optionally reset must_change_password flag."""
+        with connection("tradermate") as conn:
+            from sqlalchemy import text
+            conn.execute(
+                text(
+                    """
+                    UPDATE users
+                    SET hashed_password = :pwd, must_change_password = :mcp, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = :uid
+                    """
+                ),
+                {"pwd": new_hashed_password, "mcp": must_change_password, "uid": user_id},
+            )
+            conn.commit()

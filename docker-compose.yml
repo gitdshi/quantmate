@@ -94,8 +94,8 @@ services:
       - MYSQL_PORT=3306
       - MYSQL_USER=root
       - MYSQL_PASSWORD=${MYSQL_PASSWORD}
-      - TUSHARE_DATABASE_URL=mysql+pymysql://root:password@mysql:3306/tushare?charset=utf8mb4
-      - VNPY_DATABASE_URL=mysql+pymysql://root:password@mysql:3306/vnpy?charset=utf8mb4
+      - TUSHARE_DATABASE_URL=mysql+pymysql://root:${MYSQL_PASSWORD}@mysql:3306/tushare?charset=utf8mb4
+      - VNPY_DATABASE_URL=mysql+pymysql://root:${MYSQL_PASSWORD}@mysql:3306/vnpy?charset=utf8mb4
     networks:
       - tradermate_network
 
@@ -114,7 +114,7 @@ services:
     networks:
       - tradermate_network
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-ppassword"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
       interval: 10s
       timeout: 5s
       retries: 5

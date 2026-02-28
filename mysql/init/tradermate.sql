@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS users (
     email VARCHAR(100) UNIQUE,
     hashed_password VARCHAR(255) NOT NULL,
     is_active BOOLEAN DEFAULT TRUE,
+    must_change_password BOOLEAN DEFAULT FALSE NOT NULL,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_username (username),
@@ -158,19 +159,6 @@ CREATE TABLE IF NOT EXISTS strategy_history (
     FOREIGN KEY (strategy_id) REFERENCES strategies(id) ON DELETE CASCADE,
     INDEX idx_strategy_id (strategy_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='History snapshots for DB strategy code';
-
--- -----------------------------------------------------------------------------
--- Insert default test user (password: admin123)
--- Password hash generated with bcrypt for 'admin123'
--- -----------------------------------------------------------------------------
-INSERT INTO users (username, email, hashed_password, is_active, created_at) 
-VALUES (
-    'admin', 
-    'admin@tradermate.local', 
-    '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5GyYqVvmvhxKe',
-    TRUE,
-    NOW()
-) ON DUPLICATE KEY UPDATE username=username;
 
 -- -----------------------------------------------------------------------------
 -- Create indexes for query optimization
