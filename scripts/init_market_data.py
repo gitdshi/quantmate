@@ -118,7 +118,8 @@ def apply_schema_files() -> None:
             statements = split_sql_statements(sql_text)
             for stmt in statements:
                 try:
-                    conn.exec_driver_sql(stmt)
+                    # Use SQLAlchemy text() execute to avoid DBAPI string-formatting issues
+                    conn.execute(text(stmt))
                 except Exception as e:
                     msg = str(e)
                     # Ignore duplicate-index errors when applying schema repeatedly
