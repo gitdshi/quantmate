@@ -157,7 +157,7 @@ app.include_router(system.router, prefix="/api")
 app.include_router(strategy_code.router, prefix="/api")
 
 
-@app.get("/")
+@app.get("/", dependencies=[])
 async def root():
     """Root endpoint."""
     return {
@@ -168,7 +168,7 @@ async def root():
     }
 
 
-@app.get("/health")
+@app.get("/health", dependencies=[])
 async def health():
     """Health check endpoint with database and Redis connectivity checks."""
     from sqlalchemy import text
