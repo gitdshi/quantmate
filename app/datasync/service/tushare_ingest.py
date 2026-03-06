@@ -2,6 +2,8 @@ import os
 import json
 import time
 import logging
+import random
+import re
 import pandas as pd
 import tushare as ts
 import numpy as np
@@ -70,6 +72,43 @@ def _min_interval_for(api_name: str) -> float:
     return 60.0 / max(1, int(calls))
 
 
+def parse_retry_after(error_msg: str):
+    """Parse retry wait time (seconds) from Tushare error text."""
+    if not error_msg:
+        return None
+
+    text_msg = str(error_msg).lower()
+    patterns = [
+        (r"retry\s*after\s*(\d+(?:\.\d+)?)\s*(seconds?|secs?|s)\b", 1.0),
+        (r"(\d+(?:\.\d+)?)\s*(seconds?|secs?|s)\b", 1.0),
+        (r"(\d+(?:\.\d+)?)\s*(minutes?|mins?|m)\b", 60.0),
+        (r"(\d+(?:\.\d+)?)\s*(milliseconds?|ms)\b", 0.001),
+        (r"(\d+(?:\.\d+)?)\s*秒", 1.0),
+        (r"(\d+(?:\.\d+)?)\s*分钟", 60.0),
+    ]
+    for pattern, factor in patterns:
+        match = re.search(pattern, text_msg)
+        if match:
+            try:
+                return float(match.group(1)) * factor
+            except Exception:
+                return None
+    return None
+
+
+def _is_rate_limit_error(error_msg: str) -> bool:
+    msg = (error_msg or '').lower()
+    tokens = [
+        'rate limit',
+        'too many requests',
+        '每分钟最多访问',
+        '接口访问太频繁',
+        '后重试',
+        '频率',
+    ]
+    return any(token in msg for token in tokens)
+
+
 def call_pro(api_name: str, max_retries: int = None, backoff_base: int = 5, **kwargs):
     """Wrapper around `pro.<api_name>(**kwargs)` that enforces a simple per-minute rate limit
     (spacing calls by at least `_MIN_INTERVAL`) and retries on transient errors including
@@ -130,8 +169,21 @@ def call_pro(api_name: str, max_retries: int = None, backoff_base: int = 5, **kw
             if attempt >= max_retries:
                 logging.error('call_pro %s exhausted retries', api_name)
                 raise
-            to_sleep = backoff_base * attempt
-            logging.info('Sleeping %.1fs before retrying %s (attempt %d)', to_sleep, api_name, attempt)
+            parsed_wait = parse_retry_after(str(e))
+            if _is_rate_limit_error(str(e)) and parsed_wait is not None:
+                jitter = random.uniform(0.2, 1.0)
+                to_sleep = parsed_wait + jitter
+                logging.info(
+                    'Rate limit hit for %s, sleeping %.1fs (parsed=%.1fs + jitter=%.1fs) before retry %d',
+                    api_name,
+                    to_sleep,
+                    parsed_wait,
+                    jitter,
+                    attempt,
+                )
+            else:
+                to_sleep = backoff_base * (2 ** max(0, attempt - 1))
+                logging.info('Sleeping %.1fs before retrying %s (attempt %d)', to_sleep, api_name, attempt)
             time.sleep(to_sleep)
 
 
@@ -425,7 +477,14 @@ def _fetch_existing_keys(table: str, key_date_col: str, start_date, end_date):
     return dao_fetch_existing_keys(table, key_date_col, start_date, end_date)
 
 
-def ingest_dividend_by_date_range(start_date: str, end_date: str, batch_size: int = None, sleep_between: float = 0.5):
+def ingest_dividend_by_date_range(
+    start_date: str,
+    end_date: str,
+    batch_size: int = None,
+    sleep_between: float = 0.5,
+    progress_cb=None,
+    start_after_ts_code: str = None,
+):
     """Fetch `dividend` for all symbols for a given date range and insert only missing rows.
 
     start_date/end_date: 'YYYY-MM-DD' or 'YYYYMMDD' accepted. Will query DB for existing ann_date.
@@ -446,11 +505,18 @@ def ingest_dividend_by_date_range(start_date: str, end_date: str, batch_size: in
     logging.info('Starting dividend date-range ingest for %s - %s (symbols=%d)', s_norm, e_norm, total)
 
     # DB writes delegated to DAO upsert_dividend_df
+    skip_until_found = bool(start_after_ts_code)
 
     for i in range(0, total, batch_size):
         chunk = ts_codes[i:i+batch_size]
         for ts_code in chunk:
+            if skip_until_found:
+                if ts_code == start_after_ts_code:
+                    skip_until_found = False
+                continue
             try:
+                if progress_cb:
+                    progress_cb(ts_code=ts_code, cursor_date=e_norm)
                 df = call_pro('dividend', ts_code=ts_code, start_date=s_norm.replace('-', ''), end_date=e_norm.replace('-', ''))
                 if df is None or df.empty:
                     continue
@@ -503,7 +569,14 @@ def ingest_dividend_by_date_range(start_date: str, end_date: str, batch_size: in
             time.sleep(sleep_between)
 
 
-def ingest_top10_holders_by_date_range(start_date: str, end_date: str, batch_size: int = None, sleep_between: float = 0.5):
+def ingest_top10_holders_by_date_range(
+    start_date: str,
+    end_date: str,
+    batch_size: int = None,
+    sleep_between: float = 0.5,
+    progress_cb=None,
+    start_after_ts_code: str = None,
+):
     batch_size = batch_size or int(os.getenv('BATCH_SIZE', '100'))
     try:
         s_norm = pd.to_datetime(start_date).date().isoformat()
@@ -518,11 +591,18 @@ def ingest_top10_holders_by_date_range(start_date: str, end_date: str, batch_siz
     logging.info('Starting top10_holders date-range ingest for %s - %s (symbols=%d)', s_norm, e_norm, total)
 
     # DB writes delegated to DAO upsert_top10_holders
+    skip_until_found = bool(start_after_ts_code)
 
     for i in range(0, total, batch_size):
         chunk = ts_codes[i:i+batch_size]
         for ts_code in chunk:
+            if skip_until_found:
+                if ts_code == start_after_ts_code:
+                    skip_until_found = False
+                continue
             try:
+                if progress_cb:
+                    progress_cb(ts_code=ts_code, cursor_date=e_norm)
                 df = call_pro('top10_holders', ts_code=ts_code, start_date=s_norm.replace('-', ''), end_date=e_norm.replace('-', ''))
                 if df is None or df.empty:
                     continue
@@ -553,7 +633,14 @@ def ingest_top10_holders_by_date_range(start_date: str, end_date: str, batch_siz
             time.sleep(sleep_between)
 
 
-def ingest_adj_factor_by_date_range(start_date: str, end_date: str, batch_size: int = None, sleep_between: float = 0.5):
+def ingest_adj_factor_by_date_range(
+    start_date: str,
+    end_date: str,
+    batch_size: int = None,
+    sleep_between: float = 0.5,
+    progress_cb=None,
+    start_after_ts_code: str = None,
+):
     batch_size = batch_size or int(os.getenv('BATCH_SIZE', '100'))
     try:
         s_norm = pd.to_datetime(start_date).date().isoformat()
@@ -568,11 +655,18 @@ def ingest_adj_factor_by_date_range(start_date: str, end_date: str, batch_size: 
     logging.info('Starting adj_factor date-range ingest for %s - %s (symbols=%d)', s_norm, e_norm, total)
 
     # DB writes delegated to DAO upsert_adj_factor
+    skip_until_found = bool(start_after_ts_code)
 
     for i in range(0, total, batch_size):
         chunk = ts_codes[i:i+batch_size]
         for ts_code in chunk:
+            if skip_until_found:
+                if ts_code == start_after_ts_code:
+                    skip_until_found = False
+                continue
             try:
+                if progress_cb:
+                    progress_cb(ts_code=ts_code, cursor_date=e_norm)
                 df = call_pro('adj_factor', ts_code=ts_code, start_date=s_norm.replace('-', ''), end_date=e_norm.replace('-', ''))
                 if df is None or df.empty:
                     continue
@@ -605,7 +699,13 @@ def get_max_trade_date(ts_code):
     return dao_get_max_trade_date(ts_code)
 
 
-def ingest_all_daily(batch_size:int=None, sleep_between:float=0.2, force_full_per_stock: bool = False):
+def ingest_all_daily(
+    batch_size: int = None,
+    sleep_between: float = 0.2,
+    force_full_per_stock: bool = False,
+    progress_cb=None,
+    start_after_ts_code: str = None,
+):
     """Bulk ingest daily for all ts_code in stock_basic.
 
     - batch_size: number of symbols to process per loop iteration (uses env BATCH_SIZE if None)
@@ -617,11 +717,18 @@ def ingest_all_daily(batch_size:int=None, sleep_between:float=0.2, force_full_pe
     ts_codes = get_all_ts_codes()
     total = len(ts_codes)
     logging.info('Starting bulk daily ingest for %d symbols (batch_size=%d)', total, batch_size)
+    skip_until_found = bool(start_after_ts_code)
 
     for i in range(0, total, batch_size):
         chunk = ts_codes[i:i+batch_size]
         logging.info('Processing chunk %d - %d', i+1, i+len(chunk))
         for ts_code in chunk:
+            if skip_until_found:
+                if ts_code == start_after_ts_code:
+                    skip_until_found = False
+                continue
+            if progress_cb:
+                progress_cb(ts_code=ts_code)
             # determine resume point
             last_date = None if force_full_per_stock else get_max_trade_date(ts_code)
             # If we have a last_date in DB, fetch only missing days (existing behavior)
