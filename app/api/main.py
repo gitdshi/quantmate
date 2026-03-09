@@ -32,7 +32,7 @@ from app.api.services.auth_service import get_password_hash
 
 settings = get_settings()
 
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 async def ensure_password_changed(
     request: Request,

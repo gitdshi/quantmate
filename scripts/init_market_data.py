@@ -181,9 +181,13 @@ def should_run_phase(current_progress: dict | None, phase: str, resume: bool) ->
         return True
     saved_phase = current_progress.get('phase') or ''
     saved_status = current_progress.get('status') or ''
-    if saved_status == 'completed':
+    saved_rank = phase_rank(saved_phase)
+    current_rank = phase_rank(phase)
+    # If the phase in question is the saved phase and it's already completed, skip it
+    if phase == saved_phase and saved_status == 'completed':
         return False
-    return phase_rank(phase) >= phase_rank(saved_phase)
+    # Otherwise run if this phase comes after the saved phase (or if saved phase not found)
+    return current_rank >= max(saved_rank, 0)
 
 
 def apply_schema_files() -> None:

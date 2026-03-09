@@ -57,7 +57,10 @@ def test_valid_env_loading():
     finally:
         for k in test_env:
             if k in original_env:
-                os.environ[k] = original_env[k] if original_env[k] is not None else None
+                if original_env[k] is not None:
+                    os.environ[k] = original_env[k]
+                else:
+                    os.environ.pop(k, None)
             elif k in os.environ:
                 del os.environ[k]
 

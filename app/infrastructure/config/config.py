@@ -38,8 +38,11 @@ class Settings(BaseSettings):
 
     cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"]
 
-    max_concurrent_backtests: int = 4
-    backtest_timeout_seconds: int = 600
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="ignore",
+        env_parse_json=True,  # Enable JSON parsing for list fields
+    )
 
     @property
     def mysql_url(self) -> str:

@@ -157,20 +157,21 @@ init_data() {
     init_args+=("--skip-schema")
   fi
 
-  echo "Starting DataSync initialization sequence..."
+  echo "Starting DataSync initialization sequence in background..."
   echo "  start_date=${start_date} lookback_years=${lookback_years} lookback_days=${lookback_days}"
   echo "  logs: $OUT_FILE"
 
-  echo "[1/3] Initialize market data (tushare/akshare/vnpy)..."
-  PYTHONPATH=. "$VENV_PY" -u scripts/init_market_data.py "${init_args[@]}" >>"$OUT_FILE" 2>&1
+  (
+    echo "[1/3] Initialize market data (tushare/akshare/vnpy)..."
+    PYTHONPATH=. "$VENV_PY" -u scripts/init_market_data.py "${init_args[@]}" >>"$OUT_FILE" 2>&1
+    echo "[2/3] Initialize sync status table..."
+    PYTHONPATH=. "$VENV_PY" -u -m app.datasync.service.data_sync_daemon --init --lookback-years "$lookback_years" >>"$OUT_FILE" 2>&1
+    echo "[3/3] Run historical backfill pass..."
+    PYTHONPATH=. "$VENV_PY" -u -m app.datasync.service.data_sync_daemon --backfill --lookback-days "$lookback_days" >>"$OUT_FILE" 2>&1
+    echo "Initialization sequence complete"
+  ) &
 
-  echo "[2/3] Initialize sync status table..."
-  PYTHONPATH=. "$VENV_PY" -u -m app.datasync.service.data_sync_daemon --init --lookback-years "$lookback_years" >>"$OUT_FILE" 2>&1
-
-  echo "[3/3] Run historical backfill pass..."
-  PYTHONPATH=. "$VENV_PY" -u -m app.datasync.service.data_sync_daemon --backfill --lookback-days "$lookback_days" >>"$OUT_FILE" 2>&1
-
-  echo "Initialization sequence complete"
+  echo "DataSync init started in background (PID $!)"
 }
 
 status() {
