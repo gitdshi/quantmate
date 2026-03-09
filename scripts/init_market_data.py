@@ -33,6 +33,14 @@ from app.datasync.service.vnpy_ingest import sync_all_to_vnpy
 from app.datasync.service.data_sync_daemon import initialize_sync_status_table
 from app.infrastructure.config import get_settings
 
+# Metrics integration for backfill lock status
+try:
+    from app.datasync.metrics import set_backfill_lock_status
+    _has_metrics = True
+except Exception:
+    _has_metrics = False
+    set_backfill_lock_status = None
+
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -129,9 +137,17 @@ def load_progress() -> dict | None:
         "SELECT phase, cursor_ts_code, cursor_date, status, error, updated_at "
         "FROM init_progress WHERE id = :id"
     )
-    with engine.connect() as conn:
-        row = conn.execute(sql, {'id': PROGRESS_ID}).mappings().first()
-    return dict(row) if row else None
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(sql, {'id': PROGRESS_ID}).mappings().first()
+        if _has_metrics and set_backfill_lock_status:
+            set_backfill_lock_status(True)
+        return dict(row) if row else None
+    except Exception as e:
+        if _has_metrics and set_backfill_lock_status:
+            set_backfill_lock_status(False)
+        logger.error("Failed to load progress: %s", e)
+        raise
 
 
 def save_progress(phase: str, status: str, cursor_ts_code: str | None = None, cursor_date: str | None = None, error: str | None = None) -> None:
@@ -149,18 +165,26 @@ def save_progress(phase: str, status: str, cursor_ts_code: str | None = None, cu
             updated_at = CURRENT_TIMESTAMP
         """
     )
-    with engine.begin() as conn:
-        conn.execute(
-            upsert,
-            {
-                'id': PROGRESS_ID,
-                'phase': phase,
-                'cursor_ts_code': cursor_ts_code,
-                'cursor_date': cursor_date,
-                'status': status,
-                'error': error,
-            },
-        )
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                upsert,
+                {
+                    'id': PROGRESS_ID,
+                    'phase': phase,
+                    'cursor_ts_code': cursor_ts_code,
+                    'cursor_date': cursor_date,
+                    'status': status,
+                    'error': error,
+                },
+            )
+        if _has_metrics and set_backfill_lock_status:
+            set_backfill_lock_status(True)
+    except Exception as e:
+        if _has_metrics and set_backfill_lock_status:
+            set_backfill_lock_status(False)
+        logger.error("Failed to save progress: %s", e)
+        raise
 
 
 def reset_progress() -> None:

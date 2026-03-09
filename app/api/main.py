@@ -225,6 +225,14 @@ async def api_info():
     }
 
 
+@app.get("/metrics")
+async def metrics():
+    """Prometheus metrics endpoint."""
+    from app.datasync.metrics import get_metrics
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse(content=get_metrics(), media_type="text/plain; version=0.0.4")
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(

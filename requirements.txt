@@ -99,3 +99,6 @@ akshare>=1.18.0
 
 # File-sync helper
 watchdog>=2.1.0
+
+# Monitoring
+prometheus-client>=0.21.0

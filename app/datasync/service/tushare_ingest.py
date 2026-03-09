@@ -835,6 +835,15 @@ def retry_failed_daily(limit:int=None):
             logging.exception('Retry failed for %s: %s', ts, e)
 
 
+# Initialize metrics on module import (only in production/dev, safe to always call)
+try:
+    from app.datasync.metrics import init_metrics
+    init_metrics()
+except Exception as e:
+    # Log but don't fail import if metrics not available
+    logging.warning('Metrics initialization failed: %s', e)
+
+
 if __name__ == '__main__':
     # simple CLI: ingest daily for a sample ts_code
     if os.getenv('INGEST_STOCK_BASIC'):
