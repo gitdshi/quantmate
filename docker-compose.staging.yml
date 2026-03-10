@@ -1,0 +1,141 @@
+# TraderMate Staging 环境 Docker Compose 配置
+# 使用方法: docker-compose -f docker-compose.yml -f docker-compose.staging.yml up -d
+
+version: '3.8'
+
+services:
+  # TraderMate API Service (Staging 配置)
+  api:
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      # App Settings
+      - APP_NAME=TraderMate
+      - APP_VERSION=1.0.0
+      - DEBUG=false              # Staging 禁用调试模式
+      - APP_ENV=staging
+      # MySQL Settings (使用专用用户)
+      - MYSQL_HOST=${MYSQL_HOST}
+      - MYSQL_PORT=3306
+      - MYSQL_USER=${MYSQL_USER:-tradermate}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - TUSHARE_DATABASE=tushare
+      - VNPY_DATABASE=vnpy
+      - TUSHARE_DATABASE_URL=mysql+pymysql://${MYSQL_USER:-tradermate}:${MYSQL_PASSWORD}@${MYSQL_HOST}:${MYSQL_PORT:-3306}/tushare?charset=utf8mb4
+      - VNPY_DATABASE_URL=mysql+pymysql://${MYSQL_USER:-tradermate}:${MYSQL_PASSWORD}@${MYSQL_HOST}:${MYSQL_PORT:-3306}/vnpy?charset=utf8mb4
+      - TUSHARE_TOKEN=${TUSHARE_TOKEN}
+      # Redis Settings
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      # JWT Settings
+      - SECRET_KEY=${SECRET_KEY}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - ADMIN_EMAIL=${ADMIN_EMAIL}
+      - JWT_SECRET_KEY=${SECRET_KEY}
+      - JWT_ALGORITHM=HS256
+      - ACCESS_TOKEN_EXPIRE_MINUTES=30
+      - REFRESH_TOKEN_EXPIRE_DAYS=7
+      # CORS Settings (Staging 允许测试域名)
+      - CORS_ORIGINS=["http://localhost:5173","http://localhost:3000","http://127.0.0.1:5173"]
+    ports:
+      - "8000:8000"  # Staging 暴露端口便于测试
+    volumes:
+      - ./app:/app/app:ro
+      - ./logs:/app/logs:ro
+    networks:
+      - tradermate_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Background Worker Service
+  worker:
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - MYSQL_HOST=${MYSQL_HOST}
+      - MYSQL_PORT=3306
+      - MYSQL_USER=${MYSQL_USER:-tradermate}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - TUSHARE_DATABASE=tushare
+      - VNPY_DATABASE=vnpy
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - DEBUG=false
+    command: ["rq", "worker", "--url", "redis://redis:6379", "backtest", "optimization"]
+    volumes:
+      - ./app:/app/app:ro
+      - ./logs:/app/logs:ro
+    networks:
+      - tradermate_network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: tradermate_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --save 60 1 --loglevel warning
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    ports:
+      - "6379:6379"  # Staging 暴露端口便于本地连接测试
+    volumes:
+      - redis_data:/data
+    networks:
+      - tradermate_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+
+  # Frontend (使用开发构建，Staging 不需要生产镜像)
+  portal:
+    build:
+      context: ../tradermate-portal
+      dockerfile: Dockerfile
+    container_name: tradermate_portal
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    networks:
+      - tradermate_network
+
+
+  # Nginx reverse proxy (single entrypoint for cloudflared)
+  nginx:
+    image: nginx:stable-alpine
+    container_name: tradermate_nginx
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+      portal:
+        condition: service_started
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/staging.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - tradermate_network
+
+volumes:
+  mysql_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  tradermate_network:
+    driver: bridge
+

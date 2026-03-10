@@ -5,6 +5,8 @@ github
 .DS_Store
 mysql/data
 .env
+.env.staging
+.env.test
 
 # Data sync daemon (removed)
 *.log
