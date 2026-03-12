@@ -71,9 +71,17 @@ def metrics_hook(api_name: str, success: bool, duration: float, rows: int, error
 
 
 def init_metrics():
-    """Initialize metrics for datasync. Call this once at module import to register hooks."""
+    """Initialize metrics for datasync.
+
+    Note: Prometheus Gauges default to 0. If we don't set an initial value,
+    alert rules like `datasync_backfill_lock_status == 0` can fire even before
+    any lock check runs.
+    """
     from app.datasync.service.tushare_ingest import set_metrics_hook
     set_metrics_hook(metrics_hook)
+
+    # Mark as healthy by default; subsequent lock operations should flip this to 0 on real failures.
+    set_backfill_lock_status(True)
 
 
 def set_backfill_lock_status(healthy: bool):

@@ -6,6 +6,9 @@ from typing import Dict, Any, Optional
 import traceback
 import numpy as np
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Ensure project root is importable
 ROOT = Path(__file__).resolve().parents[3]
@@ -67,7 +70,7 @@ def get_benchmark_data_for_worker(start_date: str, end_date: str, benchmark_symb
         end_dt = datetime.strptime(end_date, "%Y-%m-%d").date() if isinstance(end_date, str) else end_date
         return AkshareBenchmarkDao().get_benchmark_data(start=start_dt, end=end_dt, benchmark_symbol=benchmark_symbol)
     except Exception as e:
-        print(f"[Worker] Error fetching benchmark data: {e}")
+        logger.exception("[worker] Error fetching benchmark data: %s", e)
         return None
 
 
@@ -118,9 +121,9 @@ def save_backtest_to_db(job_id: str, user_id: int, strategy_id: Optional[int],
             created_at=now,
             completed_at=now if status in ["completed", "failed"] else None,
         )
-        print(f"[Worker] Saved backtest {job_id} to database")
+        logger.info("[worker] Saved backtest %s to database", job_id)
     except Exception as e:
-        print(f"[Worker] Error saving to database: {e}")
+        logger.exception("[worker] Error saving backtest to database: %s", e)
 
 
 def run_backtest_task(
@@ -169,8 +172,8 @@ def run_backtest_task(
         # Convert symbol to VNPy format
         vnpy_symbol = convert_to_vnpy_symbol(symbol)
         
-        print(f"[Worker] Starting backtest job {job_id}")
-        print(f"[Worker] Strategy: {strategy_class_name}, Symbol: {symbol} -> {vnpy_symbol}")
+        logger.info("[worker] Starting backtest job %s", job_id)
+        logger.info("[worker] Strategy=%s Symbol=%s -> %s", strategy_class_name, symbol, vnpy_symbol)
         
         # Load strategy class
         # Jobs MUST include the strategy. If `strategy_code` is provided, compile it.
@@ -221,15 +224,15 @@ def run_backtest_task(
             engine.add_strategy(strategy_class, {})
         
         # Load data
-        print(f"[Worker] Loading data for {symbol}...")
+        logger.info("[worker] Loading data for %s...", symbol)
         engine.load_data()
-        
+
         # Run backtest
-        print(f"[Worker] Running backtest...")
+        logger.info("[worker] Running backtest...")
         engine.run_backtesting()
-        
+
         # Calculate results
-        print(f"[Worker] Calculating results...")
+        logger.info("[worker] Calculating results...")
         df = engine.calculate_result()
         statistics = engine.calculate_statistics()
         
@@ -362,13 +365,12 @@ def run_backtest_task(
         job_storage.update_job_status(job_id, "finished")
         job_storage.save_result(job_id, result)
         
-        print(f"[Worker] Backtest job {job_id} completed successfully")
+        logger.info("[worker] Backtest job %s completed successfully", job_id)
         return result
         
     except Exception as e:
         error_msg = f"Backtest failed: {str(e)}"
-        print(f"[Worker] ERROR: {error_msg}")
-        traceback.print_exc()
+        logger.exception("[worker] %s", error_msg)
         
         # Update job storage with error
         try:
@@ -451,8 +453,8 @@ def run_bulk_backtest_task(
     best_symbol_name = None
 
     try:
-        print(f"[Worker] Starting bulk backtest job {job_id}")
-        print(f"[Worker] Strategy: {strategy_class_name}, Symbols: {total}")
+        logger.info("[worker] Starting bulk backtest job %s", job_id)
+        logger.info("[worker] Strategy=%s Symbols=%s", strategy_class_name, total)
         job_storage.update_job_status(job_id, "started")
 
         # Read strategy_version from parent metadata
@@ -468,7 +470,7 @@ def run_bulk_backtest_task(
         for idx, symbol in enumerate(symbols):
             child_job_id = f"{job_id}__{symbol}"
             try:
-                print(f"[Worker] [{idx+1}/{total}] Processing {symbol}...")
+                logger.info("[worker] [%s/%s] Processing %s...", idx + 1, total, symbol)
                 # Pass user_id=None so run_backtest_task does NOT save its own DB row;
                 # we save the child row ourselves via _save_bulk_child with the bulk_job_id link.
                 result = run_backtest_task(
@@ -510,7 +512,7 @@ def run_bulk_backtest_task(
                                  child_status, result, result.get("error"))
 
             except Exception as e:
-                print(f"[Worker] Error processing {symbol}: {e}")
+                logger.exception("[worker] Error processing %s: %s", symbol, e)
                 failed_count += 1
                 _save_bulk_child(child_job_id, job_id, user_id, strategy_id,
                                  strategy_class_name, _strategy_version,
@@ -544,13 +546,12 @@ def run_bulk_backtest_task(
         # Mark DB row completed
         _finish_bulk_row(job_id, "completed", best_return, best_symbol, best_symbol_name, total)
 
-        print(f"[Worker] Bulk backtest {job_id} done: {successful} ok, {failed_count} failed")
+        logger.info("[worker] Bulk backtest %s done: %s ok, %s failed", job_id, successful, failed_count)
         return summary
 
     except Exception as e:
         error_msg = f"Bulk backtest failed: {str(e)}"
-        print(f"[Worker] ERROR: {error_msg}")
-        traceback.print_exc()
+        logger.exception("[worker] %s", error_msg)
         try:
             job_storage.update_job_status(job_id, "failed", error=error_msg)
         except Exception:
@@ -592,7 +593,7 @@ def _save_bulk_child(child_job_id, bulk_job_id, user_id, strategy_id,
             completed_at=now if status in ("completed", "failed") else None,
         )
     except Exception as e:
-        print(f"[Worker] Error saving bulk child {child_job_id}: {e}")
+        logger.exception("[worker] Error saving bulk child %s: %s", child_job_id, e)
 
 
 def _update_bulk_row(job_id, completed_count, best_return, best_symbol, best_symbol_name=None):
@@ -600,7 +601,7 @@ def _update_bulk_row(job_id, completed_count, best_return, best_symbol, best_sym
     try:
         BulkBacktestDao().update_progress(job_id, completed_count, best_return, best_symbol, best_symbol_name)
     except Exception as e:
-        print(f"[Worker] Error updating bulk row: {e}")
+        logger.exception("[worker] Error updating bulk row: %s", e)
 
 
 def _finish_bulk_row(job_id, status, best_return, best_symbol, best_symbol_name, completed_count):
@@ -616,7 +617,7 @@ def _finish_bulk_row(job_id, status, best_return, best_symbol, best_symbol_name,
             best_symbol_name,
         )
     except Exception as e:
-        print(f"[Worker] Error finishing bulk row: {e}")
+        logger.exception("[worker] Error finishing bulk row: %s", e)
 
 
 def run_optimization_task(
@@ -654,8 +655,8 @@ def run_optimization_task(
         Dict with optimization results
     """
     try:
-        print(f"[Worker] Starting optimization job {job_id}")
-        print(f"[Worker] Strategy: {strategy_class_name}, Symbol: {symbol}")
+        logger.info("[worker] Starting optimization job %s", job_id)
+        logger.info("[worker] Strategy=%s Symbol=%s", strategy_class_name, symbol)
         
         # Load strategy class
         if strategy_code:
@@ -691,11 +692,11 @@ def run_optimization_task(
         engine.add_strategy(strategy_class, {})
         
         # Load data
-        print(f"[Worker] Loading data for {symbol}...")
+        logger.info("[worker] Loading data for %s...", symbol)
         engine.load_data()
-        
+
         # Run optimization
-        print(f"[Worker] Running optimization...")
+        logger.info("[worker] Running optimization...")
         optimization_result = engine.run_ga_optimization(
             optimization_setting=optimization_settings,
             max_workers=4  # Use 4 worker processes
@@ -730,8 +731,7 @@ def run_optimization_task(
         
     except Exception as e:
         error_msg = f"Optimization failed: {str(e)}"
-        print(f"[Worker] ERROR: {error_msg}")
-        traceback.print_exc()
+        logger.exception("[worker] %s", error_msg)
         
         return {
             "job_id": job_id,

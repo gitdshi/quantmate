@@ -22,6 +22,7 @@ __pycache__/
 env/
 venv/
 .venv/
+test_venv/
 pip-log.txt
 pip-delete-this-directory.txt
 .coverage

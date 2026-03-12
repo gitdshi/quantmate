@@ -11,6 +11,9 @@ import sys
 from pathlib import Path
 import numpy as np
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Ensure project root is importable
 ROOT = Path(__file__).resolve().parents[3]
@@ -58,16 +61,16 @@ def calculate_alpha_beta(strategy_returns: np.ndarray, benchmark_returns: np.nda
 def get_benchmark_data(start_date: date, end_date: date, benchmark_symbol: str = "399300.SZ") -> Optional[Dict]:
     try:
         return AkshareBenchmarkDao().get_benchmark_data(start=start_date, end=end_date, benchmark_symbol=benchmark_symbol)
-    except Exception as e:
-        print(f"Error fetching benchmark data: {e}")
+    except Exception:
+        logger.exception("Error fetching benchmark data")
         return None
 
 
 def get_stock_name(ts_code: str) -> Optional[str]:
     try:
         return MarketService().resolve_symbol_name(ts_code) or None
-    except Exception as e:
-        print(f"Error fetching stock name: {e}")
+    except Exception:
+        logger.exception("Error fetching stock name for ts_code=%s", ts_code)
         return None
 
 
@@ -194,8 +197,8 @@ class BacktestServiceV2:
                 total_symbols=len(symbols),
                 created_at=datetime.now(),
             )
-        except Exception as e:
-            print(f"[Service] Error inserting bulk_backtest row: {e}")
+        except Exception:
+            logger.exception("[Service] Error inserting bulk_backtest row")
 
         queue = get_queue('backtest')
         queue.enqueue(
@@ -371,8 +374,8 @@ class BacktestServiceV2:
                 "parameters": params,
                 "bulk_job_id": row.get("bulk_job_id"),
             }
-        except Exception as e:
-            print(f"[Service] Error loading child job {job_id} from DB: {e}")
+        except Exception:
+            logger.exception("[Service] Error loading child job %s from DB", job_id)
             return None
 
 

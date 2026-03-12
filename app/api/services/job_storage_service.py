@@ -5,6 +5,7 @@ Renamed from `job_storage.py` to follow `{domain}_service.py` convention.
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 import json
+import logging
 from redis import Redis
 from rq.job import Job
 from rq import Queue
@@ -12,6 +13,8 @@ from rq import Queue
 from app.infrastructure.config import get_settings
 
 settings = get_settings()
+
+logger = logging.getLogger(__name__)
 
 
 class JobStorage:
@@ -105,8 +108,8 @@ class JobStorage:
                 self.update_job_status(job_id, 'cancelled')
                 return True
             return False
-        except Exception as e:
-            print(f"Error cancelling job {job_id}: {e}")
+        except Exception:
+            logger.exception("Error cancelling job %s", job_id)
             return False
     
     def cleanup_old_jobs(self, days: int = 7) -> int:
