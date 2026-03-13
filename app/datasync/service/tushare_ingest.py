@@ -10,11 +10,7 @@ import numpy as np
 
 logging.basicConfig(level=logging.INFO)
 
-# Tushare data is stored in the tushare database
-# Must be provided via TUSHARE_DATABASE_URL environment variable
-TUSHARE_DB_URL = os.getenv('TUSHARE_DATABASE_URL')
-if not TUSHARE_DB_URL:
-    raise ValueError("TUSHARE_DATABASE_URL must be set")
+# DB engine is provided by DAO helpers backed by infrastructure connections.
 TS_TOKEN = os.getenv('TUSHARE_TOKEN', '')
 
 # Use engine from tushare DAO
@@ -705,6 +701,8 @@ def ingest_all_daily(
     force_full_per_stock: bool = False,
     progress_cb=None,
     start_after_ts_code: str = None,
+    start_date: str = None,
+    end_date: str = None,
 ):
     """Bulk ingest daily for all ts_code in stock_basic.
 
@@ -718,6 +716,20 @@ def ingest_all_daily(
     total = len(ts_codes)
     logging.info('Starting bulk daily ingest for %d symbols (batch_size=%d)', total, batch_size)
     skip_until_found = bool(start_after_ts_code)
+    min_start_date = None
+    min_start_date_norm = None
+    end_date_norm = None
+    if start_date:
+        try:
+            min_start_date = pd.to_datetime(start_date).date()
+            min_start_date_norm = min_start_date.strftime('%Y%m%d')
+        except Exception:
+            min_start_date_norm = start_date.replace('-', '')
+    if end_date:
+        try:
+            end_date_norm = pd.to_datetime(end_date).date().strftime('%Y%m%d')
+        except Exception:
+            end_date_norm = end_date.replace('-', '')
 
     for i in range(0, total, batch_size):
         chunk = ts_codes[i:i+batch_size]
@@ -734,14 +746,18 @@ def ingest_all_daily(
             # If we have a last_date in DB, fetch only missing days (existing behavior)
             if last_date:
                 try:
-                    start_date = (pd.to_datetime(last_date) + pd.Timedelta(days=1)).strftime('%Y%m%d')
+                    last_dt = pd.to_datetime(last_date).date()
+                    if min_start_date and last_dt < min_start_date:
+                        start_date = min_start_date_norm
+                    else:
+                        start_date = (pd.to_datetime(last_date) + pd.Timedelta(days=1)).strftime('%Y%m%d')
                 except Exception:
-                    start_date = None
+                    start_date = min_start_date_norm
                 attempt = 0
                 while attempt < max_retries:
                     try:
                         logging.info('Ingesting daily for %s (start_date=%s)', ts_code, start_date)
-                        ingest_daily(ts_code=ts_code, start_date=start_date, end_date=None)
+                        ingest_daily(ts_code=ts_code, start_date=start_date, end_date=end_date_norm)
                         break
                     except Exception as e:
                         attempt += 1
@@ -755,7 +771,7 @@ def ingest_all_daily(
                 while attempt < max_retries:
                     try:
                         logging.info('Fetching full history for %s', ts_code)
-                        df = call_pro('daily', ts_code=ts_code)
+                        df = call_pro('daily', ts_code=ts_code, start_date=min_start_date_norm, end_date=end_date_norm)
                         if df is None or df.empty:
                             logging.info('No daily data returned for %s', ts_code)
                             break

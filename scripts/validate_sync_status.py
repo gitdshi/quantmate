@@ -20,19 +20,19 @@ os.environ['LOG_LEVEL'] = 'ERROR'
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from sqlalchemy import text, create_engine
+from sqlalchemy import text
+from app.infrastructure.db.connections import (
+    get_tradermate_engine,
+    get_tushare_engine,
+    get_akshare_engine,
+    get_vnpy_engine,
+)
 
-# Read connection URLs from environment
-TRADERMATE_DB_URL = os.getenv('TRADERMATE_DATABASE_URL', 'mysql+pymysql://root:password@127.0.0.1/tradermate?charset=utf8mb4')
-TUSHARE_DB_URL = os.getenv('TUSHARE_DATABASE_URL', 'mysql+pymysql://root:password@127.0.0.1/tushare?charset=utf8mb4')
-AKSHARE_DB_URL = os.getenv('AKSHARE_DATABASE_URL', 'mysql+pymysql://root:password@127.0.0.1/akshare?charset=utf8mb4')
-VNPY_DB_URL = os.getenv('VNPY_DATABASE_URL', 'mysql+pymysql://root:password@127.0.0.1/vnpy?charset=utf8mb4')
-
-# Create engines directly
-engine_tm = create_engine(TRADERMATE_DB_URL, pool_pre_ping=True)
-engine_ts = create_engine(TUSHARE_DB_URL, pool_pre_ping=True)
-engine_ak = create_engine(AKSHARE_DB_URL, pool_pre_ping=True)
-engine_vn = create_engine(VNPY_DB_URL, pool_pre_ping=True)
+# Engines from infrastructure connections
+engine_tm = get_tradermate_engine()
+engine_ts = get_tushare_engine()
+engine_ak = get_akshare_engine()
+engine_vn = get_vnpy_engine()
 
 # Import AkShare for trade calendar
 try:

@@ -34,19 +34,15 @@ ensure_db_host_reachable() {
   fi
 
   if "$VENV_PY" - <<'PY' >/dev/null 2>&1
-import os
 import pymysql
+from app.infrastructure.config import get_settings
 
-host = os.getenv('MYSQL_HOST', 'mysql')
-port = int(os.getenv('MYSQL_PORT', '3306'))
-user = os.getenv('MYSQL_USER', 'root')
-password = os.getenv('MYSQL_PASSWORD', '')
-
+settings = get_settings()
 conn = pymysql.connect(
-    host=host,
-    port=port,
-    user=user,
-    password=password,
+    host=settings.mysql_host,
+    port=settings.mysql_port,
+    user=settings.mysql_user,
+    password=settings.mysql_password,
     connect_timeout=3,
     read_timeout=3,
     write_timeout=3,
@@ -62,33 +58,16 @@ PY
   echo "Warning: MYSQL_HOST=mysql is not reachable from this shell; falling back to 127.0.0.1 for this run"
   export MYSQL_HOST=127.0.0.1
 
-  if [ -n "${TUSHARE_DATABASE_URL:-}" ]; then
-    export TUSHARE_DATABASE_URL="${TUSHARE_DATABASE_URL/@mysql:/@127.0.0.1:}"
-  fi
-  if [ -n "${AKSHARE_DATABASE_URL:-}" ]; then
-    export AKSHARE_DATABASE_URL="${AKSHARE_DATABASE_URL/@mysql:/@127.0.0.1:}"
-  fi
-  if [ -n "${VNPY_DATABASE_URL:-}" ]; then
-    export VNPY_DATABASE_URL="${VNPY_DATABASE_URL/@mysql:/@127.0.0.1:}"
-  fi
-  if [ -n "${TRADERMATE_DATABASE_URL:-}" ]; then
-    export TRADERMATE_DATABASE_URL="${TRADERMATE_DATABASE_URL/@mysql:/@127.0.0.1:}"
-  fi
-
   if ! "$VENV_PY" - <<'PY' >/dev/null 2>&1
-import os
 import pymysql
+from app.infrastructure.config import get_settings
 
-host = os.getenv('MYSQL_HOST', '127.0.0.1')
-port = int(os.getenv('MYSQL_PORT', '3306'))
-user = os.getenv('MYSQL_USER', 'root')
-password = os.getenv('MYSQL_PASSWORD', '')
-
+settings = get_settings()
 conn = pymysql.connect(
-    host=host,
-    port=port,
-    user=user,
-    password=password,
+    host=settings.mysql_host,
+    port=settings.mysql_port,
+    user=settings.mysql_user,
+    password=settings.mysql_password,
     connect_timeout=3,
     read_timeout=3,
     write_timeout=3,
@@ -101,6 +80,46 @@ PY
     echo "Error: MySQL still not reachable with MYSQL_HOST=127.0.0.1. Check MYSQL_PORT/MYSQL_USER/MYSQL_PASSWORD in .env" >&2
     return 1
   fi
+}
+
+calc_lookback_start_date() {
+  local days="${1:-365}"
+  LOOKBACK_DAYS="$days" "$VENV_PY" - <<'PY'
+from datetime import date, timedelta
+import os
+days = int(os.getenv('LOOKBACK_DAYS', '365'))
+print((date.today() - timedelta(days=days)).isoformat())
+PY
+}
+
+init_already_completed() {
+  "$VENV_PY" - <<'PY'
+import sys
+import pymysql
+from app.infrastructure.config import get_settings
+
+settings = get_settings()
+try:
+  conn = pymysql.connect(
+      host=settings.mysql_host,
+      port=settings.mysql_port,
+      user=settings.mysql_user,
+      password=settings.mysql_password,
+      database=settings.tradermate_db,
+      connect_timeout=3,
+      read_timeout=3,
+      write_timeout=3,
+  )
+  with conn.cursor() as cur:
+    cur.execute("SELECT phase, status FROM init_progress WHERE id = 1")
+    row = cur.fetchone()
+  conn.close()
+  if row and row[0] == 'finished' and row[1] == 'completed':
+    sys.exit(0)
+  sys.exit(1)
+except Exception:
+  sys.exit(1)
+PY
 }
 
 stop() {
@@ -142,11 +161,18 @@ init_data() {
   load_env
   ensure_db_host_reachable
 
-  local start_date="${INIT_START_DATE:-2005-01-01}"
-  local lookback_years="${INIT_LOOKBACK_YEARS:-21}"
-  local lookback_days="${INIT_LOOKBACK_DAYS:-8000}"
+  local lookback_days="${INIT_LOOKBACK_DAYS:-365}"
+  local lookback_years="${INIT_LOOKBACK_YEARS:-1}"
+  local start_date="${INIT_START_DATE:-$(calc_lookback_start_date "$lookback_days")}"
+  local daily_start_date="${INIT_DAILY_START_DATE:-$start_date}"
+  local daily_lookback_days="${INIT_DAILY_LOOKBACK_DAYS:-}"
 
   local init_args=("--start-date" "$start_date")
+  if [ -n "$daily_lookback_days" ]; then
+    init_args+=("--daily-lookback-days" "$daily_lookback_days")
+  else
+    init_args+=("--daily-start-date" "$daily_start_date")
+  fi
   if [ "${INIT_SKIP_AUX:-0}" = "1" ]; then
     init_args+=("--skip-aux")
   fi
@@ -156,9 +182,17 @@ init_data() {
   if [ "${INIT_SKIP_SCHEMA:-0}" = "1" ]; then
     init_args+=("--skip-schema")
   fi
+  if [ "${INIT_RESET_PROGRESS:-0}" = "1" ]; then
+    init_args+=("--reset-progress")
+  fi
+
+  if init_already_completed; then
+    echo "DataSync init already completed. Skipping initialization."
+    return 0
+  fi
 
   echo "Starting DataSync initialization sequence in background..."
-  echo "  start_date=${start_date} lookback_years=${lookback_years} lookback_days=${lookback_days}"
+  echo "  start_date=${start_date} daily_start_date=${daily_start_date} lookback_years=${lookback_years} lookback_days=${lookback_days}"
   echo "  logs: $OUT_FILE"
 
   (
@@ -229,12 +263,15 @@ PY
     echo "Usage: $0 {start|stop|restart|status|init|unlock}"
     echo ""
     echo "Init options via env vars:"
-    echo "  INIT_START_DATE=2005-01-01   # historical start date"
-    echo "  INIT_LOOKBACK_YEARS=21       # for --init"
-    echo "  INIT_LOOKBACK_DAYS=8000      # for --backfill"
+    echo "  INIT_START_DATE=YYYY-MM-DD   # historical start date (defaults to last year)"
+    echo "  INIT_DAILY_START_DATE=YYYY-MM-DD  # optional: limit stock_daily ingest start date"
+    echo "  INIT_DAILY_LOOKBACK_DAYS=365      # optional: limit stock_daily ingest by days"
+    echo "  INIT_LOOKBACK_YEARS=1        # for --init"
+    echo "  INIT_LOOKBACK_DAYS=365       # for --backfill"
     echo "  INIT_SKIP_AUX=1              # optional: skip adj/dividend/top10"
     echo "  INIT_SKIP_VNPY=1             # optional: skip vnpy sync"
     echo "  INIT_SKIP_SCHEMA=1           # optional: skip schema init"
+    echo "  INIT_RESET_PROGRESS=1        # optional: reset init_progress before execution"
     exit 2
     ;;
 esac

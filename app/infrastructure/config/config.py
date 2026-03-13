@@ -46,7 +46,10 @@ class Settings(BaseSettings):
 
     @property
     def mysql_url(self) -> str:
-        return f"mysql+pymysql://{self.mysql_user}:{self.mysql_password}@{self.mysql_host}:{self.mysql_port}"
+        # URL-encode password to handle special characters like '@'
+        from urllib.parse import quote_plus
+        password = quote_plus(self.mysql_password)
+        return f"mysql+pymysql://{self.mysql_user}:{password}@{self.mysql_host}:{self.mysql_port}"
 
     @property
     def tushare_db_url(self) -> str:

@@ -11,16 +11,6 @@
 				"context": "${workspaceFolder}",
 				"pull": true
 			}
-		},
-		{
-			"type": "docker-run",
-			"label": "docker-run: debug",
-			"dependsOn": [
-				"docker-build"
-			],
-			"python": {
-				"file": "app/main.py"
-			}
 		}
 	]
 }

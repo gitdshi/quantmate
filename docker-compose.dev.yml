@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: tradermate_mysql_dev
+    restart: unless-stopped
+    command:
+      - "--skip-ssl"
+      - "--auto-generate-certs=OFF"
+      - "--sha256_password_auto_generate_rsa_keys=OFF"
+      - "--caching_sha2_password_auto_generate_rsa_keys=OFF"
+      - "--default-authentication-plugin=mysql_native_password"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:-tradermate}
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./.data/mysql:/var/lib/mysql
+      - ./mysql/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_PASSWORD:-tradermate}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    container_name: tradermate_redis_dev
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./.data/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from typing import Iterator, Literal
-import os
 
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Connection
@@ -26,6 +25,7 @@ DatabaseName = Literal["tradermate", "tushare", "akshare"]
 _tradermate_engine = None
 _tushare_engine = None
 _akshare_engine = None
+_mysql_server_engine = None
 
 
 def get_tradermate_engine():
@@ -42,10 +42,7 @@ def get_vnpy_engine():
     except NameError:
         _vnpy_engine = None
     if _vnpy_engine is None:
-        # Allow overriding via environment variable like AKSHARE_DATABASE_URL
-        vnpy_url = os.getenv("VNPY_DATABASE_URL")
-        if not vnpy_url:
-            vnpy_url = f"{settings.mysql_url}/vnpy?charset=utf8mb4"
+        vnpy_url = f"{settings.mysql_url}/vnpy?charset=utf8mb4"
         _vnpy_engine = create_engine(vnpy_url, pool_pre_ping=True)
     return _vnpy_engine
 
@@ -60,11 +57,17 @@ def get_tushare_engine():
 def get_akshare_engine():
     global _akshare_engine
     if _akshare_engine is None:
-        ak_url = os.getenv("AKSHARE_DATABASE_URL")
-        if not ak_url:
-            ak_url = f"{settings.mysql_url}/akshare?charset=utf8mb4"
+        ak_url = f"{settings.mysql_url}/akshare?charset=utf8mb4"
         _akshare_engine = create_engine(ak_url, pool_pre_ping=True)
     return _akshare_engine
+
+
+def get_mysql_server_engine():
+    """Return an engine without a default database (for admin tasks)."""
+    global _mysql_server_engine
+    if _mysql_server_engine is None:
+        _mysql_server_engine = create_engine(settings.mysql_url, pool_pre_ping=True)
+    return _mysql_server_engine
 
 
 def get_tradermate_connection() -> Connection:
@@ -107,5 +110,3 @@ def connection(db: DatabaseName) -> Iterator[Connection]:
                 conn.close()
         except Exception:
             pass
-
-

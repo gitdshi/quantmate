@@ -21,10 +21,7 @@ services:
       - MYSQL_PORT=3306
       - MYSQL_USER=${MYSQL_USER:-tradermate}
       - MYSQL_PASSWORD=${MYSQL_PASSWORD}
-      - TUSHARE_DATABASE=tushare
-      - VNPY_DATABASE=vnpy
-      - TUSHARE_DATABASE_URL=mysql+pymysql://${MYSQL_USER:-tradermate}:${MYSQL_PASSWORD}@${MYSQL_HOST}:${MYSQL_PORT:-3306}/tushare?charset=utf8mb4
-      - VNPY_DATABASE_URL=mysql+pymysql://${MYSQL_USER:-tradermate}:${MYSQL_PASSWORD}@${MYSQL_HOST}:${MYSQL_PORT:-3306}/vnpy?charset=utf8mb4
+      # Tushare Settings
       - TUSHARE_TOKEN=${TUSHARE_TOKEN}
       # Redis Settings
       - REDIS_HOST=redis
@@ -62,7 +59,6 @@ services:
       - MYSQL_USER=${MYSQL_USER:-tradermate}
       - MYSQL_PASSWORD=${MYSQL_PASSWORD}
       - TUSHARE_DATABASE=tushare
-      - VNPY_DATABASE=vnpy
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - DEBUG=false
@@ -132,4 +128,3 @@ volumes:
 networks:
   tradermate_network:
     driver: bridge
-

@@ -10,11 +10,10 @@ import argparse
 import logging
 import os
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from sqlalchemy import text, create_engine
-from sqlalchemy.engine.url import make_url
+from sqlalchemy import text
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,6 +31,7 @@ from app.datasync.service.akshare_ingest import ingest_all_indexes
 from app.datasync.service.vnpy_ingest import sync_all_to_vnpy
 from app.datasync.service.data_sync_daemon import initialize_sync_status_table
 from app.infrastructure.config import get_settings
+from app.infrastructure.db.connections import get_mysql_server_engine, get_tradermate_engine
 
 # Metrics integration for backfill lock status
 try:
@@ -102,16 +102,7 @@ def split_sql_statements(sql_text: str) -> list[str]:
 
 
 def get_server_engine():
-    settings = get_settings()
-    mysql_url = os.getenv('MYSQL_URL', settings.mysql_url)
-    url = make_url(mysql_url)
-    admin_url = url.set(database=None)
-    return create_engine(admin_url, pool_pre_ping=True)
-
-
-def get_tradermate_engine():
-    settings = get_settings()
-    return create_engine(settings.mysql_url + '/tradermate', pool_pre_ping=True)
+    return get_mysql_server_engine()
 
 
 def ensure_init_progress_table() -> None:
@@ -263,12 +254,19 @@ def main() -> int:
     parser.add_argument('--stock-statuses', default='L', help='Comma-separated stock_basic list_status values (e.g. L or L,D,P)')
     parser.add_argument('--batch-size', type=int, default=int(os.getenv('BATCH_SIZE', '100')))
     parser.add_argument('--sleep-between', type=float, default=0.02)
+    parser.add_argument('--daily-start-date', default=None, help='Limit stock_daily ingest to start at this date (YYYY-MM-DD)')
+    parser.add_argument('--daily-lookback-days', type=int, default=None, help='Limit stock_daily ingest to last N days')
     parser.add_argument('--resume', action='store_true', default=True, help='Resume from init_progress checkpoint (default on)')
     parser.add_argument('--reset-progress', action='store_true', help='Reset init_progress before execution')
     args = parser.parse_args()
 
     end_date = date.today().isoformat()
     start_date = datetime.strptime(args.start_date, '%Y-%m-%d').date().isoformat()
+    daily_start_date = None
+    if args.daily_start_date:
+        daily_start_date = args.daily_start_date
+    elif args.daily_lookback_days:
+        daily_start_date = (date.today() - timedelta(days=args.daily_lookback_days)).isoformat()
 
     logger.info('Starting market data initialization (start_date=%s, end_date=%s)', start_date, end_date)
 
@@ -312,10 +310,13 @@ def main() -> int:
                     logger.warning('stock_basic ingest failed for list_status=%s: %s', status, exc)
                     if status == 'L':
                         raise
-            save_progress('stock_basic', 'done')
+            save_progress('stock_basic', 'completed')
 
         if should_run_phase(progress, 'daily', args.resume):
-            logger.info('Rebuilding full Tushare stock_daily history (this can take a long time)')
+            if daily_start_date:
+                logger.info('Rebuilding Tushare stock_daily history from %s', daily_start_date)
+            else:
+                logger.info('Rebuilding full Tushare stock_daily history (this can take a long time)')
             save_progress('daily', 'running')
             resume_after = progress.get('cursor_ts_code') if progress and progress.get('phase') == 'daily' else None
             ingest_all_daily(
@@ -323,15 +324,17 @@ def main() -> int:
                 sleep_between=args.sleep_between,
                 force_full_per_stock=True,
                 start_after_ts_code=resume_after,
+                start_date=daily_start_date,
+                end_date=end_date,
                 progress_cb=lambda ts_code, cursor_date=None: save_progress('daily', 'running', cursor_ts_code=ts_code, cursor_date=cursor_date),
             )
-            save_progress('daily', 'done')
+            save_progress('daily', 'completed')
 
         if should_run_phase(progress, 'indexes', args.resume):
             logger.info('Rebuilding AkShare index history')
             save_progress('indexes', 'running')
             ingest_all_indexes()
-            save_progress('indexes', 'done')
+            save_progress('indexes', 'completed')
 
         if not args.skip_aux:
             if should_run_phase(progress, 'adj_factor', args.resume):
@@ -346,7 +349,7 @@ def main() -> int:
                     start_after_ts_code=resume_after,
                     progress_cb=lambda ts_code, cursor_date=None: save_progress('adj_factor', 'running', cursor_ts_code=ts_code, cursor_date=cursor_date),
                 )
-                save_progress('adj_factor', 'done', cursor_date=end_date)
+                save_progress('adj_factor', 'completed', cursor_date=end_date)
 
             if should_run_phase(progress, 'dividend', args.resume):
                 logger.info('Backfilling dividend from %s to %s', start_date, end_date)
@@ -360,7 +363,7 @@ def main() -> int:
                     start_after_ts_code=resume_after,
                     progress_cb=lambda ts_code, cursor_date=None: save_progress('dividend', 'running', cursor_ts_code=ts_code, cursor_date=cursor_date),
                 )
-                save_progress('dividend', 'done', cursor_date=end_date)
+                save_progress('dividend', 'completed', cursor_date=end_date)
 
             if should_run_phase(progress, 'top10_holders', args.resume):
                 logger.info('Backfilling top10_holders from %s to %s', start_date, end_date)
@@ -374,20 +377,20 @@ def main() -> int:
                     start_after_ts_code=resume_after,
                     progress_cb=lambda ts_code, cursor_date=None: save_progress('top10_holders', 'running', cursor_ts_code=ts_code, cursor_date=cursor_date),
                 )
-                save_progress('top10_holders', 'done', cursor_date=end_date)
+                save_progress('top10_holders', 'completed', cursor_date=end_date)
 
         if not args.skip_vnpy and should_run_phase(progress, 'vnpy', args.resume):
             logger.info('Syncing all stock bars from tushare to vnpy')
             save_progress('vnpy', 'running')
             sync_all_to_vnpy(full_refresh=True)
-            save_progress('vnpy', 'done')
+            save_progress('vnpy', 'completed')
 
         if should_run_phase(progress, 'sync_status', args.resume):
             lookback_years = max(1, date.today().year - datetime.strptime(start_date, '%Y-%m-%d').year + 1)
             logger.info('Initializing data_sync_status table (lookback_years=%d)', lookback_years)
             save_progress('sync_status', 'running')
             initialize_sync_status_table(lookback_years=lookback_years)
-            save_progress('sync_status', 'done')
+            save_progress('sync_status', 'completed')
 
         save_progress('finished', 'completed')
         print_summary()
