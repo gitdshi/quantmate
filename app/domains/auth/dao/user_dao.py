@@ -86,7 +86,7 @@ class UserDao:
         with connection("tradermate") as conn:
             from sqlalchemy import text
             row = conn.execute(
-                text("SELECT id, username, email, is_active, must_change_password, created_at FROM users WHERE id = :uid"),
+                text("SELECT id, username, email, hashed_password, is_active, must_change_password, created_at FROM users WHERE id = :uid"),
                 {"uid": user_id},
             ).fetchone()
             if not row:
@@ -95,6 +95,7 @@ class UserDao:
                 "id": row.id,
                 "username": row.username,
                 "email": row.email,
+                "hashed_password": row.hashed_password,
                 "is_active": bool(row.is_active),
                 "must_change_password": bool(row.must_change_password),
                 "created_at": row.created_at,
