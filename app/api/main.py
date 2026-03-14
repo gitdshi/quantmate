@@ -1,4 +1,4 @@
-"""TraderMate API - FastAPI Application."""
+"""QuantMate API - FastAPI Application."""
 import sys
 import os
 import secrets
@@ -71,13 +71,13 @@ async def ensure_password_changed(
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
     # Startup
-    logger.info("Starting TraderMate API...")
+    logger.info("Starting QuantMate API...")
     logger.info("Database migrations should be applied during runtime init")
 
     # Admin user initialization
     try:
         admin_username = os.getenv("ADMIN_USERNAME", "admin")
-        admin_email = os.getenv("ADMIN_EMAIL", "admin@tradermate.local")
+        admin_email = os.getenv("ADMIN_EMAIL", "admin@quantmate.local")
         admin_password = os.getenv("ADMIN_PASSWORD")
         is_production = not settings.debug
 
@@ -125,13 +125,13 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
-    logger.info("Shutting down TraderMate API...")
+    logger.info("Shutting down QuantMate API...")
 
 
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
-    description="TraderMate Trading Platform API - Strategy Management, Backtesting, and Market Research",
+    description="QuantMate Trading Platform API - Strategy Management, Backtesting, and Market Research",
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan,
@@ -177,14 +177,14 @@ async def health():
     health_status = {
         "status": "healthy",
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "service": "tradermate",
+        "service": "quantmate",
         "dependencies": {}
     }
     
     # Check MySQL connection
     try:
-        from app.infrastructure.db.connections import get_tradermate_engine
-        engine = get_tradermate_engine()
+        from app.infrastructure.db.connections import get_quantmate_engine
+        engine = get_quantmate_engine()
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         health_status["dependencies"]["mysql"] = {"status": "healthy"}

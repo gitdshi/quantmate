@@ -1,7 +1,7 @@
 """Strategy source DAO for backtests.
 
 Backtest submission needs strategy code/class/version.
-All SQL touching `tradermate.strategies` for this purpose lives here.
+All SQL touching `quantmate.strategies` for this purpose lives here.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from app.infrastructure.db.connections import connection
 
 class StrategySourceDao:
     def get_strategy_source_for_user(self, strategy_id: int, user_id: int) -> tuple[str, str, Optional[int]]:
-        with connection("tradermate") as conn:
+        with connection("quantmate") as conn:
             from sqlalchemy import text
             row = conn.execute(
                 text("SELECT code, class_name, version FROM strategies WHERE id = :id AND user_id = :user_id"),
@@ -30,7 +30,7 @@ class StrategySourceDao:
         """
         if not class_name:
             raise KeyError("Strategy not found")
-        with connection("tradermate") as conn:
+        with connection("quantmate") as conn:
             from sqlalchemy import text
             row = conn.execute(
                 text("SELECT code FROM strategies WHERE class_name = :classname LIMIT 1"),

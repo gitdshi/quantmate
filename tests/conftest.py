@@ -1,5 +1,5 @@
 """
-Pytest configuration and shared fixtures for TraderMate backend tests.
+Pytest configuration and shared fixtures for QuantMate backend tests.
 """
 import asyncio
 import os

@@ -1,6 +1,6 @@
 """Strategies DAO.
 
-All SQL touching `tradermate.strategies` lives here.
+All SQL touching `quantmate.strategies` lives here.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from app.infrastructure.db.connections import connection
 
 class StrategyDao:
     def list_for_user(self, user_id: int) -> list[dict[str, Any]]:
-        with connection("tradermate") as conn:
+        with connection("quantmate") as conn:
             from sqlalchemy import text
             rows = conn.execute(
                 text(
@@ -29,7 +29,7 @@ class StrategyDao:
             return [dict(r._mapping) for r in rows]
 
     def name_exists_for_user(self, user_id: int, name: str) -> bool:
-        with connection("tradermate") as conn:
+        with connection("quantmate") as conn:
             from sqlalchemy import text
             row = conn.execute(
                 text("SELECT 1 FROM strategies WHERE user_id = :uid AND name = :name LIMIT 1"),
@@ -48,7 +48,7 @@ class StrategyDao:
         created_at: datetime,
         updated_at: datetime,
     ) -> int:
-        with connection("tradermate") as conn:
+        with connection("quantmate") as conn:
             from sqlalchemy import text
             result = conn.execute(
                 text(
@@ -72,7 +72,7 @@ class StrategyDao:
             return int(result.lastrowid)
 
     def get_for_user(self, strategy_id: int, user_id: int) -> Optional[dict[str, Any]]:
-        with connection("tradermate") as conn:
+        with connection("quantmate") as conn:
             from sqlalchemy import text
             row = conn.execute(
                 text(
@@ -88,7 +88,7 @@ class StrategyDao:
 
     def get_existing_for_update(self, strategy_id: int, user_id: int) -> Optional[dict[str, Any]]:
         """Fetch minimal fields used for update comparisons."""
-        with connection("tradermate") as conn:
+        with connection("quantmate") as conn:
             from sqlalchemy import text
             row = conn.execute(
                 text(
@@ -103,7 +103,7 @@ class StrategyDao:
             return dict(row._mapping) if row else None
 
     def update_strategy(self, strategy_id: int, user_id: int, set_clause: str, params: dict[str, Any]) -> None:
-        with connection("tradermate") as conn:
+        with connection("quantmate") as conn:
             from sqlalchemy import text
             conn.execute(
                 text(f"UPDATE strategies SET {set_clause} WHERE id = :sid AND user_id = :uid"),
@@ -112,7 +112,7 @@ class StrategyDao:
             conn.commit()
 
     def delete_for_user(self, strategy_id: int, user_id: int) -> bool:
-        with connection("tradermate") as conn:
+        with connection("quantmate") as conn:
             from sqlalchemy import text
             row = conn.execute(
                 text("SELECT 1 FROM strategies WHERE id = :sid AND user_id = :uid"),

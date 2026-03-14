@@ -73,9 +73,9 @@ class JobsService:
             self._bulk_dao.delete_bulk_parent(job_id, user_id)
 
             # Clean up child Redis keys
-            for key in self._job_storage.redis.scan_iter(match=f"tradermate:job:{job_id}__*", count=200):
+            for key in self._job_storage.redis.scan_iter(match=f"quantmate:job:{job_id}__*", count=200):
                 self._job_storage.redis.delete(key)
-            for key in self._job_storage.redis.scan_iter(match=f"tradermate:result:{job_id}__*", count=200):
+            for key in self._job_storage.redis.scan_iter(match=f"quantmate:result:{job_id}__*", count=200):
                 self._job_storage.redis.delete(key)
         else:
             self._history_dao.delete_single(job_id, user_id)

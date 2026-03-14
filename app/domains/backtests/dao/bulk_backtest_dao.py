@@ -1,6 +1,6 @@
 """Bulk backtest DAO.
 
-All SQL touching `tradermate.bulk_backtest` lives here.
+All SQL touching `quantmate.bulk_backtest` lives here.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ class BulkBacktestDao:
         total_symbols: int,
         created_at: datetime,
     ) -> None:
-        with connection("tradermate") as conn:
+        with connection("quantmate") as conn:
             from sqlalchemy import text
             conn.execute(
                 text(
@@ -67,7 +67,7 @@ class BulkBacktestDao:
             conn.commit()
 
     def delete_bulk_parent(self, job_id: str, user_id: int) -> None:
-        with connection("tradermate") as conn:
+        with connection("quantmate") as conn:
             from sqlalchemy import text
             conn.execute(
                 text("DELETE FROM bulk_backtest WHERE job_id = :job_id AND user_id = :user_id"),
@@ -78,7 +78,7 @@ class BulkBacktestDao:
     def list_by_job_ids(self, job_ids: list[str]) -> list[dict[str, Any]]:
         if not job_ids:
             return []
-        with connection("tradermate") as conn:
+        with connection("quantmate") as conn:
             from sqlalchemy import text
             placeholders = ",".join([f":id{i}" for i in range(len(job_ids))])
             params = {f"id{i}": jid for i, jid in enumerate(job_ids)}
@@ -91,7 +91,7 @@ class BulkBacktestDao:
             return [dict(r._mapping) for r in rows]
 
     def get_owner_user_id(self, job_id: str) -> Optional[int]:
-        with connection("tradermate") as conn:
+        with connection("quantmate") as conn:
             from sqlalchemy import text
             row = conn.execute(
                 text("SELECT user_id FROM bulk_backtest WHERE job_id = :jid"),
@@ -100,7 +100,7 @@ class BulkBacktestDao:
             return int(row.user_id) if row and hasattr(row, "user_id") else None
 
     def get_metrics(self, job_id: str) -> Optional[dict[str, Any]]:
-        with connection("tradermate") as conn:
+        with connection("quantmate") as conn:
             from sqlalchemy import text
             row = conn.execute(
                 text("SELECT best_return, best_symbol, completed_count, total_symbols, status as bulk_status, best_symbol_name FROM bulk_backtest WHERE job_id = :jid"),
@@ -109,7 +109,7 @@ class BulkBacktestDao:
             return dict(row._mapping) if row else None
 
     def update_best_symbol_name(self, job_id: str, best_symbol_name: Optional[str]) -> None:
-        with connection("tradermate") as conn:
+        with connection("quantmate") as conn:
             from sqlalchemy import text
             conn.execute(
                 text("UPDATE bulk_backtest SET best_symbol_name = :bsn WHERE job_id = :jid"),
@@ -118,7 +118,7 @@ class BulkBacktestDao:
             conn.commit()
 
     def update_progress(self, job_id: str, completed_count: int, best_return: Any, best_symbol: Any, best_symbol_name: Any) -> None:
-        with connection("tradermate") as conn:
+        with connection("quantmate") as conn:
             from sqlalchemy import text
             conn.execute(
                 text(
@@ -136,7 +136,7 @@ class BulkBacktestDao:
             conn.commit()
 
     def finish(self, job_id: str, status: str, completed_at: datetime, completed_count: int, best_return: Any, best_symbol: Any, best_symbol_name: Any) -> None:
-        with connection("tradermate") as conn:
+        with connection("quantmate") as conn:
             from sqlalchemy import text
             conn.execute(
                 text(

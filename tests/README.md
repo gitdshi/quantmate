@@ -1,6 +1,6 @@
-# TraderMate Test Suite
+# QuantMate Test Suite
 
-This directory contains automated tests for the TraderMate backend.
+This directory contains automated tests for the QuantMate backend.
 
 ## Structure
 

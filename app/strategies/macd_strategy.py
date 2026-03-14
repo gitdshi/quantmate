@@ -26,7 +26,7 @@ from vnpy.trader.constant import Direction, Offset
 class MACDStrategy(CtaTemplate):
     """A small MACD crossover strategy for testing/backtests."""
 
-    author = "TraderMate"
+    author = "QuantMate"
 
     # strategy parameters
     fast_period: int = 12

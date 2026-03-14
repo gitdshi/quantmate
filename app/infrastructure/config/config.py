@@ -16,7 +16,7 @@ class Settings(BaseSettings):
         extra="ignore"
     )
 
-    app_name: str = "TraderMate API"
+    app_name: str = "QuantMate API"
     app_version: str = "1.0.0"
     debug: bool = False
 
@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     mysql_user: str = "root"
     mysql_password: str  # 必须从环境变量 MYSQL_PASSWORD 读取
     tushare_db: str = "tushare"
-    tradermate_db: str = "tradermate"
+    quantmate_db: str = "quantmate"
 
     redis_host: str = "127.0.0.1"
     redis_port: int = 6379
@@ -56,12 +56,12 @@ class Settings(BaseSettings):
         return f"{self.mysql_url}/{self.tushare_db}?charset=utf8mb4"
 
     @property
-    def tradermate_db_url(self) -> str:
-        return f"{self.mysql_url}/{self.tradermate_db}?charset=utf8mb4"
+    def quantmate_db_url(self) -> str:
+        return f"{self.mysql_url}/{self.quantmate_db}?charset=utf8mb4"
 
     @property
     def vnpy_db_url(self) -> str:
-        return self.tradermate_db_url
+        return self.quantmate_db_url
 
     @property
     def redis_url(self) -> str:

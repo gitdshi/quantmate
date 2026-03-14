@@ -177,7 +177,7 @@ def run_backtest_task(
         
         # Load strategy class
         # Jobs MUST include the strategy. If `strategy_code` is provided, compile it.
-        # Otherwise attempt to load the strategy source from the tradermate `strategies`
+        # Otherwise attempt to load the strategy source from the quantmate `strategies`
         # table (by `strategy_id` or `strategy_class_name`). Do NOT fall back to
         # embedded/builtin VNpy strategy classes here.
         strategy_class = None
@@ -185,7 +185,7 @@ def run_backtest_task(
             # Compile custom strategy provided with the job
             strategy_class = compile_strategy(strategy_code, strategy_class_name)
         else:
-            # Attempt to load strategy source from tradermate DB (DAO-backed)
+            # Attempt to load strategy source from quantmate DB (DAO-backed)
             source_dao = StrategySourceDao()
             if strategy_id is not None and user_id is not None:
                 strategy_code_db, strategy_class_name_db, _sv = source_dao.get_strategy_source_for_user(strategy_id, user_id)

@@ -1,1 +1,1 @@
-"""Strategies DAOs (tradermate DB)."""
+"""Strategies DAOs (quantmate DB)."""

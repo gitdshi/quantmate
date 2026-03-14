@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Start/stop/restart data sync daemon using project's .venv
-# Logs: tradermate/logs/data_sync.out, PID: tradermate/logs/data_sync.pid
+# Logs: quantmate/logs/data_sync.out, PID: quantmate/logs/data_sync.pid
 
 BASE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$BASE_DIR"
@@ -105,7 +105,7 @@ try:
       port=settings.mysql_port,
       user=settings.mysql_user,
       password=settings.mysql_password,
-      database=settings.tradermate_db,
+      database=settings.quantmate_db,
       connect_timeout=3,
       read_timeout=3,
       write_timeout=3,

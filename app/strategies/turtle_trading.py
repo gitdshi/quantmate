@@ -25,7 +25,7 @@ class TurtleTradingStrategy(CtaTemplate):
     - 集成固定止损和移动止损策略
     """
 
-    author = "TraderMate"
+    author = "QuantMate"
 
     entry_window: int = 20
     exit_window: int = 10

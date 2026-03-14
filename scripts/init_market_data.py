@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Initialize/rebuild TraderMate market data after DB loss.
+"""Initialize/rebuild QuantMate market data after DB loss.
 
 This script supports resumable initialization via `init_progress` checkpoints.
 """
@@ -31,7 +31,7 @@ from app.datasync.service.akshare_ingest import ingest_all_indexes
 from app.datasync.service.vnpy_ingest import sync_all_to_vnpy
 from app.datasync.service.data_sync_daemon import initialize_sync_status_table
 from app.infrastructure.config import get_settings
-from app.infrastructure.db.connections import get_mysql_server_engine, get_tradermate_engine
+from app.infrastructure.db.connections import get_mysql_server_engine, get_quantmate_engine
 
 # Metrics integration for backfill lock status
 try:
@@ -106,7 +106,7 @@ def get_server_engine():
 
 
 def ensure_init_progress_table() -> None:
-    engine = get_tradermate_engine()
+    engine = get_quantmate_engine()
     ddl = """
     CREATE TABLE IF NOT EXISTS init_progress (
         id TINYINT PRIMARY KEY,
@@ -123,7 +123,7 @@ def ensure_init_progress_table() -> None:
 
 
 def load_progress() -> dict | None:
-    engine = get_tradermate_engine()
+    engine = get_quantmate_engine()
     sql = text(
         "SELECT phase, cursor_ts_code, cursor_date, status, error, updated_at "
         "FROM init_progress WHERE id = :id"
@@ -142,7 +142,7 @@ def load_progress() -> dict | None:
 
 
 def save_progress(phase: str, status: str, cursor_ts_code: str | None = None, cursor_date: str | None = None, error: str | None = None) -> None:
-    engine = get_tradermate_engine()
+    engine = get_quantmate_engine()
     upsert = text(
         """
         INSERT INTO init_progress (id, phase, cursor_ts_code, cursor_date, status, error)
@@ -179,7 +179,7 @@ def save_progress(phase: str, status: str, cursor_ts_code: str | None = None, cu
 
 
 def reset_progress() -> None:
-    engine = get_tradermate_engine()
+    engine = get_quantmate_engine()
     with engine.begin() as conn:
         conn.execute(text('DELETE FROM init_progress WHERE id = :id'), {'id': PROGRESS_ID})
 
@@ -207,7 +207,7 @@ def should_run_phase(current_progress: dict | None, phase: str, resume: bool) ->
 
 def apply_schema_files() -> None:
     schema_files = [
-        ROOT / 'mysql' / 'init' / 'tradermate.sql',
+        ROOT / 'mysql' / 'init' / 'quantmate.sql',
         ROOT / 'mysql' / 'init' / 'tushare.sql',
         ROOT / 'mysql' / 'init' / 'akshare.sql',
         ROOT / 'mysql' / 'init' / 'vnpy.sql',
@@ -230,7 +230,7 @@ def apply_schema_files() -> None:
 
 
 def print_summary() -> None:
-    engine = get_tradermate_engine()
+    engine = get_quantmate_engine()
     checks = [
         ('tushare.stock_basic', 'SELECT COUNT(*) FROM tushare.stock_basic'),
         ('tushare.stock_daily', 'SELECT COUNT(*) FROM tushare.stock_daily'),
@@ -246,7 +246,7 @@ def print_summary() -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description='Initialize TraderMate market data')
+    parser = argparse.ArgumentParser(description='Initialize QuantMate market data')
     parser.add_argument('--start-date', default='2005-01-01', help='Start date for aux backfill (YYYY-MM-DD)')
     parser.add_argument('--skip-schema', action='store_true', help='Skip schema initialization SQL')
     parser.add_argument('--skip-aux', action='store_true', help='Skip adj/dividend/top10 backfill')

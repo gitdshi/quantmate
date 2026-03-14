@@ -2,7 +2,7 @@
 
 Provides simple SQLAlchemy engine factories and a small ``connection``
 context manager. This module intentionally does NOT perform any schema
-creation or migrations; DDL lives under ``tradermate/mysql/init/*.sql`` and
+creation or migrations; DDL lives under ``quantmate/mysql/init/*.sql`` and
 should be applied during provisioning.
 """
 
@@ -18,21 +18,21 @@ from app.infrastructure.config import get_settings
 
 settings = get_settings()
 
-DatabaseName = Literal["tradermate", "tushare", "akshare"]
+DatabaseName = Literal["quantmate", "tushare", "akshare"]
 
 
 # Engine singletons (lazy created)
-_tradermate_engine = None
+_quantmate_engine = None
 _tushare_engine = None
 _akshare_engine = None
 _mysql_server_engine = None
 
 
-def get_tradermate_engine():
-    global _tradermate_engine
-    if _tradermate_engine is None:
-        _tradermate_engine = create_engine(settings.tradermate_db_url, pool_pre_ping=True)
-    return _tradermate_engine
+def get_quantmate_engine():
+    global _quantmate_engine
+    if _quantmate_engine is None:
+        _quantmate_engine = create_engine(settings.quantmate_db_url, pool_pre_ping=True)
+    return _quantmate_engine
 
 
 def get_vnpy_engine():
@@ -70,14 +70,14 @@ def get_mysql_server_engine():
     return _mysql_server_engine
 
 
-def get_tradermate_connection() -> Connection:
-    """Return a `tradermate` DB connection (was previously `get_db_connection`)."""
-    engine = get_tradermate_engine()
+def get_quantmate_connection() -> Connection:
+    """Return a `quantmate` DB connection (was previously `get_db_connection`)."""
+    engine = get_quantmate_engine()
     return engine.connect()
 
 
 # Back-compat alias: some callers still import `get_db_connection`.
-get_db_connection = get_tradermate_connection
+get_db_connection = get_quantmate_connection
 
 
 def get_tushare_connection() -> Connection:
@@ -95,8 +95,8 @@ def connection(db: DatabaseName) -> Iterator[Connection]:
     """Yield a SQLAlchemy connection and always close it."""
     conn: Connection | None = None
     try:
-        if db == "tradermate":
-            conn = get_tradermate_connection()
+        if db == "quantmate":
+            conn = get_quantmate_connection()
         elif db == "tushare":
             conn = get_tushare_connection()
         elif db == "akshare":

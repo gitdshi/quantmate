@@ -1,10 +1,10 @@
 -- =============================================================================
--- TraderMate Backend API Database
--- Database: tradermate - stores user accounts, strategies, backtest results
+-- QuantMate Backend API Database
+-- Database: quantmate - stores user accounts, strategies, backtest results
 -- =============================================================================
 
-CREATE DATABASE IF NOT EXISTS tradermate CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE tradermate;
+CREATE DATABASE IF NOT EXISTS quantmate CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE quantmate;
 
 -- -----------------------------------------------------------------------------
 -- Users table - stores user accounts and authentication

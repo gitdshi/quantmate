@@ -1,5 +1,5 @@
 -- =============================================================================
--- vnpy database initialization for TraderMate
+-- vnpy database initialization for QuantMate
 -- Creates `vnpy` database and required tables for VeighNa trading platform
 -- =============================================================================
 

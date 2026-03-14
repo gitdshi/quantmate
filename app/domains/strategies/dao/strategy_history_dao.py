@@ -1,6 +1,6 @@
 """Strategy history DAO.
 
-All SQL touching `tradermate.strategy_history` lives here.
+All SQL touching `quantmate.strategy_history` lives here.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ class StrategyHistoryDao:
         code: Optional[str],
         created_at: datetime,
     ) -> None:
-        with connection("tradermate") as conn:
+        with connection("quantmate") as conn:
             from sqlalchemy import text
             conn.execute(
                 text(
@@ -48,7 +48,7 @@ class StrategyHistoryDao:
             conn.commit()
 
     def rotate_keep_latest(self, strategy_id: int, keep: int = 5) -> None:
-        with connection("tradermate") as conn:
+        with connection("quantmate") as conn:
             from sqlalchemy import text
             rows = conn.execute(
                 text("SELECT id FROM strategy_history WHERE strategy_id = :sid ORDER BY created_at DESC"),
@@ -74,7 +74,7 @@ class StrategyHistoryDao:
             conn.commit()
 
     def list_history(self, strategy_id: int) -> list[dict[str, Any]]:
-        with connection("tradermate") as conn:
+        with connection("quantmate") as conn:
             from sqlalchemy import text
             rows = conn.execute(
                 text(
@@ -91,7 +91,7 @@ class StrategyHistoryDao:
             return [dict(r._mapping) for r in rows]
 
     def get_history(self, strategy_id: int, history_id: int) -> Optional[dict[str, Any]]:
-        with connection("tradermate") as conn:
+        with connection("quantmate") as conn:
             from sqlalchemy import text
             row = conn.execute(
                 text(

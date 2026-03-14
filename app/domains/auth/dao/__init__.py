@@ -1,1 +1,1 @@
-"""Auth DAOs (tradermate DB)."""
+"""Auth DAOs (quantmate DB)."""

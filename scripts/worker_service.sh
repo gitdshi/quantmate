@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Start/stop/restart worker (RQ) using project's .venv
-# Logs: tradermate/logs/worker.out, PID: tradermate/logs/worker.pid
+# Logs: quantmate/logs/worker.out, PID: quantmate/logs/worker.pid
 
 BASE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$BASE_DIR"

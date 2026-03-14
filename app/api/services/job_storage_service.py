@@ -28,8 +28,8 @@ class JobStorage:
             db=settings.redis_db,
             decode_responses=True  # Decode strings for metadata
         )
-        self.prefix = "tradermate:job:"
-        self.result_prefix = "tradermate:result:"
+        self.prefix = "quantmate:job:"
+        self.result_prefix = "quantmate:result:"
         self.ttl = 86400 * 7  # Keep results for 7 days
     
     def save_job_metadata(self, job_id: str, metadata: Dict[str, Any]) -> None:

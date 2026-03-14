@@ -12,7 +12,7 @@ from app.infrastructure.db.connections import connection
 
 class BulkResultsDao:
     def count_children(self, *, bulk_job_id: str, user_id: int) -> int:
-        with connection("tradermate") as conn:
+        with connection("quantmate") as conn:
             from sqlalchemy import text
             row = conn.execute(
                 text("SELECT COUNT(*) as cnt FROM backtest_history WHERE bulk_job_id = :bjid AND user_id = :uid"),
@@ -32,7 +32,7 @@ class BulkResultsDao:
         order_dir = "ASC" if sort_order == "asc" else "DESC"
         offset = (page - 1) * page_size
 
-        with connection("tradermate") as conn:
+        with connection("quantmate") as conn:
             from sqlalchemy import text
             rows = conn.execute(
                 text(
@@ -52,7 +52,7 @@ class BulkResultsDao:
             return [dict(r._mapping) for r in rows]
 
     def list_all_children(self, *, bulk_job_id: str, user_id: int) -> list[dict[str, Any]]:
-        with connection("tradermate") as conn:
+        with connection("quantmate") as conn:
             from sqlalchemy import text
             rows = conn.execute(
                 text(

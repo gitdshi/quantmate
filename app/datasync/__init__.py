@@ -1,4 +1,4 @@
-"""Data sync package for TraderMate.
+"""Data sync package for QuantMate.
 
 Contains AkShare/Tushare ingestion and the centralized DataSyncDaemon.
 """

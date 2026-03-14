@@ -10,7 +10,7 @@
 5. 平空条件：快线上穿中线 或 触发止损
 6. 集成基于标准差的固定止损和移动止损
 
-Author: TraderMate
+Author: QuantMate
 """
 
 from vnpy_ctastrategy import (
@@ -42,7 +42,7 @@ class TripleMAStrategy(CtaTemplate):
     - trailing_stop_multiplier: 移动止损标准差倍数
     """
     
-    author = "TraderMate"
+    author = "QuantMate"
     
     # 策略参数
     fast_window: int = 5        # 快线周期

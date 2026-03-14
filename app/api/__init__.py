@@ -1,1 +1,1 @@
-# TraderMate API
+# QuantMate API

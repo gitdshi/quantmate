@@ -1,12 +1,12 @@
-# TraderMate (Backend)
+# QuantMate (Backend)
 
-Backend services for TraderMate.
+Backend services for QuantMate.
 
 ## Documentation
 
 All project documentation lives in the dedicated docs repository:
 
-- https://github.com/gitdshi/tradermate-docs
+- https://github.com/gitdshi/quantmate-docs
 
 This backend repo intentionally does **not** keep a `docs/` folder to avoid duplication.
 
@@ -14,7 +14,7 @@ This backend repo intentionally does **not** keep a `docs/` folder to avoid dupl
 
 See the docs repo for the authoritative, executable steps:
 
-- Development entry: https://github.com/gitdshi/tradermate-docs/tree/main/development
+- Development entry: https://github.com/gitdshi/quantmate-docs/tree/main/development
 
 ---
 

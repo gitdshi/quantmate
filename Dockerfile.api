@@ -1,4 +1,4 @@
-# TraderMate API Dockerfile
+# QuantMate API Dockerfile
 FROM python:3.11
 
 WORKDIR /app

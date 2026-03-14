@@ -1,1 +1,1 @@
-"""Job/Queue DAOs (tradermate DB projections for bulk jobs)."""
+"""Job/Queue DAOs (quantmate DB projections for bulk jobs)."""

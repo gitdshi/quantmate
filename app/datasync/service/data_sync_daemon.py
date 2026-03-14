@@ -1,5 +1,5 @@
 """
-Data Sync Daemon for TraderMate
+Data Sync Daemon for QuantMate
 
 Handles scheduled data synchronization with two main jobs:
 1. Daily ingest at 2:00 AM Shanghai time (incremental sync)
@@ -904,7 +904,7 @@ def run_backfill_job():
 def run_daemon():
     """Run as daemon with scheduled jobs."""
     logger.info("="*80)
-    logger.info("TraderMate Data Sync Daemon Starting")
+    logger.info("QuantMate Data Sync Daemon Starting")
     logger.info("Timezone: %s", TIMEZONE)
     logger.info("Daily ingest: %02d:%02d", SYNC_HOUR, SYNC_MINUTE)
     logger.info("Backfill: Every %d hours", BACKFILL_INTERVAL_HOURS)
@@ -970,7 +970,7 @@ def run_daemon():
 # =============================================================================
 
 def main():
-    parser = argparse.ArgumentParser(description='TraderMate Data Sync Daemon')
+    parser = argparse.ArgumentParser(description='QuantMate Data Sync Daemon')
     parser.add_argument('--daemon', action='store_true', help='Run as daemon with scheduler')
     parser.add_argument('--daily', action='store_true', help='Run daily ingest once')
     parser.add_argument('--backfill', action='store_true', help='Run backfill once')

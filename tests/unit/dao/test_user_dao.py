@@ -30,7 +30,7 @@ class TestUserDao:
         db_connection_sync.commit()
 
         # Patch the connection to use our test database
-        with patch('app.infrastructure.db.connections.get_tradermate_connection', return_value=db_connection_sync):
+        with patch('app.infrastructure.db.connections.get_quantmate_connection', return_value=db_connection_sync):
             # Act
             result = user_dao.username_exists(username)
             # Assert
@@ -39,7 +39,7 @@ class TestUserDao:
     def test_username_exists_false_for_missing(self, user_dao, db_connection_sync):
         """Test username_exists returns False when user does not exist."""
         # Patch the connection to use test database (no users inserted)
-        with patch('app.infrastructure.db.connections.get_tradermate_connection', return_value=db_connection_sync):
+        with patch('app.infrastructure.db.connections.get_quantmate_connection', return_value=db_connection_sync):
             # Act
             result = user_dao.username_exists("nonexistent_user_xyz")
             # Assert
@@ -57,7 +57,7 @@ class TestUserDao:
         db_connection_sync.commit()
 
         # Patch the connection to use our test database
-        with patch('app.infrastructure.db.connections.get_tradermate_connection', return_value=db_connection_sync):
+        with patch('app.infrastructure.db.connections.get_quantmate_connection', return_value=db_connection_sync):
             # Act
             result = user_dao.email_exists(email)
             # Assert
@@ -82,7 +82,7 @@ class TestUserDao:
         created_at = datetime.utcnow()
 
         # Patch the connection to use our test database
-        with patch('app.infrastructure.db.connections.get_tradermate_connection', return_value=db_connection_sync):
+        with patch('app.infrastructure.db.connections.get_quantmate_connection', return_value=db_connection_sync):
             # Act
             user_id = user_dao.insert_user(
                 username=username,

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Starts, stops, restarts the API service (uvicorn) using the project's .venv
-# Logs and PID are stored under tradermate/logs
+# Logs and PID are stored under quantmate/logs
 
 BASE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$BASE_DIR"

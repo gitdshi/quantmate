@@ -22,14 +22,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy import text
 from app.infrastructure.db.connections import (
-    get_tradermate_engine,
+    get_quantmate_engine,
     get_tushare_engine,
     get_akshare_engine,
     get_vnpy_engine,
 )
 
 # Engines from infrastructure connections
-engine_tm = get_tradermate_engine()
+engine_tm = get_quantmate_engine()
 engine_ts = get_tushare_engine()
 engine_ak = get_akshare_engine()
 engine_vn = get_vnpy_engine()

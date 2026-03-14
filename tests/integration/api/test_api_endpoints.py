@@ -38,7 +38,7 @@ class TestAuthEndpoints:
         from fastapi.testclient import TestClient
 
         # Create minimal test app with only /metrics
-        test_app = FastAPI(title="TraderMate Test")
+        test_app = FastAPI(title="QuantMate Test")
 
         @test_app.get("/metrics")
         async def metrics():

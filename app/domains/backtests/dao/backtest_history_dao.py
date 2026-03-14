@@ -1,6 +1,6 @@
 """Backtest history DAO.
 
-All SQL touching `tradermate.backtest_history` lives here.
+All SQL touching `quantmate.backtest_history` lives here.
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ class BacktestHistoryDao:
             # fallback
             return str(o)
 
-        with connection("tradermate") as conn:
+        with connection("quantmate") as conn:
             from sqlalchemy import text
             conn.execute(
                 text(
@@ -90,7 +90,7 @@ class BacktestHistoryDao:
             conn.commit()
 
     def get_child_result_json(self, job_id: str) -> Optional[dict[str, Any]]:
-        with connection("tradermate") as conn:
+        with connection("quantmate") as conn:
             from sqlalchemy import text
             row = conn.execute(
                 text("SELECT result FROM backtest_history WHERE job_id = :jid LIMIT 1"),
@@ -105,7 +105,7 @@ class BacktestHistoryDao:
 
     def get_job_row(self, job_id: str) -> Optional[dict[str, Any]]:
         """Fetch a backtest_history row by job_id."""
-        with connection("tradermate") as conn:
+        with connection("quantmate") as conn:
             from sqlalchemy import text
             row = conn.execute(
                 text(
@@ -123,7 +123,7 @@ class BacktestHistoryDao:
             return dict(row._mapping) if row else None
 
     def delete_single(self, job_id: str, user_id: int) -> None:
-        with connection("tradermate") as conn:
+        with connection("quantmate") as conn:
             from sqlalchemy import text
             conn.execute(
                 text("DELETE FROM backtest_history WHERE job_id = :job_id AND user_id = :user_id"),
@@ -132,7 +132,7 @@ class BacktestHistoryDao:
             conn.commit()
 
     def delete_bulk_children(self, bulk_job_id: str, user_id: int) -> None:
-        with connection("tradermate") as conn:
+        with connection("quantmate") as conn:
             from sqlalchemy import text
             conn.execute(
                 text("DELETE FROM backtest_history WHERE bulk_job_id = :bulk_job_id AND user_id = :user_id"),
@@ -141,7 +141,7 @@ class BacktestHistoryDao:
             conn.commit()
 
     def count_for_user(self, user_id: int) -> int:
-        with connection("tradermate") as conn:
+        with connection("quantmate") as conn:
             from sqlalchemy import text
             row = conn.execute(
                 text("SELECT COUNT(*) as total FROM backtest_history WHERE user_id = :user_id"),
@@ -150,7 +150,7 @@ class BacktestHistoryDao:
             return int(row.total) if row and hasattr(row, "total") else 0
 
     def list_for_user(self, *, user_id: int, limit: int, offset: int) -> list[dict[str, Any]]:
-        with connection("tradermate") as conn:
+        with connection("quantmate") as conn:
             from sqlalchemy import text
             rows = conn.execute(
                 text(
@@ -168,7 +168,7 @@ class BacktestHistoryDao:
             return [dict(r._mapping) for r in rows]
 
     def get_detail_for_user(self, *, job_id: str, user_id: int) -> Optional[dict[str, Any]]:
-        with connection("tradermate") as conn:
+        with connection("quantmate") as conn:
             from sqlalchemy import text
             row = conn.execute(
                 text(

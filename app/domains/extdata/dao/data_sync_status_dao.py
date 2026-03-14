@@ -5,12 +5,12 @@ import logging
 from typing import Dict, List, Tuple, Any
 
 from sqlalchemy import text
-from app.infrastructure.db.connections import get_tradermate_engine, get_tushare_engine, get_vnpy_engine, get_akshare_engine
+from app.infrastructure.db.connections import get_quantmate_engine, get_tushare_engine, get_vnpy_engine, get_akshare_engine
 
 logger = logging.getLogger(__name__)
 
 # Engines provided by infrastructure connection helpers
-engine_tm = get_tradermate_engine()
+engine_tm = get_quantmate_engine()
 engine_ts = get_tushare_engine()
 engine_vn = get_vnpy_engine()
 engine_ak = get_akshare_engine()
@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS trade_cal (
 
 def ensure_tables():
     """Ensure `data_sync_status` and `trade_cal` exist."""
-    logger.info('Ensuring data_sync_status table in tradermate DB')
+    logger.info('Ensuring data_sync_status table in quantmate DB')
     with engine_tm.begin() as conn:
         conn.execute(text(DATA_SYNC_STATUS_SQL))
 
@@ -268,7 +268,7 @@ CREATE TABLE IF NOT EXISTS backfill_lock (
 
 def ensure_backfill_lock_table():
     """Ensure backfill_lock table exists."""
-    logger.info('Ensuring backfill_lock table in tradermate DB')
+    logger.info('Ensuring backfill_lock table in quantmate DB')
     with engine_tm.begin() as conn:
         conn.execute(text(BACKFILL_LOCK_SQL))
         # Initialize with unlocked state

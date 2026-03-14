@@ -6,7 +6,7 @@
 			"label": "docker-build",
 			"platform": "python",
 			"dockerBuild": {
-				"tag": "tradermate:latest",
+				"tag": "quantmate:latest",
 				"dockerfile": "${workspaceFolder}/Dockerfile",
 				"context": "${workspaceFolder}",
 				"pull": true
