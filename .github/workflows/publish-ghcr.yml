@@ -23,7 +23,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Staging build speed: we only need linux/amd64, so QEMU is unnecessary.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -40,7 +42,7 @@ jobs:
           context: .
           file: ./Dockerfile.api
           push: true
-          platforms: linux/amd64
+          platforms: linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
           tags: |
