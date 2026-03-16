@@ -23,9 +23,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
+      # Staging build speed: we only need linux/amd64, so QEMU is unnecessary.
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -36,13 +34,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push (multi-arch)
+      - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile.api
           push: true
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           tags: |
             ghcr.io/${{ github.repository_owner }}/quantmate-api:latest
             ghcr.io/${{ github.repository_owner }}/quantmate-api:sha-${{ github.sha }}
