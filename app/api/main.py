@@ -85,10 +85,13 @@ async def lifespan(app: FastAPI):
         # Check if admin exists
         admin_user = user_dao.get_user_for_login(admin_username)
 
+        # Ensure admin credentials are consistent with env on startup.
+        # This keeps staging recoverable when DB already has an "admin" user from older deployments.
+        if is_production and not admin_password:
+            raise RuntimeError("ADMIN_PASSWORD environment variable must be set in production mode")
+
         if admin_user is None:
             # Admin user does not exist, create it
-            if is_production and not admin_password:
-                raise RuntimeError("ADMIN_PASSWORD environment variable must be set in production mode")
             if not admin_password:
                 # Generate a secure random password (20+ chars)
                 admin_password = secrets.token_urlsafe(32)
@@ -104,10 +107,14 @@ async def lifespan(app: FastAPI):
             )
             logger.info(f"Admin user '{admin_username}' created. First login will require password change.")
         else:
+            # Existing admin: if ADMIN_PASSWORD is explicitly provided, enforce it.
+            if admin_password:
+                user_dao.update_user_password(admin_user["id"], get_password_hash(admin_password), must_change_password=True)
+                logger.info("Updated existing admin password from ADMIN_PASSWORD and marked as requiring password change.")
+
             # Existing admin: upgrade if necessary
             DEFAULT_ADMIN_HASH = "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5GyYqVvmvhxKe"
             if admin_user["hashed_password"] == DEFAULT_ADMIN_HASH:
-                # Force password change for default hash
                 if admin_user.get("must_change_password") is False:
                     user_dao.update_user_password(
                         admin_user["id"],
