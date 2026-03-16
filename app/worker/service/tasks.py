@@ -19,32 +19,18 @@ if str(ROOT) not in sys.path:
 from rq import get_current_job
 from vnpy.trader.constant import Interval
 from vnpy.trader.setting import SETTINGS as VNPY_SETTINGS
-from vnpy_ctastrategy.backtesting import BacktestingEngine
-from app.utils.ts_utils import moving_average, pct_change
-from app.api.services.strategy_service import compile_strategy
-from app.api.services.job_storage_service import get_job_storage
 
-from app.domains.market.service import MarketService
-from app.domains.backtests.dao.akshare_benchmark_dao import AkshareBenchmarkDao
-from app.domains.backtests.dao.backtest_history_dao import BacktestHistoryDao
-from app.domains.backtests.dao.bulk_backtest_dao import BulkBacktestDao
-from app.domains.backtests.dao.strategy_source_dao import StrategySourceDao
-
+# Configure vn.py DB backend before any code path can initialize the global database singleton.
+# This must run at import time in the worker process, otherwise vn.py may cache the SQLite backend.
 
 def _configure_vnpy_mysql_from_env() -> None:
-    """Force vn.py to use MySQL (vnpy DB) based on the application's MYSQL_* env vars.
-
-    vn.py reads its DB backend from VNPY_SETTINGS (vt_setting.json). In containers we
-    want a single source of truth: the QuantMate .env (MYSQL_*). This function injects
-    the DB settings at runtime before vn.py database objects are created.
-    """
+    """Force vn.py to use MySQL (vnpy DB) based on the application's MYSQL_* env vars."""
     host = os.getenv("MYSQL_HOST")
     user = os.getenv("MYSQL_USER")
     password = os.getenv("MYSQL_PASSWORD")
     port = int(os.getenv("MYSQL_PORT", "3306"))
 
     if not host or not user or not password:
-        # Keep existing SETTINGS (likely sqlite) if DB env isn't present.
         logger.warning("[worker] VNPy MySQL config skipped: missing MYSQL_* env")
         return
 
@@ -55,13 +41,21 @@ def _configure_vnpy_mysql_from_env() -> None:
     VNPY_SETTINGS["database.password"] = password
     VNPY_SETTINGS["database.database"] = "vnpy"
 
-    logger.info(
-        "[worker] Configured VNPy DB backend: mysql %s:%s db=vnpy user=%s",
-        host,
-        port,
-        user,
-    )
+    logger.info("[worker] VNPy DB backend set to mysql %s:%s db=vnpy user=%s", host, port, user)
 
+
+_configure_vnpy_mysql_from_env()
+
+from vnpy_ctastrategy.backtesting import BacktestingEngine
+from app.utils.ts_utils import moving_average, pct_change
+from app.api.services.strategy_service import compile_strategy
+from app.api.services.job_storage_service import get_job_storage
+
+from app.domains.market.service import MarketService
+from app.domains.backtests.dao.akshare_benchmark_dao import AkshareBenchmarkDao
+from app.domains.backtests.dao.backtest_history_dao import BacktestHistoryDao
+from app.domains.backtests.dao.bulk_backtest_dao import BulkBacktestDao
+from app.domains.backtests.dao.strategy_source_dao import StrategySourceDao
 
 def convert_to_vnpy_symbol(symbol: str) -> str:
     """Convert a symbol into the VNPy vt_symbol format.
