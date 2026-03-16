@@ -29,23 +29,32 @@ from app.domains.backtests.dao.bulk_backtest_dao import BulkBacktestDao
 from app.domains.backtests.dao.strategy_source_dao import StrategySourceDao
 
 
-def convert_to_vnpy_symbol(ts_symbol: str) -> str:
+def convert_to_vnpy_symbol(symbol: str) -> str:
+    """Convert a symbol into the VNPy vt_symbol format.
+
+    Supports both:
+    - Tushare-style: 000001.SZ / 600000.SH / 430047.BJ
+    - VNPy-style:    000001.SZSE / 600000.SSE / 430047.BSE
+
+    Important: If the exchange is already a VNPy exchange (SZSE/SSE/BSE), do
+    NOT append it again.
     """
-    Convert Tushare symbol format to VNPy format.
-    
-    Tushare: 000001.SZ, 600000.SH
-    VNPy: 000001.SZSE, 600000.SSE
-    """
-    if not ts_symbol or "." not in ts_symbol:
-        return ts_symbol
-    
-    code, exchange = ts_symbol.rsplit(".", 1)
+    if not symbol or "." not in symbol:
+        return symbol
+
+    code, exch = symbol.rsplit(".", 1)
+    exch_upper = exch.upper()
+
+    # Already VNPy-style
+    if exch_upper in {"SZSE", "SSE", "BSE"}:
+        return f"{code}.{exch_upper}"
+
     exchange_map = {
         "SZ": "SZSE",  # Shenzhen Stock Exchange
         "SH": "SSE",   # Shanghai Stock Exchange
         "BJ": "BSE",   # Beijing Stock Exchange
     }
-    vnpy_exchange = exchange_map.get(exchange.upper(), exchange)
+    vnpy_exchange = exchange_map.get(exch_upper, exch_upper)
     return f"{code}.{vnpy_exchange}"
 
 
