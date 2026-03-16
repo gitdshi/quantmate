@@ -1,5 +1,6 @@
 """Background Tasks for RQ Workers."""
 import sys
+import os
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, Optional
@@ -17,6 +18,7 @@ if str(ROOT) not in sys.path:
 
 from rq import get_current_job
 from vnpy.trader.constant import Interval
+from vnpy.trader.setting import SETTINGS as VNPY_SETTINGS
 from vnpy_ctastrategy.backtesting import BacktestingEngine
 from app.utils.ts_utils import moving_average, pct_change
 from app.api.services.strategy_service import compile_strategy
@@ -27,6 +29,38 @@ from app.domains.backtests.dao.akshare_benchmark_dao import AkshareBenchmarkDao
 from app.domains.backtests.dao.backtest_history_dao import BacktestHistoryDao
 from app.domains.backtests.dao.bulk_backtest_dao import BulkBacktestDao
 from app.domains.backtests.dao.strategy_source_dao import StrategySourceDao
+
+
+def _configure_vnpy_mysql_from_env() -> None:
+    """Force vn.py to use MySQL (vnpy DB) based on the application's MYSQL_* env vars.
+
+    vn.py reads its DB backend from VNPY_SETTINGS (vt_setting.json). In containers we
+    want a single source of truth: the QuantMate .env (MYSQL_*). This function injects
+    the DB settings at runtime before vn.py database objects are created.
+    """
+    host = os.getenv("MYSQL_HOST")
+    user = os.getenv("MYSQL_USER")
+    password = os.getenv("MYSQL_PASSWORD")
+    port = int(os.getenv("MYSQL_PORT", "3306"))
+
+    if not host or not user or not password:
+        # Keep existing SETTINGS (likely sqlite) if DB env isn't present.
+        logger.warning("[worker] VNPy MySQL config skipped: missing MYSQL_* env")
+        return
+
+    VNPY_SETTINGS["database.name"] = "mysql"
+    VNPY_SETTINGS["database.host"] = host
+    VNPY_SETTINGS["database.port"] = port
+    VNPY_SETTINGS["database.user"] = user
+    VNPY_SETTINGS["database.password"] = password
+    VNPY_SETTINGS["database.database"] = "vnpy"
+
+    logger.info(
+        "[worker] Configured VNPy DB backend: mysql %s:%s db=vnpy user=%s",
+        host,
+        port,
+        user,
+    )
 
 
 def convert_to_vnpy_symbol(symbol: str) -> str:
@@ -178,6 +212,9 @@ def run_backtest_task(
     job_id = current_job.id if current_job else None
     
     try:
+        # Ensure vn.py reads bars from MySQL(vnpy) instead of default sqlite.
+        _configure_vnpy_mysql_from_env()
+
         # Convert symbol to VNPy format
         vnpy_symbol = convert_to_vnpy_symbol(symbol)
         
