@@ -19,6 +19,12 @@ class StrategiesService:
     def list_strategies(self, user_id: int) -> list[dict[str, Any]]:
         return self._dao.list_for_user(user_id)
 
+    def count_strategies(self, user_id: int) -> int:
+        return self._dao.count_for_user(user_id)
+
+    def list_strategies_paginated(self, user_id: int, limit: int, offset: int) -> list[dict[str, Any]]:
+        return self._dao.list_for_user_paginated(user_id, limit, offset)
+
     def create_strategy(
         self,
         user_id: int,

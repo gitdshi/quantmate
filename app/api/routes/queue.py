@@ -6,6 +6,8 @@ from app.api.services.auth_service import get_current_user
 from app.api.models.user import TokenData
 from app.api.services.backtest_service import get_backtest_service
 from app.api.services.job_storage_service import get_job_storage
+from app.api.errors import ErrorCode
+from app.api.exception_handlers import APIError
 
 from app.domains.jobs.service import JobsService
 from app.domains.backtests.service import BulkBacktestQueryService
@@ -47,7 +49,7 @@ async def get_job_detail(
     job = service.get_job_status(job_id, current_user.user_id)
     
     if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise APIError(status_code=404, code=ErrorCode.JOB_NOT_FOUND, message="Job not found")
     
     return job
 
@@ -62,9 +64,10 @@ async def cancel_job(
     success = service.cancel_job(job_id, current_user.user_id)
     
     if not success:
-        raise HTTPException(
+        raise APIError(
             status_code=400,
-            detail="Job cannot be cancelled (not found or already finished)"
+            code=ErrorCode.JOB_CANCEL_FAILED,
+            message="Job cannot be cancelled (not found or already finished)"
         )
     
     return {"message": "Job cancelled", "job_id": job_id}
@@ -81,12 +84,12 @@ async def delete_job(
     job = service.get_job_status(job_id, current_user.user_id)
     
     if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise APIError(status_code=404, code=ErrorCode.JOB_NOT_FOUND, message="Job not found")
     
     try:
         JobsService().delete_job_and_results(job_id=job_id, user_id=current_user.user_id)
     except RuntimeError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise APIError(status_code=500, code=ErrorCode.INTERNAL_ERROR, message=str(e))
     
     return {"message": "Job deleted", "job_id": job_id}
 
@@ -108,7 +111,7 @@ async def submit_backtest_to_queue(
     # Get symbol - handle both 'symbol' and 'vt_symbol' keys
     symbol = request.get("symbol") or request.get("vt_symbol")
     if not symbol:
-        raise HTTPException(status_code=400, detail="Symbol is required")
+        raise APIError(status_code=400, code=ErrorCode.BAD_REQUEST, message="Symbol is required")
     
     job_id = service.submit_backtest(
         user_id=current_user.user_id,
@@ -146,7 +149,7 @@ async def submit_bulk_backtest(
 
     symbols = request.get("symbols")
     if not symbols or not isinstance(symbols, list) or len(symbols) == 0:
-        raise HTTPException(status_code=400, detail="symbols must be a non-empty list")
+        raise APIError(status_code=400, code=ErrorCode.BAD_REQUEST, message="symbols must be a non-empty list")
 
     start_date = dt.strptime(request["start_date"], "%Y-%m-%d").date()
     end_date = dt.strptime(request["end_date"], "%Y-%m-%d").date()
@@ -192,7 +195,7 @@ async def get_bulk_job_results(
             sort_order=sort_order,
         )
     except KeyError:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise APIError(status_code=404, code=ErrorCode.JOB_NOT_FOUND, message="Job not found")
 
 
 @router.get("/bulk-jobs/{job_id}/summary")
@@ -207,4 +210,4 @@ async def get_bulk_job_summary(
     try:
         return BulkBacktestQueryService().get_summary(bulk_job_id=job_id, user_id=current_user.user_id)
     except KeyError:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise APIError(status_code=404, code=ErrorCode.JOB_NOT_FOUND, message="Job not found")

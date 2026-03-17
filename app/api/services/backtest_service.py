@@ -416,12 +416,20 @@ class BacktestService(BacktestServiceV2):
 
     def run_single_backtest(self, strategy_id: Optional[int], strategy_class: Optional[str], vt_symbol: str,
                             start_date: date, end_date: date, parameters: Dict[str, Any], capital: float = 100000.0,
-                            rate: float = 0.0001, slippage: float = 0.0, size: int = 1, benchmark: Optional[str] = None) -> Optional[BacktestResult]:
+                            rate: float = 0.0001, slippage: float = 0.0, size: int = 1, benchmark: Optional[str] = None,
+                            period: str = "daily") -> Optional[BacktestResult]:
         strategy_cls = self._get_strategy_class(strategy_id, strategy_class)
+        interval_map = {
+            "daily": Interval.DAILY,
+            "weekly": Interval.WEEKLY,
+            "minute": Interval.MINUTE,
+            "hour": Interval.HOUR,
+        }
+        interval = interval_map.get(period, Interval.DAILY)
         engine = BacktestingEngine()
         engine.set_parameters(
             vt_symbol=vt_symbol,
-            interval=Interval.DAILY,
+            interval=interval,
             start=datetime.combine(start_date, datetime.min.time()),
             end=datetime.combine(end_date, datetime.min.time()),
             rate=rate,

@@ -19,6 +19,7 @@ logger = get_logger(__name__)
 from fastapi import FastAPI, Request, HTTPException, status, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.responses import RedirectResponse
 from typing import Optional
 
 from app.infrastructure.config import get_settings
@@ -26,6 +27,32 @@ from app.infrastructure.config import get_settings
 from app.api.routes import auth, strategies, data, backtest, queue
 from app.api.routes import system
 from app.api.routes import strategy_code
+from app.api.routes import audit
+from app.api.routes import kyc
+from app.api.routes import settings as settings_routes
+from app.api.routes import watchlist
+from app.api.routes import portfolio
+from app.api.routes import analytics
+from app.api.routes import trade_log
+from app.api.routes import mfa
+from app.api.routes import api_keys
+from app.api.routes import sessions
+from app.api.routes import trading
+from app.api.routes import risk
+from app.api.routes import alerts
+from app.api.routes import reports
+from app.api.routes import broker
+from app.api.routes import system_config
+from app.api.routes import indicators
+from app.api.routes import optimization
+from app.api.routes import websocket
+from app.api.routes import ai as ai_routes
+from app.api.routes import factors as factor_routes
+from app.api.routes import templates as template_routes
+from app.api.routes import teams as team_routes
+from app.api.routes import multi_market
+from app.api.exception_handlers import register_exception_handlers, APIError
+from app.api.errors import ErrorCode
 
 from app.domains.auth.dao.user_dao import UserDao
 from app.api.services.auth_service import get_password_hash
@@ -40,10 +67,10 @@ async def ensure_password_changed(
 ):
     """Global dependency to enforce password change on first login for admin."""
     exempt_paths = [
-        "/api/auth/login",
-        "/api/auth/register",
-        "/api/auth/refresh",
-        "/api/auth/change-password",
+        "/api/v1/auth/login",
+        "/api/v1/auth/register",
+        "/api/v1/auth/refresh",
+        "/api/v1/auth/change-password",
         "/docs",
         "/redoc",
         "/openapi.json",
@@ -57,13 +84,22 @@ async def ensure_password_changed(
         from app.api.services.auth_service import decode_token
         token_data = decode_token(credentials.credentials)
     except Exception:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
+        raise APIError(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            code=ErrorCode.AUTH_INVALID_TOKEN,
+            message="Invalid or expired token",
+        )
     if token_data is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
+        raise APIError(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            code=ErrorCode.AUTH_INVALID_TOKEN,
+            message="Invalid or expired token",
+        )
     if token_data.must_change_password:
-        raise HTTPException(
+        raise APIError(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Password change required. Please change your password first."
+            code=ErrorCode.AUTH_PASSWORD_CHANGE_REQUIRED,
+            message="Password change required. Please change your password first.",
         )
 
 
@@ -138,6 +174,9 @@ app = FastAPI(
     dependencies=[Depends(ensure_password_changed)]
 )
 
+# Register standardized exception handlers (Issue #16)
+register_exception_handlers(app)
+
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -147,14 +186,59 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers
-app.include_router(auth.router, prefix="/api")
-app.include_router(strategies.router, prefix="/api")
-app.include_router(data.router, prefix="/api")
-app.include_router(backtest.router, prefix="/api")
-app.include_router(queue.router, prefix="/api")
-app.include_router(system.router, prefix="/api")
-app.include_router(strategy_code.router, prefix="/api")
+# Rate limiting middleware (Issue #14)
+from app.api.rate_limit import RateLimitMiddleware  # noqa: E402
+app.add_middleware(RateLimitMiddleware)
+
+# Audit logging middleware (Issue #2)
+from app.api.audit_middleware import AuditMiddleware  # noqa: E402
+app.add_middleware(AuditMiddleware)
+
+# Include routers under /api/v1 (Issue #13: API versioning)
+app.include_router(auth.router, prefix="/api/v1")
+app.include_router(strategies.router, prefix="/api/v1")
+app.include_router(data.router, prefix="/api/v1")
+app.include_router(backtest.router, prefix="/api/v1")
+app.include_router(queue.router, prefix="/api/v1")
+app.include_router(system.router, prefix="/api/v1")
+app.include_router(strategy_code.router, prefix="/api/v1")
+app.include_router(audit.router, prefix="/api/v1")
+app.include_router(kyc.router, prefix="/api/v1")
+app.include_router(settings_routes.router, prefix="/api/v1")
+app.include_router(watchlist.router, prefix="/api/v1")
+app.include_router(portfolio.router, prefix="/api/v1")
+app.include_router(analytics.router, prefix="/api/v1")
+app.include_router(trade_log.router, prefix="/api/v1")
+app.include_router(mfa.router, prefix="/api/v1")
+app.include_router(api_keys.router, prefix="/api/v1")
+app.include_router(sessions.router, prefix="/api/v1")
+app.include_router(trading.router, prefix="/api/v1")
+app.include_router(risk.router, prefix="/api/v1")
+app.include_router(alerts.router, prefix="/api/v1")
+app.include_router(reports.router, prefix="/api/v1")
+app.include_router(broker.router, prefix="/api/v1")
+app.include_router(system_config.router, prefix="/api/v1")
+app.include_router(indicators.router, prefix="/api/v1")
+app.include_router(optimization.router, prefix="/api/v1")
+app.include_router(websocket.router, prefix="/api/v1")
+app.include_router(ai_routes.router, prefix="/api/v1")
+app.include_router(factor_routes.router, prefix="/api/v1")
+app.include_router(template_routes.router, prefix="/api/v1")
+app.include_router(team_routes.router, prefix="/api/v1")
+app.include_router(multi_market.router, prefix="/api/v1")
+
+
+# Legacy /api/* → /api/v1/* redirect (Issue #13: transition period)
+@app.middleware("http")
+async def legacy_api_redirect(request: Request, call_next):
+    """Redirect old /api/<route> paths to /api/v1/<route> with 301."""
+    path = request.url.path
+    if path.startswith("/api/") and not path.startswith("/api/v1/"):
+        new_path = "/api/v1/" + path[len("/api/"):]
+        query = str(request.url.query)
+        url = new_path + ("?" + query if query else "")
+        return RedirectResponse(url=url, status_code=301)
+    return await call_next(request)
 
 
 @app.get("/", dependencies=[])

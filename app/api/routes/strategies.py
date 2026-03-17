@@ -13,18 +13,27 @@ from app.api.models.strategy import (
 )
 from app.api.services.auth_service import get_current_user
 from app.api.services.strategy_service import validate_strategy_code
+from app.api.errors import ErrorCode
+from app.api.exception_handlers import APIError
+from app.api.pagination import PaginationParams, paginate
 
 from app.domains.strategies.service import StrategiesService
 
 router = APIRouter(prefix="/strategies", tags=["Strategies"])
 
 
-@router.get("", response_model=List[StrategyListItem])
-async def list_strategies(current_user: TokenData = Depends(get_current_user)):
-    """List all strategies for current user."""
+@router.get("")
+async def list_strategies(
+    pagination: PaginationParams = Depends(),
+    current_user: TokenData = Depends(get_current_user),
+):
+    """List all strategies for current user (paginated)."""
     service = StrategiesService()
-    rows = service.list_strategies(current_user.user_id)
-    return [
+    total = service.count_strategies(current_user.user_id)
+    rows = service.list_strategies_paginated(
+        current_user.user_id, pagination.limit, pagination.offset
+    )
+    items = [
         StrategyListItem(
             id=r["id"],
             name=r["name"],
@@ -37,6 +46,7 @@ async def list_strategies(current_user: TokenData = Depends(get_current_user)):
         )
         for r in rows
     ]
+    return paginate(items, total, pagination)
 
 
 @router.post("", response_model=Strategy, status_code=status.HTTP_201_CREATED)
@@ -56,7 +66,7 @@ async def create_strategy(
             code=strategy_data.code or "",
         )
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise APIError(status_code=status.HTTP_400_BAD_REQUEST, code=ErrorCode.STRATEGY_VALIDATION_FAILED, message=str(e))
 
     return Strategy(
         id=row["id"],
@@ -83,7 +93,7 @@ async def get_strategy(
     try:
         row = service.get_strategy(current_user.user_id, strategy_id)
     except KeyError:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Strategy not found")
+        raise APIError(status_code=status.HTTP_404_NOT_FOUND, code=ErrorCode.STRATEGY_NOT_FOUND, message="Strategy not found")
 
     return Strategy(
         id=row["id"],
@@ -120,9 +130,9 @@ async def update_strategy(
             is_active=strategy_data.is_active,
         )
     except KeyError:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Strategy not found")
+        raise APIError(status_code=status.HTTP_404_NOT_FOUND, code=ErrorCode.STRATEGY_NOT_FOUND, message="Strategy not found")
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise APIError(status_code=status.HTTP_400_BAD_REQUEST, code=ErrorCode.STRATEGY_VALIDATION_FAILED, message=str(e))
 
     return Strategy(
         id=row["id"],
@@ -149,7 +159,7 @@ async def delete_strategy(
     try:
         service.delete_strategy(current_user.user_id, strategy_id)
     except KeyError:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Strategy not found")
+        raise APIError(status_code=status.HTTP_404_NOT_FOUND, code=ErrorCode.STRATEGY_NOT_FOUND, message="Strategy not found")
 
 
 @router.post("/{strategy_id}/validate", response_model=StrategyValidation)
@@ -172,7 +182,7 @@ async def list_strategy_code_history(
     try:
         return service.list_code_history(current_user.user_id, strategy_id)
     except KeyError:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Strategy not found")
+        raise APIError(status_code=status.HTTP_404_NOT_FOUND, code=ErrorCode.STRATEGY_NOT_FOUND, message="Strategy not found")
 
 
 @router.get("/{strategy_id}/code-history/{history_id}")
@@ -188,8 +198,8 @@ async def get_strategy_code_history(
     except KeyError as e:
         msg = str(e)
         if "History" in msg:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="History not found")
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Strategy not found")
+            raise APIError(status_code=status.HTTP_404_NOT_FOUND, code=ErrorCode.NOT_FOUND, message="History not found")
+        raise APIError(status_code=status.HTTP_404_NOT_FOUND, code=ErrorCode.STRATEGY_NOT_FOUND, message="Strategy not found")
 
 
 @router.post("/{strategy_id}/code-history/{history_id}/restore")
@@ -206,10 +216,8 @@ async def restore_strategy_code_history(
     except KeyError as e:
         msg = str(e)
         if "History" in msg:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="History not found")
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Strategy not found")
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+            raise APIError(status_code=status.HTTP_404_NOT_FOUND, code=ErrorCode.NOT_FOUND, message="History not found")
+        raise APIError(status_code=status.HTTP_404_NOT_FOUND, code=ErrorCode.STRATEGY_NOT_FOUND, message="Strategy not found")
 
 
 @router.get("/builtin/list", response_model=List[StrategyListItem])

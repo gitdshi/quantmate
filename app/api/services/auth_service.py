@@ -12,6 +12,8 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from app.infrastructure.config import get_settings
 from app.api.models.user import TokenData
+from app.api.errors import ErrorCode
+from app.api.exception_handlers import APIError
 
 settings = get_settings()
 pwd_context = CryptContext(schemes=["argon2", "bcrypt_sha256", "bcrypt"], deprecated="auto")
@@ -83,10 +85,10 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     token_data = decode_token(token)
     
     if token_data is None:
-        raise HTTPException(
+        raise APIError(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-            headers={"WWW-Authenticate": "Bearer"},
+            code=ErrorCode.AUTH_INVALID_TOKEN,
+            message="Invalid or expired token",
         )
     
     return token_data

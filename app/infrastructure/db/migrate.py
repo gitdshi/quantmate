@@ -1,0 +1,132 @@
+"""SQL Migration Runner (Issue #15).
+
+Applies numbered SQL migration scripts from mysql/migrations/ in order.
+Tracks applied migrations in the ``schema_migrations`` table.
+
+Usage:
+    python -m app.infrastructure.db.migrate          # apply pending migrations
+    python -m app.infrastructure.db.migrate --status  # show migration status
+"""
+from __future__ import annotations
+
+import hashlib
+import os
+import sys
+from pathlib import Path
+
+from sqlalchemy import text
+
+from app.infrastructure.db.connections import get_quantmate_engine
+
+MIGRATIONS_DIR = Path(__file__).resolve().parents[3] / "mysql" / "migrations"
+
+
+def _ensure_migration_table(conn):
+    """Create the schema_migrations table if it doesn't exist."""
+    conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+            version VARCHAR(14) NOT NULL PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            checksum VARCHAR(64)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """))
+    conn.commit()
+
+
+def _get_applied(conn) -> set[str]:
+    """Return set of already-applied migration versions."""
+    rows = conn.execute(text("SELECT version FROM schema_migrations")).fetchall()
+    return {row[0] for row in rows}
+
+
+def _discover_migrations() -> list[tuple[str, Path]]:
+    """Discover migration files sorted by filename.
+
+    Returns list of (version, path) tuples.
+    Version is extracted from the numeric prefix of the filename.
+    """
+    if not MIGRATIONS_DIR.exists():
+        return []
+    files = sorted(MIGRATIONS_DIR.glob("*.sql"))
+    results = []
+    for f in files:
+        # Extract version from filename: 001_xxx.sql → "001"
+        parts = f.stem.split("_", 1)
+        version = parts[0]
+        results.append((version, f))
+    return results
+
+
+def _file_checksum(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def apply_migrations(dry_run: bool = False) -> list[str]:
+    """Apply all pending migrations. Returns list of applied versions."""
+    engine = get_quantmate_engine()
+    applied = []
+
+    with engine.connect() as conn:
+        _ensure_migration_table(conn)
+        already_applied = _get_applied(conn)
+        migrations = _discover_migrations()
+
+        for version, path in migrations:
+            if version in already_applied:
+                continue
+
+            sql_content = path.read_text(encoding="utf-8")
+            checksum = _file_checksum(path)
+
+            if dry_run:
+                print(f"[DRY-RUN] Would apply: {path.name} (v{version})")
+                applied.append(version)
+                continue
+
+            print(f"Applying migration: {path.name} ...")
+            # Execute each statement in the SQL file
+            for statement in sql_content.split(";"):
+                stmt = statement.strip()
+                if stmt and not stmt.startswith("--"):
+                    conn.execute(text(stmt))
+
+            # Record migration
+            conn.execute(
+                text(
+                    "INSERT INTO schema_migrations (version, name, checksum) "
+                    "VALUES (:version, :name, :checksum)"
+                ),
+                {"version": version, "name": path.name, "checksum": checksum},
+            )
+            conn.commit()
+            applied.append(version)
+            print(f"  ✓ Applied {path.name}")
+
+    return applied
+
+
+def show_status():
+    """Print migration status."""
+    engine = get_quantmate_engine()
+    with engine.connect() as conn:
+        _ensure_migration_table(conn)
+        already_applied = _get_applied(conn)
+        migrations = _discover_migrations()
+
+        print(f"{'Version':<16} {'Name':<50} {'Status'}")
+        print("-" * 80)
+        for version, path in migrations:
+            status = "✓ applied" if version in already_applied else "  pending"
+            print(f"{version:<16} {path.name:<50} {status}")
+
+
+if __name__ == "__main__":
+    if "--status" in sys.argv:
+        show_status()
+    elif "--dry-run" in sys.argv:
+        applied = apply_migrations(dry_run=True)
+        print(f"\n{len(applied)} migration(s) would be applied.")
+    else:
+        applied = apply_migrations()
+        print(f"\n{len(applied)} migration(s) applied.")

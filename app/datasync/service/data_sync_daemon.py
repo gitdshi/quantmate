@@ -52,6 +52,10 @@ from app.datasync.service.tushare_ingest import (
     ingest_dividend_by_date_range,
     ingest_top10_holders_by_date_range,
     ingest_adj_factor_by_date_range,
+    ingest_weekly,
+    ingest_monthly,
+    ingest_index_daily,
+    ingest_index_weekly,
     get_all_ts_codes,
     call_pro,
     upsert_daily,
@@ -140,6 +144,10 @@ class SyncStep(str, Enum):
     TUSHARE_DIVIDEND = 'tushare_dividend'
     TUSHARE_TOP10_HOLDERS = 'tushare_top10_holders'
     VNPY_SYNC = 'vnpy_sync'
+    TUSHARE_STOCK_WEEKLY = 'tushare_stock_weekly'
+    TUSHARE_STOCK_MONTHLY = 'tushare_stock_monthly'
+    TUSHARE_INDEX_DAILY = 'tushare_index_daily'
+    TUSHARE_INDEX_WEEKLY = 'tushare_index_weekly'
 
 
 class SyncStatus(str, Enum):
@@ -454,6 +462,68 @@ def run_vnpy_sync_step(sync_date: date) -> Tuple[SyncStatus, int, Optional[str]]
         return SyncStatus.ERROR, 0, str(e)
 
 
+def run_tushare_stock_weekly_step(sync_date: date) -> Tuple[SyncStatus, int, Optional[str]]:
+    """Ingest Tushare stock_weekly using batch API (trade_date)."""
+    target = sync_date.strftime('%Y%m%d')
+    try:
+        rows = ingest_weekly(start_date=target, end_date=target)
+        return SyncStatus.SUCCESS, rows or 0, None
+    except Exception as e:
+        logger.exception('stock_weekly failed: %s', e)
+        return SyncStatus.ERROR, 0, str(e)
+
+
+def run_tushare_stock_monthly_step(sync_date: date) -> Tuple[SyncStatus, int, Optional[str]]:
+    """Ingest Tushare stock_monthly using batch API (trade_date)."""
+    target = sync_date.strftime('%Y%m%d')
+    try:
+        rows = ingest_monthly(start_date=target, end_date=target)
+        return SyncStatus.SUCCESS, rows or 0, None
+    except Exception as e:
+        logger.exception('stock_monthly failed: %s', e)
+        return SyncStatus.ERROR, 0, str(e)
+
+
+def run_tushare_index_daily_step(sync_date: date) -> Tuple[SyncStatus, int, Optional[str]]:
+    """Ingest Tushare index_daily for major indices."""
+    target = sync_date.strftime('%Y%m%d')
+    index_codes = ['000001.SH', '399001.SZ', '399006.SZ', '000300.SH', '000905.SH']
+    total_rows = 0
+    failures = []
+    for code in index_codes:
+        try:
+            rows = ingest_index_daily(ts_code=code, start_date=target, end_date=target)
+            total_rows += (rows or 0)
+        except Exception as e:
+            logger.warning('index_daily %s failed: %s', code, e)
+            failures.append(code)
+    if failures and total_rows == 0:
+        return SyncStatus.ERROR, 0, f"Failed: {','.join(failures)}"
+    if failures:
+        return SyncStatus.PARTIAL, total_rows, f"Failed: {','.join(failures)}"
+    return SyncStatus.SUCCESS, total_rows, None
+
+
+def run_tushare_index_weekly_step(sync_date: date) -> Tuple[SyncStatus, int, Optional[str]]:
+    """Ingest Tushare index_weekly for major indices."""
+    target = sync_date.strftime('%Y%m%d')
+    index_codes = ['000001.SH', '399001.SZ', '399006.SZ', '000300.SH', '000905.SH']
+    total_rows = 0
+    failures = []
+    for code in index_codes:
+        try:
+            rows = ingest_index_weekly(ts_code=code, start_date=target, end_date=target)
+            total_rows += (rows or 0)
+        except Exception as e:
+            logger.warning('index_weekly %s failed: %s', code, e)
+            failures.append(code)
+    if failures and total_rows == 0:
+        return SyncStatus.ERROR, 0, f"Failed: {','.join(failures)}"
+    if failures:
+        return SyncStatus.PARTIAL, total_rows, f"Failed: {','.join(failures)}"
+    return SyncStatus.SUCCESS, total_rows, None
+
+
 # =============================================================================
 # Main Functions
 # =============================================================================
@@ -650,8 +720,116 @@ def daily_ingest(target_date: Optional[date] = None, continue_on_error: bool = T
             if not continue_on_error:
                 return results
     
+    # Step 2f: Stock Weekly
+    logger.info("[Step 2f/11] Tushare Stock Weekly")
+    existing_status = get_step_status(target_date, SyncStep.TUSHARE_STOCK_WEEKLY.value)
+    status_val = None
+    rows_proc = 0
+    if isinstance(existing_status, str):
+        status_val = existing_status
+    elif isinstance(existing_status, dict):
+        status_val = existing_status.get('status')
+        rows_proc = existing_status.get('rows_processed', 0)
+    if status_val == SyncStatus.SUCCESS.value:
+        logger.info("[Step 2f/11] tushare_stock_weekly already synced, skipping")
+        results['tushare_stock_weekly'] = {'status': 'success', 'rows': rows_proc, 'error': None, 'skipped': True}
+    else:
+        write_step_status(target_date, SyncStep.TUSHARE_STOCK_WEEKLY.value, SyncStatus.RUNNING.value)
+        try:
+            status, rows, err = run_tushare_stock_weekly_step(target_date)
+            write_step_status(target_date, SyncStep.TUSHARE_STOCK_WEEKLY.value, status.value, rows, err)
+            results['tushare_stock_weekly'] = {'status': status.value, 'rows': rows, 'error': err}
+            logger.info("[Step 2f/11] tushare_stock_weekly: %s (%d rows)", status.value, rows)
+        except Exception as e:
+            logger.exception("[Step 2f/11] tushare_stock_weekly failed: %s", e)
+            write_step_status(target_date, SyncStep.TUSHARE_STOCK_WEEKLY.value, SyncStatus.ERROR.value, 0, str(e))
+            results['tushare_stock_weekly'] = {'status': 'error', 'rows': 0, 'error': str(e)}
+            if not continue_on_error:
+                return results
+
+    # Step 2g: Stock Monthly
+    logger.info("[Step 2g/11] Tushare Stock Monthly")
+    existing_status = get_step_status(target_date, SyncStep.TUSHARE_STOCK_MONTHLY.value)
+    status_val = None
+    rows_proc = 0
+    if isinstance(existing_status, str):
+        status_val = existing_status
+    elif isinstance(existing_status, dict):
+        status_val = existing_status.get('status')
+        rows_proc = existing_status.get('rows_processed', 0)
+    if status_val == SyncStatus.SUCCESS.value:
+        logger.info("[Step 2g/11] tushare_stock_monthly already synced, skipping")
+        results['tushare_stock_monthly'] = {'status': 'success', 'rows': rows_proc, 'error': None, 'skipped': True}
+    else:
+        write_step_status(target_date, SyncStep.TUSHARE_STOCK_MONTHLY.value, SyncStatus.RUNNING.value)
+        try:
+            status, rows, err = run_tushare_stock_monthly_step(target_date)
+            write_step_status(target_date, SyncStep.TUSHARE_STOCK_MONTHLY.value, status.value, rows, err)
+            results['tushare_stock_monthly'] = {'status': status.value, 'rows': rows, 'error': err}
+            logger.info("[Step 2g/11] tushare_stock_monthly: %s (%d rows)", status.value, rows)
+        except Exception as e:
+            logger.exception("[Step 2g/11] tushare_stock_monthly failed: %s", e)
+            write_step_status(target_date, SyncStep.TUSHARE_STOCK_MONTHLY.value, SyncStatus.ERROR.value, 0, str(e))
+            results['tushare_stock_monthly'] = {'status': 'error', 'rows': 0, 'error': str(e)}
+            if not continue_on_error:
+                return results
+
+    # Step 2h: Index Daily (Tushare)
+    logger.info("[Step 2h/11] Tushare Index Daily")
+    existing_status = get_step_status(target_date, SyncStep.TUSHARE_INDEX_DAILY.value)
+    status_val = None
+    rows_proc = 0
+    if isinstance(existing_status, str):
+        status_val = existing_status
+    elif isinstance(existing_status, dict):
+        status_val = existing_status.get('status')
+        rows_proc = existing_status.get('rows_processed', 0)
+    if status_val == SyncStatus.SUCCESS.value:
+        logger.info("[Step 2h/11] tushare_index_daily already synced, skipping")
+        results['tushare_index_daily'] = {'status': 'success', 'rows': rows_proc, 'error': None, 'skipped': True}
+    else:
+        write_step_status(target_date, SyncStep.TUSHARE_INDEX_DAILY.value, SyncStatus.RUNNING.value)
+        try:
+            status, rows, err = run_tushare_index_daily_step(target_date)
+            write_step_status(target_date, SyncStep.TUSHARE_INDEX_DAILY.value, status.value, rows, err)
+            results['tushare_index_daily'] = {'status': status.value, 'rows': rows, 'error': err}
+            logger.info("[Step 2h/11] tushare_index_daily: %s (%d rows)", status.value, rows)
+        except Exception as e:
+            logger.exception("[Step 2h/11] tushare_index_daily failed: %s", e)
+            write_step_status(target_date, SyncStep.TUSHARE_INDEX_DAILY.value, SyncStatus.ERROR.value, 0, str(e))
+            results['tushare_index_daily'] = {'status': 'error', 'rows': 0, 'error': str(e)}
+            if not continue_on_error:
+                return results
+
+    # Step 2i: Index Weekly
+    logger.info("[Step 2i/11] Tushare Index Weekly")
+    existing_status = get_step_status(target_date, SyncStep.TUSHARE_INDEX_WEEKLY.value)
+    status_val = None
+    rows_proc = 0
+    if isinstance(existing_status, str):
+        status_val = existing_status
+    elif isinstance(existing_status, dict):
+        status_val = existing_status.get('status')
+        rows_proc = existing_status.get('rows_processed', 0)
+    if status_val == SyncStatus.SUCCESS.value:
+        logger.info("[Step 2i/11] tushare_index_weekly already synced, skipping")
+        results['tushare_index_weekly'] = {'status': 'success', 'rows': rows_proc, 'error': None, 'skipped': True}
+    else:
+        write_step_status(target_date, SyncStep.TUSHARE_INDEX_WEEKLY.value, SyncStatus.RUNNING.value)
+        try:
+            status, rows, err = run_tushare_index_weekly_step(target_date)
+            write_step_status(target_date, SyncStep.TUSHARE_INDEX_WEEKLY.value, status.value, rows, err)
+            results['tushare_index_weekly'] = {'status': status.value, 'rows': rows, 'error': err}
+            logger.info("[Step 2i/11] tushare_index_weekly: %s (%d rows)", status.value, rows)
+        except Exception as e:
+            logger.exception("[Step 2i/11] tushare_index_weekly failed: %s", e)
+            write_step_status(target_date, SyncStep.TUSHARE_INDEX_WEEKLY.value, SyncStatus.ERROR.value, 0, str(e))
+            results['tushare_index_weekly'] = {'status': 'error', 'rows': 0, 'error': str(e)}
+            if not continue_on_error:
+                return results
+
     # Step 3: VNPy sync
-    logger.info("[Step 3/7] VNPy Sync")
+    logger.info("[Step 3/11] VNPy Sync")
     # Defensive check: skip if already successfully synced
     existing_status = get_step_status(target_date, SyncStep.VNPY_SYNC.value)
     status_val = None
@@ -662,7 +840,7 @@ def daily_ingest(target_date: Optional[date] = None, continue_on_error: bool = T
         status_val = existing_status.get('status')
         rows_proc = existing_status.get('rows_processed', 0)
     if status_val == SyncStatus.SUCCESS.value:
-        logger.info("[Step 3/7] vnpy_sync already synced (status=success), skipping")
+        logger.info("[Step 3/11] vnpy_sync already synced (status=success), skipping")
         results['vnpy_sync'] = {'status': 'success', 'rows': rows_proc, 'error': None, 'skipped': True}
     else:
         write_step_status(target_date, SyncStep.VNPY_SYNC.value, SyncStatus.RUNNING.value)
@@ -670,9 +848,9 @@ def daily_ingest(target_date: Optional[date] = None, continue_on_error: bool = T
             status, rows, err = run_vnpy_sync_step(target_date)
             write_step_status(target_date, SyncStep.VNPY_SYNC.value, status.value, rows, err)
             results['vnpy_sync'] = {'status': status.value, 'rows': rows, 'error': err}
-            logger.info("[Step 3/7] vnpy_sync: %s (%d rows)", status.value, rows)
+            logger.info("[Step 3/11] vnpy_sync: %s (%d rows)", status.value, rows)
         except Exception as e:
-            logger.exception("[Step 3/7] vnpy_sync failed: %s", e)
+            logger.exception("[Step 3/11] vnpy_sync failed: %s", e)
             write_step_status(target_date, SyncStep.VNPY_SYNC.value, SyncStatus.ERROR.value, 0, str(e))
             results['vnpy_sync'] = {'status': 'error', 'rows': 0, 'error': str(e)}
     

@@ -1,13 +1,21 @@
 """Centralized logging configuration moved under infrastructure.
 
-Copied from `app.api.logging_setup` and re-exported via
-`app.infrastructure.logging` to keep imports stable.
+Uses JSON format in production (QUANTMATE_LOG_FORMAT=json) and plain text
+in development.
 """
 from typing import Optional
 import logging
+import os
 
 
 def configure_logging(level: int = logging.INFO) -> None:
+    log_format = os.getenv("QUANTMATE_LOG_FORMAT", "text")
+
+    if log_format == "json":
+        from app.infrastructure.logging.json_formatter import configure_json_logging
+        configure_json_logging(level)
+        return
+
     fmt = '%(asctime)s %(levelname)s [%(name)s] %(message)s'
     datefmt = '%Y-%m-%d %H:%M:%S'
     try:

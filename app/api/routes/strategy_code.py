@@ -10,6 +10,8 @@ import ast
 import importlib.util
 
 from app.api.services.strategy_service import parse_strategy_file
+from app.api.errors import ErrorCode
+from app.api.exception_handlers import APIError
 
 
 router = APIRouter(prefix="/strategy-code", tags=["Strategy Code"])
@@ -32,7 +34,7 @@ def parse_file(req: ParseRequest):
     the strategy create/edit form.
     """
     if not req.content or not isinstance(req.content, str):
-        raise HTTPException(status_code=400, detail='Content is required')
+        raise APIError(status_code=400, code=ErrorCode.BAD_REQUEST, message='Content is required')
 
     parsed = parse_strategy_file(req.content)
     return parsed

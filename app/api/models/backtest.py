@@ -27,6 +27,7 @@ class BacktestRequest(BaseModel):
     slippage: float = 0.0
     size: int = 1  # Contract size
     benchmark: Optional[str] = None
+    period: str = Field("daily", description="Data period: daily, weekly, monthly, minute")
 
 
 class BatchBacktestRequest(BaseModel):
@@ -43,6 +44,7 @@ class BatchBacktestRequest(BaseModel):
     size: int = 1
     top_n: int = 10  # Return top N results
     benchmark: Optional[str] = None
+    period: str = Field("daily", description="Data period: daily, weekly, monthly, minute")
 
 
 class BacktestResult(BaseModel):

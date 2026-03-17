@@ -19,6 +19,9 @@ from app.api.services.auth_service import get_current_user
 from app.api.services.backtest_service import BacktestService
 from app.worker.service.tasks import save_backtest_to_db
 from app.api.services.job_storage_service import get_job_storage
+from app.api.errors import ErrorCode
+from app.api.exception_handlers import APIError
+from app.api.pagination import PaginationParams, paginate
 
 from app.domains.backtests.dao.backtest_history_dao import BacktestHistoryDao
 
@@ -111,7 +114,7 @@ async def get_backtest_status(
     if job_id in _jobs:
         return _jobs[job_id]
     
-    raise HTTPException(status_code=404, detail="Job not found")
+    raise APIError(status_code=404, code=ErrorCode.JOB_NOT_FOUND, message="Job not found")
 
 
 @router.get("/batch/{job_id}", response_model=BatchBacktestJob)
@@ -123,19 +126,18 @@ async def get_batch_backtest_status(
     if job_id in _batch_jobs:
         return _batch_jobs[job_id]
     
-    raise HTTPException(status_code=404, detail="Batch job not found")
+    raise APIError(status_code=404, code=ErrorCode.JOB_NOT_FOUND, message="Batch job not found")
 
 
 @router.get("/history/list")
 async def list_backtest_history(
-    limit: int = 50,
-    offset: int = 0,
+    pagination: PaginationParams = Depends(),
     current_user: TokenData = Depends(get_current_user)
 ):
     """List past backtest runs for current user from database."""
     dao = BacktestHistoryDao()
     total = dao.count_for_user(current_user.user_id)
-    rows = dao.list_for_user(user_id=current_user.user_id, limit=limit, offset=offset)
+    rows = dao.list_for_user(user_id=current_user.user_id, limit=pagination.limit, offset=pagination.offset)
 
     history = []
     for row in rows:
@@ -168,7 +170,7 @@ async def list_backtest_history(
             }
         )
 
-    return {"total": total, "jobs": history}
+    return paginate(history, total, pagination)
 
 
 @router.get("/history/{job_id}")
@@ -180,7 +182,7 @@ async def get_backtest_history_detail(
     dao = BacktestHistoryDao()
     row = dao.get_detail_for_user(job_id=job_id, user_id=current_user.user_id)
     if not row:
-        raise HTTPException(status_code=404, detail="Backtest not found")
+        raise APIError(status_code=404, code=ErrorCode.BACKTEST_NOT_FOUND, message="Backtest not found")
 
     result_data = None
     if row.get("result"):
@@ -226,9 +228,9 @@ async def cancel_backtest(
             job.status = BacktestStatus.CANCELLED
             job.message = "Cancelled by user"
             return {"message": "Job cancelled"}
-        raise HTTPException(status_code=400, detail="Job cannot be cancelled")
+        raise APIError(status_code=400, code=ErrorCode.JOB_CANCEL_FAILED, message="Job cannot be cancelled")
     
-    raise HTTPException(status_code=404, detail="Job not found")
+    raise APIError(status_code=404, code=ErrorCode.JOB_NOT_FOUND, message="Job not found")
 
 
 # Background task functions
@@ -252,7 +254,8 @@ async def run_backtest_task(job_id: str, request: BacktestRequest, user_id: int)
             rate=request.rate,
             slippage=request.slippage,
             size=request.size,
-            benchmark=getattr(request, 'benchmark', None)
+            benchmark=getattr(request, 'benchmark', None),
+            period=getattr(request, 'period', 'daily'),
         )
         
         job.status = BacktestStatus.COMPLETED
@@ -349,7 +352,8 @@ async def run_batch_backtest_task(job_id: str, request: BatchBacktestRequest, us
                     rate=request.rate,
                     slippage=request.slippage,
                     size=request.size,
-                    benchmark=getattr(request, 'benchmark', None)
+                    benchmark=getattr(request, 'benchmark', None),
+                    period=getattr(request, 'period', 'daily'),
                 )
                 if result:
                     results.append(result)
@@ -387,3 +391,80 @@ async def run_batch_backtest_task(job_id: str, request: BatchBacktestRequest, us
     except Exception as e:
         job.status = BacktestStatus.FAILED
         job.completed_at = datetime.utcnow()
+
+
+# ── Export & Analysis endpoints ──────────────────────────────────────────
+
+class ExportRequest(BaseModel):
+    format: str = "csv"  # csv, html, json
+
+
+class WalkForwardRequest(BaseModel):
+    total_bars: int
+    in_sample_pct: float = 0.7
+    num_windows: int = 5
+
+
+class MonteCarloRequest(BaseModel):
+    trade_returns: list[float]
+    num_simulations: int = 1000
+    initial_capital: float = 1000000
+
+
+@router.post("/{job_id}/export")
+async def export_backtest(
+    job_id: str,
+    req: ExportRequest,
+    current_user: TokenData = Depends(get_current_user),
+):
+    """Export a backtest result to CSV/HTML/JSON."""
+    from app.domains.backtests.export_service import BacktestExportService
+    from fastapi.responses import PlainTextResponse
+
+    job = _jobs.get(job_id)
+    if not job or not job.result:
+        raise APIError(status_code=404, code=ErrorCode.JOB_NOT_FOUND, message="Job not found or no result")
+
+    result_dict = job.result.dict() if hasattr(job.result, "dict") else job.result
+    svc = BacktestExportService()
+
+    if req.format == "csv":
+        content = svc.to_csv(result_dict)
+        return PlainTextResponse(content, media_type="text/csv",
+                                 headers={"Content-Disposition": f"attachment; filename=backtest_{job_id}.csv"})
+    elif req.format == "html":
+        content = svc.to_html(result_dict)
+        return PlainTextResponse(content, media_type="text/html")
+    else:
+        content = svc.to_json(result_dict)
+        return PlainTextResponse(content, media_type="application/json")
+
+
+@router.post("/analysis/walk-forward")
+async def walk_forward_analysis(
+    req: WalkForwardRequest,
+    current_user: TokenData = Depends(get_current_user),
+):
+    """Run Walk-Forward analysis."""
+    from app.domains.backtests.analysis_service import WalkForwardService
+    svc = WalkForwardService()
+    return svc.run(
+        total_bars=req.total_bars,
+        in_sample_pct=req.in_sample_pct,
+        num_windows=req.num_windows,
+    )
+
+
+@router.post("/analysis/monte-carlo")
+async def monte_carlo_analysis(
+    req: MonteCarloRequest,
+    current_user: TokenData = Depends(get_current_user),
+):
+    """Run Monte Carlo simulation."""
+    from app.domains.backtests.analysis_service import MonteCarloService
+    svc = MonteCarloService()
+    return svc.run(
+        trade_returns=req.trade_returns,
+        num_simulations=req.num_simulations,
+        initial_capital=req.initial_capital,
+    )

@@ -20,7 +20,7 @@ DATA_SYNC_STATUS_SQL = """
 CREATE TABLE IF NOT EXISTS data_sync_status (
     id INT PRIMARY KEY AUTO_INCREMENT,
     sync_date DATE NOT NULL,
-    step_name ENUM('akshare_index','tushare_stock_basic','tushare_stock_daily','tushare_adj_factor','tushare_dividend','tushare_top10_holders','vnpy_sync') NOT NULL,
+    step_name ENUM('akshare_index','tushare_stock_basic','tushare_stock_daily','tushare_adj_factor','tushare_dividend','tushare_top10_holders','vnpy_sync','tushare_stock_weekly','tushare_stock_monthly','tushare_index_daily','tushare_index_weekly') NOT NULL,
     status ENUM('pending','running','success','partial','error') DEFAULT 'pending',
     rows_synced INT DEFAULT 0,
     error_message TEXT,

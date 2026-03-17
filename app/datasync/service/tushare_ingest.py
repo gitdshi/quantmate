@@ -29,6 +29,9 @@ from app.domains.extdata.dao.tushare_dao import (
     upsert_block_trade,
     upsert_dividend_df,
     upsert_index_daily_df,
+    upsert_weekly,
+    upsert_monthly,
+    upsert_index_weekly_df,
     get_all_ts_codes as dao_get_all_ts_codes,
     get_max_trade_date as dao_get_max_trade_date,
 )
@@ -52,7 +55,10 @@ def _env_rate(name, default):
 
 RATE_LIMITS = {
     'daily': _env_rate('daily', 60),
+    'weekly': _env_rate('weekly', 60),
+    'monthly': _env_rate('monthly', 60),
     'index_daily': _env_rate('index_daily', 30),
+    'index_weekly': _env_rate('index_weekly', 30),
     'stock_basic': _env_rate('stock_basic', 5),
     'adj_factor': _env_rate('adj_factor', 10),
     'dividend': _env_rate('dividend', 10),
@@ -215,6 +221,78 @@ def ingest_index_daily(ts_code=None, start_date=None, end_date=None):
             logging.exception('index_daily ingest attempt %d failed for %s: %s', attempt, ts_code, e)
             if attempt < max_retries:
                 logging.info('Sleeping 5s before retrying...')
+                time.sleep(5)
+            else:
+                audit_finish(aid, 'error', 0)
+                return 0
+
+
+def ingest_weekly(ts_code=None, start_date=None, end_date=None):
+    """Ingest weekly K-line data from Tushare (pro.weekly)."""
+    params = {'ts_code': ts_code, 'start_date': start_date, 'end_date': end_date}
+    aid = audit_start('weekly', params)
+    max_retries = int(os.getenv('MAX_RETRIES', '3'))
+    attempt = 0
+    while attempt < max_retries:
+        try:
+            df = call_pro('weekly', ts_code=ts_code, start_date=start_date, end_date=end_date)
+            rows = upsert_weekly(df)
+            audit_finish(aid, 'success', rows)
+            logging.info('Ingested weekly rows: %d', rows)
+            return rows
+        except Exception as e:
+            attempt += 1
+            logging.exception('weekly ingest attempt %d failed: %s', attempt, e)
+            if attempt < max_retries:
+                time.sleep(5)
+            else:
+                audit_finish(aid, 'error', 0)
+                return 0
+
+
+def ingest_monthly(ts_code=None, start_date=None, end_date=None):
+    """Ingest monthly K-line data from Tushare (pro.monthly)."""
+    params = {'ts_code': ts_code, 'start_date': start_date, 'end_date': end_date}
+    aid = audit_start('monthly', params)
+    max_retries = int(os.getenv('MAX_RETRIES', '3'))
+    attempt = 0
+    while attempt < max_retries:
+        try:
+            df = call_pro('monthly', ts_code=ts_code, start_date=start_date, end_date=end_date)
+            rows = upsert_monthly(df)
+            audit_finish(aid, 'success', rows)
+            logging.info('Ingested monthly rows: %d', rows)
+            return rows
+        except Exception as e:
+            attempt += 1
+            logging.exception('monthly ingest attempt %d failed: %s', attempt, e)
+            if attempt < max_retries:
+                time.sleep(5)
+            else:
+                audit_finish(aid, 'error', 0)
+                return 0
+
+
+def ingest_index_weekly(ts_code=None, start_date=None, end_date=None):
+    """Ingest index weekly K-line data from Tushare (pro.index_weekly)."""
+    params = {'ts_code': ts_code, 'start_date': start_date, 'end_date': end_date}
+    aid = audit_start('index_weekly', params)
+    max_retries = int(os.getenv('MAX_RETRIES', '3'))
+    attempt = 0
+    while attempt < max_retries:
+        try:
+            df = call_pro('index_weekly', ts_code=ts_code, start_date=start_date, end_date=end_date)
+            rows = 0
+            if df is not None and not df.empty:
+                df = df.rename(columns={'ts_code': 'index_code'})
+                rows = upsert_index_weekly_df(df)
+            audit_finish(aid, 'success', rows)
+            logging.info('Ingested index_weekly rows: %d for %s', rows, ts_code)
+            return rows
+        except Exception as e:
+            attempt += 1
+            logging.exception('index_weekly ingest attempt %d failed for %s: %s', attempt, ts_code, e)
+            if attempt < max_retries:
                 time.sleep(5)
             else:
                 audit_finish(aid, 'error', 0)

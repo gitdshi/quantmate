@@ -59,3 +59,40 @@ class PasswordChangeRequest(BaseModel):
     """Request to change password."""
     current_password: str = Field(..., min_length=1, max_length=100)
     new_password: str = Field(..., min_length=6, max_length=100)
+
+
+# --- User Profile (Issue #8) ---
+
+VALID_TIMEZONES = {
+    "Asia/Shanghai", "Asia/Hong_Kong", "Asia/Tokyo", "Asia/Singapore",
+    "US/Eastern", "US/Pacific", "US/Central", "Europe/London", "Europe/Berlin",
+    "UTC",
+}
+
+VALID_LANGUAGES = {"zh-CN", "zh-TW", "en-US", "en-GB", "ja-JP"}
+
+
+class UserProfileUpdate(BaseModel):
+    """Fields that can be updated on the user profile."""
+    display_name: Optional[str] = Field(None, max_length=100)
+    avatar_url: Optional[str] = Field(None, max_length=500)
+    phone: Optional[str] = Field(None, max_length=30, pattern=r"^\+?[\d\-\s]{5,20}$")
+    timezone: Optional[str] = None
+    language: Optional[str] = None
+    bio: Optional[str] = Field(None, max_length=500)
+
+
+class UserProfileResponse(BaseModel):
+    """User profile response."""
+    user_id: int
+    display_name: Optional[str] = None
+    avatar_url: Optional[str] = None
+    phone: Optional[str] = None
+    timezone: str = "Asia/Shanghai"
+    language: str = "zh-CN"
+    bio: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
