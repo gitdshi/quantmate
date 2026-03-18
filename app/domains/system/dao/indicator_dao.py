@@ -1,4 +1,5 @@
 """Indicator configuration DAO."""
+
 import json
 from sqlalchemy import text
 from app.infrastructure.db.connections import get_quantmate_engine
@@ -29,10 +30,14 @@ class IndicatorConfigDao:
 
     def get_by_id(self, indicator_id: int) -> dict | None:
         with self.engine.connect() as conn:
-            row = conn.execute(
-                text("SELECT * FROM indicator_configs WHERE id = :id"),
-                {"id": indicator_id},
-            ).mappings().first()
+            row = (
+                conn.execute(
+                    text("SELECT * FROM indicator_configs WHERE id = :id"),
+                    {"id": indicator_id},
+                )
+                .mappings()
+                .first()
+            )
             if row:
                 d = dict(row)
                 if isinstance(d.get("default_params"), str):
@@ -40,18 +45,30 @@ class IndicatorConfigDao:
                 return d
             return None
 
-    def create(self, name: str, display_name: str, category: str,
-               description: str = None, default_params: dict = None,
-               formula: str = None) -> int:
+    def create(
+        self,
+        name: str,
+        display_name: str,
+        category: str,
+        description: str = None,
+        default_params: dict = None,
+        formula: str = None,
+    ) -> int:
         with self.engine.begin() as conn:
-            result = conn.execute(text("""
+            result = conn.execute(
+                text("""
                 INSERT INTO indicator_configs (name, display_name, category, description, default_params, formula)
                 VALUES (:name, :display_name, :category, :desc, :params, :formula)
-            """), {
-                "name": name, "display_name": display_name, "category": category,
-                "desc": description, "params": json.dumps(default_params or {}),
-                "formula": formula,
-            })
+            """),
+                {
+                    "name": name,
+                    "display_name": display_name,
+                    "category": category,
+                    "desc": description,
+                    "params": json.dumps(default_params or {}),
+                    "formula": formula,
+                },
+            )
             return result.lastrowid
 
     def update(self, indicator_id: int, **kwargs) -> bool:

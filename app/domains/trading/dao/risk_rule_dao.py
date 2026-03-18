@@ -2,6 +2,7 @@
 
 All SQL touching `quantmate.risk_rules` lives here.
 """
+
 from __future__ import annotations
 
 from typing import Optional
@@ -27,9 +28,15 @@ class RiskRuleDao:
             ).fetchall()
             return [self._row_to_dict(r) for r in rows]
 
-    def create(self, user_id: int, name: str, rule_type: str,
-               threshold: float, action: str = "warn",
-               condition_expr: Optional[str] = None) -> int:
+    def create(
+        self,
+        user_id: int,
+        name: str,
+        rule_type: str,
+        threshold: float,
+        action: str = "warn",
+        condition_expr: Optional[str] = None,
+    ) -> int:
         with connection("quantmate") as conn:
             result = conn.execute(
                 text("""
@@ -37,8 +44,12 @@ class RiskRuleDao:
                     VALUES (:uid, :name, :rt, :cond, :thresh, :action)
                 """),
                 {
-                    "uid": user_id, "name": name, "rt": rule_type,
-                    "cond": condition_expr, "thresh": threshold, "action": action,
+                    "uid": user_id,
+                    "name": name,
+                    "rt": rule_type,
+                    "cond": condition_expr,
+                    "thresh": threshold,
+                    "action": action,
                 },
             )
             conn.commit()

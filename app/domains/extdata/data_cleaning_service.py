@@ -3,9 +3,10 @@
 Detects missing trading dates, price anomalies, and data gaps
 in stock_daily and related tables.
 """
+
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 from typing import Any
 
 from sqlalchemy import text
@@ -92,14 +93,16 @@ class DataCleaningService:
             m = r._mapping
             pct = float(m.get("pct_chg") or 0)
             if abs(pct) >= threshold_pct:
-                anomalies.append({
-                    "date": str(m["trade_date"]),
-                    "open": float(m["open"]),
-                    "high": float(m["high"]),
-                    "low": float(m["low"]),
-                    "close": float(m["close"]),
-                    "pct_chg": pct,
-                })
+                anomalies.append(
+                    {
+                        "date": str(m["trade_date"]),
+                        "open": float(m["open"]),
+                        "high": float(m["high"]),
+                        "low": float(m["low"]),
+                        "close": float(m["close"]),
+                        "pct_chg": pct,
+                    }
+                )
 
         return {
             "symbol": symbol,
@@ -129,20 +132,25 @@ class DataCleaningService:
         violations: list[dict[str, Any]] = []
         for r in rows:
             m = r._mapping
-            o, h, l, c = float(m["open"]), float(m["high"]), float(m["low"]), float(m["close"])
+            o, h, lo, c = float(m["open"]), float(m["high"]), float(m["low"]), float(m["close"])
             issues = []
             if h < max(o, c):
                 issues.append("high < max(open, close)")
-            if l > min(o, c):
+            if lo > min(o, c):
                 issues.append("low > min(open, close)")
-            if h < l:
+            if h < lo:
                 issues.append("high < low")
             if issues:
-                violations.append({
-                    "date": str(m["trade_date"]),
-                    "open": o, "high": h, "low": l, "close": c,
-                    "issues": issues,
-                })
+                violations.append(
+                    {
+                        "date": str(m["trade_date"]),
+                        "open": o,
+                        "high": h,
+                        "low": lo,
+                        "close": c,
+                        "issues": issues,
+                    }
+                )
 
         return {
             "symbol": symbol,

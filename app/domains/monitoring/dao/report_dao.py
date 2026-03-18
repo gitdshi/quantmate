@@ -2,6 +2,7 @@
 
 All SQL touching `quantmate.reports` lives here.
 """
+
 from __future__ import annotations
 
 import json
@@ -14,8 +15,9 @@ from app.infrastructure.db.connections import connection
 
 
 class ReportDao:
-    def list_by_user(self, user_id: int, report_type: Optional[str] = None,
-                     page: int = 1, page_size: int = 20) -> tuple[list[dict], int]:
+    def list_by_user(
+        self, user_id: int, report_type: Optional[str] = None, page: int = 1, page_size: int = 20
+    ) -> tuple[list[dict], int]:
         with connection("quantmate") as conn:
             conditions = ["user_id = :uid"]
             params: dict = {"uid": user_id}
@@ -24,9 +26,7 @@ class ReportDao:
                 params["rt"] = report_type
             where = " AND ".join(conditions)
 
-            total_row = conn.execute(
-                text(f"SELECT COUNT(*) as cnt FROM reports WHERE {where}"), params
-            ).fetchone()
+            total_row = conn.execute(text(f"SELECT COUNT(*) as cnt FROM reports WHERE {where}"), params).fetchone()
 
             params["limit"] = page_size
             params["offset"] = (page - 1) * page_size
@@ -40,7 +40,8 @@ class ReportDao:
             ).fetchall()
             return [
                 {
-                    "id": r.id, "user_id": r.user_id,
+                    "id": r.id,
+                    "user_id": r.user_id,
                     "report_type": r.report_type,
                     "period_start": str(r.period_start),
                     "period_end": str(r.period_end),
@@ -65,7 +66,8 @@ class ReportDao:
             if isinstance(content, str):
                 content = json.loads(content)
             return {
-                "id": row.id, "user_id": row.user_id,
+                "id": row.id,
+                "user_id": row.user_id,
                 "report_type": row.report_type,
                 "period_start": str(row.period_start),
                 "period_end": str(row.period_end),
@@ -74,8 +76,15 @@ class ReportDao:
                 "created_at": row.created_at,
             }
 
-    def create(self, user_id: int, report_type: str, period_start: date, period_end: date,
-               content: Optional[dict] = None, pdf_path: Optional[str] = None) -> int:
+    def create(
+        self,
+        user_id: int,
+        report_type: str,
+        period_start: date,
+        period_end: date,
+        content: Optional[dict] = None,
+        pdf_path: Optional[str] = None,
+    ) -> int:
         with connection("quantmate") as conn:
             result = conn.execute(
                 text("""
@@ -83,8 +92,12 @@ class ReportDao:
                     VALUES (:uid, :rt, :ps, :pe, :content, :pdf)
                 """),
                 {
-                    "uid": user_id, "rt": report_type, "ps": period_start, "pe": period_end,
-                    "content": json.dumps(content) if content else None, "pdf": pdf_path,
+                    "uid": user_id,
+                    "rt": report_type,
+                    "ps": period_start,
+                    "pe": period_end,
+                    "content": json.dumps(content) if content else None,
+                    "pdf": pdf_path,
                 },
             )
             conn.commit()

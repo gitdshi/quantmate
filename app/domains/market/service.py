@@ -128,7 +128,11 @@ class MarketService:
         rows = self._market_dao.exchanges()
         name_map = {"SZSE": "深圳证券交易所", "SSE": "上海证券交易所", "BSE": "北京证券交易所"}
         return [
-            {"code": r.get("exchange"), "name": name_map.get(r.get("exchange"), r.get("exchange")), "count": r.get("count")}
+            {
+                "code": r.get("exchange"),
+                "name": name_map.get(r.get("exchange"), r.get("exchange")),
+                "count": r.get("count"),
+            }
             for r in rows
         ]
 
@@ -139,7 +143,9 @@ class MarketService:
         exchange: Optional[str] = None,
         limit: int = 500,
     ) -> list[dict[str, Any]]:
-        rows = self._market_dao.symbols_by_filter(industry=industry, exchange=exchange.upper() if exchange else None, limit=limit)
+        rows = self._market_dao.symbols_by_filter(
+            industry=industry, exchange=exchange.upper() if exchange else None, limit=limit
+        )
         exchange_map = {"SZ": "SZSE", "SH": "SSE", "BJ": "BSE"}
         symbols: list[dict[str, Any]] = []
         for row in rows:

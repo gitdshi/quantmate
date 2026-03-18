@@ -1,5 +1,6 @@
 """Queue monitoring and management routes."""
-from fastapi import APIRouter, Depends, HTTPException, Query
+
+from fastapi import APIRouter, Depends, Query
 from typing import Optional, List, Dict, Any
 
 from app.api.services.auth_service import get_current_user
@@ -16,103 +17,84 @@ router = APIRouter(prefix="/queue", tags=["queue"])
 
 
 @router.get("/stats")
-async def get_queue_stats(
-    current_user: TokenData = Depends(get_current_user)
-):
+async def get_queue_stats(current_user: TokenData = Depends(get_current_user)):
     """Get queue statistics."""
     job_storage = get_job_storage()
     stats = job_storage.get_queue_stats()
-    
-    return {
-        "queues": stats,
-        "timestamp": "now"
-    }
+
+    return {"queues": stats, "timestamp": "now"}
 
 
 @router.get("/jobs")
 async def list_jobs(
-    status: Optional[str] = None,
-    limit: int = 50,
-    current_user: TokenData = Depends(get_current_user)
+    status: Optional[str] = None, limit: int = 50, current_user: TokenData = Depends(get_current_user)
 ) -> List[Dict[str, Any]]:
     """List user's jobs, enriched with bulk metrics from DB."""
     return JobsService().list_jobs(user_id=current_user.user_id, status=status, limit=limit)
 
 
 @router.get("/jobs/{job_id}")
-async def get_job_detail(
-    job_id: str,
-    current_user: TokenData = Depends(get_current_user)
-) -> Dict[str, Any]:
+async def get_job_detail(job_id: str, current_user: TokenData = Depends(get_current_user)) -> Dict[str, Any]:
     """Get job details and result."""
     service = get_backtest_service()
     job = service.get_job_status(job_id, current_user.user_id)
-    
+
     if not job:
         raise APIError(status_code=404, code=ErrorCode.JOB_NOT_FOUND, message="Job not found")
-    
+
     return job
 
 
 @router.post("/jobs/{job_id}/cancel")
-async def cancel_job(
-    job_id: str,
-    current_user: TokenData = Depends(get_current_user)
-):
+async def cancel_job(job_id: str, current_user: TokenData = Depends(get_current_user)):
     """Cancel a running job."""
     service = get_backtest_service()
     success = service.cancel_job(job_id, current_user.user_id)
-    
+
     if not success:
         raise APIError(
             status_code=400,
             code=ErrorCode.JOB_CANCEL_FAILED,
-            message="Job cannot be cancelled (not found or already finished)"
+            message="Job cannot be cancelled (not found or already finished)",
         )
-    
+
     return {"message": "Job cancelled", "job_id": job_id}
 
 
 @router.delete("/jobs/{job_id}")
-async def delete_job(
-    job_id: str,
-    current_user: TokenData = Depends(get_current_user)
-):
+async def delete_job(job_id: str, current_user: TokenData = Depends(get_current_user)):
     """Delete a job and its results. For bulk jobs, cascade-deletes all children."""
     # First check if user owns the job
     service = get_backtest_service()
     job = service.get_job_status(job_id, current_user.user_id)
-    
+
     if not job:
         raise APIError(status_code=404, code=ErrorCode.JOB_NOT_FOUND, message="Job not found")
-    
+
     try:
         JobsService().delete_job_and_results(job_id=job_id, user_id=current_user.user_id)
     except RuntimeError as e:
         raise APIError(status_code=500, code=ErrorCode.INTERNAL_ERROR, message=str(e))
-    
+
     return {"message": "Job deleted", "job_id": job_id}
 
 
 @router.post("/backtest")
-async def submit_backtest_to_queue(
-    request: Dict[str, Any],
-    current_user: TokenData = Depends(get_current_user)
-):
+async def submit_backtest_to_queue(request: Dict[str, Any], current_user: TokenData = Depends(get_current_user)):
     """Submit a backtest job to RQ queue for async processing."""
     from datetime import datetime as dt
-    
+
     service = get_backtest_service()
-    
+
     # Parse dates
     start_date = dt.strptime(request["start_date"], "%Y-%m-%d").date()
     end_date = dt.strptime(request["end_date"], "%Y-%m-%d").date()
-    
+
     # Get symbol - handle both 'symbol' and 'vt_symbol' keys
     symbol = request.get("symbol") or request.get("vt_symbol")
     if not symbol:
         raise APIError(status_code=400, code=ErrorCode.BAD_REQUEST, message="Symbol is required")
-    
+
     job_id = service.submit_backtest(
         user_id=current_user.user_id,
         strategy_id=request.get("strategy_id"),
@@ -130,18 +112,12 @@ async def submit_backtest_to_queue(
         strategy_name=request.get("strategy_name", ""),
         benchmark=request.get("benchmark", "399300.SZ"),
     )
-    
+
     return {"job_id": job_id, "status": "queued", "message": "Backtest job submitted to queue"}
 
 
-
-
-
 @router.post("/bulk-backtest")
-async def submit_bulk_backtest(
-    request: Dict[str, Any],
-    current_user: TokenData = Depends(get_current_user)
-):
+async def submit_bulk_backtest(request: Dict[str, Any], current_user: TokenData = Depends(get_current_user)):
     """Submit a bulk backtest job – one strategy against multiple symbols."""
     from datetime import datetime as dt
 
@@ -180,7 +156,7 @@ async def get_bulk_job_results(
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=100),
     sort_order: str = Query("desc", pattern="^(asc|desc)$"),
-    current_user: TokenData = Depends(get_current_user)
+    current_user: TokenData = Depends(get_current_user),
 ):
     """
     Get paginated child results for a bulk backtest job.
@@ -199,10 +175,7 @@ async def get_bulk_job_results(
 
 
 @router.get("/bulk-jobs/{job_id}/summary")
-async def get_bulk_job_summary(
-    job_id: str,
-    current_user: TokenData = Depends(get_current_user)
-):
+async def get_bulk_job_summary(job_id: str, current_user: TokenData = Depends(get_current_user)):
     """
     Get aggregated summary statistics for a completed bulk backtest job.
     Computes winning/losing counts, averages, and top 10 from child results.

@@ -1,4 +1,5 @@
 """Optimization task DAO."""
+
 import json
 from sqlalchemy import text
 from app.infrastructure.db.connections import get_quantmate_engine
@@ -17,10 +18,17 @@ class OptimizationTaskDao:
                 text("SELECT COUNT(*) FROM optimization_tasks WHERE user_id = :uid"),
                 {"uid": user_id},
             ).scalar()
-            rows = conn.execute(text("""
+            rows = (
+                conn.execute(
+                    text("""
                 SELECT * FROM optimization_tasks WHERE user_id = :uid
                 ORDER BY created_at DESC LIMIT :limit OFFSET :offset
-            """), {"uid": user_id, "limit": page_size, "offset": offset}).mappings().all()
+            """),
+                    {"uid": user_id, "limit": page_size, "offset": offset},
+                )
+                .mappings()
+                .all()
+            )
             result = []
             for r in rows:
                 d = dict(r)
@@ -32,10 +40,14 @@ class OptimizationTaskDao:
 
     def get_by_id(self, task_id: int, user_id: int) -> dict | None:
         with self.engine.connect() as conn:
-            row = conn.execute(
-                text("SELECT * FROM optimization_tasks WHERE id = :id AND user_id = :uid"),
-                {"id": task_id, "uid": user_id},
-            ).mappings().first()
+            row = (
+                conn.execute(
+                    text("SELECT * FROM optimization_tasks WHERE id = :id AND user_id = :uid"),
+                    {"id": task_id, "uid": user_id},
+                )
+                .mappings()
+                .first()
+            )
             if row:
                 d = dict(row)
                 for field in ("param_space", "best_params", "best_metrics"):
@@ -44,22 +56,39 @@ class OptimizationTaskDao:
                 return d
             return None
 
-    def create(self, user_id: int, strategy_id: int, search_method: str,
-               param_space: dict, objective_metric: str = "sharpe_ratio") -> int:
+    def create(
+        self,
+        user_id: int,
+        strategy_id: int,
+        search_method: str,
+        param_space: dict,
+        objective_metric: str = "sharpe_ratio",
+    ) -> int:
         with self.engine.begin() as conn:
-            result = conn.execute(text("""
+            result = conn.execute(
+                text("""
                 INSERT INTO optimization_tasks
                     (user_id, strategy_id, search_method, param_space, objective_metric, status)
                 VALUES (:uid, :sid, :method, :space, :metric, 'pending')
-            """), {
-                "uid": user_id, "sid": strategy_id, "method": search_method,
-                "space": json.dumps(param_space), "metric": objective_metric,
-            })
+            """),
+                {
+                    "uid": user_id,
+                    "sid": strategy_id,
+                    "method": search_method,
+                    "space": json.dumps(param_space),
+                    "metric": objective_metric,
+                },
+            )
             return result.lastrowid
 
-    def update_status(self, task_id: int, status: str,
-                      best_params: dict = None, best_metrics: dict = None,
-                      total_iterations: int = None) -> bool:
+    def update_status(
+        self,
+        task_id: int,
+        status: str,
+        best_params: dict = None,
+        best_metrics: dict = None,
+        total_iterations: int = None,
+    ) -> bool:
         sets = ["status = :status"]
         params = {"id": task_id, "status": status}
         if best_params is not None:
@@ -87,9 +116,16 @@ class OptimizationTaskDao:
             ).first()
             if not owner:
                 return []
-            rows = conn.execute(text("""
+            rows = (
+                conn.execute(
+                    text("""
                 SELECT * FROM optimization_task_results WHERE task_id = :id ORDER BY rank_order
-            """), {"id": task_id}).mappings().all()
+            """),
+                    {"id": task_id},
+                )
+                .mappings()
+                .all()
+            )
             result = []
             for r in rows:
                 d = dict(r)

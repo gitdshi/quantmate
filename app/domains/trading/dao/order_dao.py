@@ -2,9 +2,9 @@
 
 All SQL touching `quantmate.orders` and `quantmate.trades` lives here.
 """
+
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import text
@@ -13,10 +13,19 @@ from app.infrastructure.db.connections import connection
 
 
 class OrderDao:
-    def create(self, user_id: int, symbol: str, direction: str, order_type: str,
-               quantity: int, price: Optional[float] = None, stop_price: Optional[float] = None,
-               strategy_id: Optional[int] = None, portfolio_id: Optional[int] = None,
-               mode: str = "paper") -> int:
+    def create(
+        self,
+        user_id: int,
+        symbol: str,
+        direction: str,
+        order_type: str,
+        quantity: int,
+        price: Optional[float] = None,
+        stop_price: Optional[float] = None,
+        strategy_id: Optional[int] = None,
+        portfolio_id: Optional[int] = None,
+        mode: str = "paper",
+    ) -> int:
         with connection("quantmate") as conn:
             result = conn.execute(
                 text("""
@@ -25,9 +34,16 @@ class OrderDao:
                     VALUES (:uid, :pid, :sym, :dir, :otype, :qty, :price, :stop, :sid, :mode, 'created')
                 """),
                 {
-                    "uid": user_id, "pid": portfolio_id, "sym": symbol, "dir": direction,
-                    "otype": order_type, "qty": quantity, "price": price, "stop": stop_price,
-                    "sid": strategy_id, "mode": mode,
+                    "uid": user_id,
+                    "pid": portfolio_id,
+                    "sym": symbol,
+                    "dir": direction,
+                    "otype": order_type,
+                    "qty": quantity,
+                    "price": price,
+                    "stop": stop_price,
+                    "sid": strategy_id,
+                    "mode": mode,
                 },
             )
             conn.commit()
@@ -48,8 +64,9 @@ class OrderDao:
                 return None
             return self._row_to_dict(row)
 
-    def list_by_user(self, user_id: int, status: Optional[str] = None,
-                     mode: Optional[str] = None, page: int = 1, page_size: int = 20) -> tuple[list[dict], int]:
+    def list_by_user(
+        self, user_id: int, status: Optional[str] = None, mode: Optional[str] = None, page: int = 1, page_size: int = 20
+    ) -> tuple[list[dict], int]:
         with connection("quantmate") as conn:
             conditions = ["user_id = :uid"]
             params: dict = {"uid": user_id}
@@ -82,8 +99,14 @@ class OrderDao:
             ).fetchall()
             return [self._row_to_dict(r) for r in rows], total
 
-    def update_status(self, order_id: int, status: str, filled_quantity: Optional[int] = None,
-                      avg_fill_price: Optional[float] = None, fee: Optional[float] = None) -> bool:
+    def update_status(
+        self,
+        order_id: int,
+        status: str,
+        filled_quantity: Optional[int] = None,
+        avg_fill_price: Optional[float] = None,
+        fee: Optional[float] = None,
+    ) -> bool:
         with connection("quantmate") as conn:
             updates = ["status = :status"]
             params: dict = {"oid": order_id, "status": status}

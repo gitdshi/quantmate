@@ -1,8 +1,7 @@
 """Trade log DAO — immutable trade event log."""
+
 from __future__ import annotations
 
-import csv
-import io
 from datetime import date, datetime
 from typing import Any, Optional
 

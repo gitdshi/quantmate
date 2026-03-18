@@ -2,6 +2,7 @@
 
 Admin-only access to query, filter, and export audit logs.
 """
+
 from __future__ import annotations
 
 import csv

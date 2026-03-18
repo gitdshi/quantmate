@@ -1,4 +1,5 @@
 """Risk rule routes (P2 Issue: Risk Budget, Pre-trade Risk Check)."""
+
 from typing import Optional
 
 from fastapi import APIRouter, Depends, status
@@ -42,7 +43,11 @@ async def create_risk_rule(req: RiskRuleCreateRequest, current_user: dict = Depe
     """Create a new risk rule."""
     valid_types = ("position_limit", "drawdown", "concentration", "frequency", "custom")
     if req.rule_type not in valid_types:
-        raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message=f"Invalid rule_type. Must be one of: {', '.join(valid_types)}")
+        raise APIError(
+            status_code=400,
+            code=ErrorCode.VALIDATION_ERROR,
+            message=f"Invalid rule_type. Must be one of: {', '.join(valid_types)}",
+        )
     if req.action not in ("block", "reduce", "warn"):
         raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message="Invalid action")
 
@@ -81,7 +86,9 @@ async def delete_risk_rule(rule_id: int, current_user: dict = Depends(get_curren
 
 @router.post("/check")
 async def pre_trade_risk_check(
-    symbol: str, direction: str, quantity: int,
+    symbol: str,
+    direction: str,
+    quantity: int,
     current_user: dict = Depends(get_current_user),
 ):
     """Run pre-trade risk checks against active rules.
@@ -96,12 +103,14 @@ async def pre_trade_risk_check(
     for rule in active_rules:
         # Simplified risk checking logic
         check_result = "pass"  # In production, evaluate rule conditions
-        results.append({
-            "rule_id": rule["id"],
-            "name": rule["name"],
-            "rule_type": rule["rule_type"],
-            "result": check_result,
-        })
+        results.append(
+            {
+                "rule_id": rule["id"],
+                "name": rule["name"],
+                "rule_type": rule["rule_type"],
+                "result": check_result,
+            }
+        )
         if check_result == "block":
             overall = "block"
         elif check_result == "warn" and overall != "block":
@@ -130,6 +139,7 @@ class StressTestRequest(BaseModel):
 async def compute_parametric_var(req: VaRRequest, current_user: dict = Depends(get_current_user)):
     """Compute parametric (Gaussian) Value-at-Risk."""
     from app.domains.portfolio.risk_analysis_service import RiskAnalysisService
+
     svc = RiskAnalysisService()
     return svc.parametric_var(req.daily_returns, req.confidence, req.holding_period, req.portfolio_value)
 
@@ -138,6 +148,7 @@ async def compute_parametric_var(req: VaRRequest, current_user: dict = Depends(g
 async def compute_historical_var(req: VaRRequest, current_user: dict = Depends(get_current_user)):
     """Compute historical Value-at-Risk and CVaR."""
     from app.domains.portfolio.risk_analysis_service import RiskAnalysisService
+
     svc = RiskAnalysisService()
     return svc.historical_var(req.daily_returns, req.confidence, req.holding_period, req.portfolio_value)
 
@@ -146,5 +157,6 @@ async def compute_historical_var(req: VaRRequest, current_user: dict = Depends(g
 async def run_stress_test(req: StressTestRequest, current_user: dict = Depends(get_current_user)):
     """Run stress test scenarios against portfolio weights."""
     from app.domains.portfolio.risk_analysis_service import RiskAnalysisService
+
     svc = RiskAnalysisService()
     return {"scenarios": svc.stress_test(req.portfolio_value, req.position_weights, req.scenarios)}

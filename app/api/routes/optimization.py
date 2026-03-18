@@ -1,5 +1,4 @@
 """Optimization task routes (P2 Issue: Parameter Optimization Enhancement)."""
-from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel

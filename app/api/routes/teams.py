@@ -1,4 +1,5 @@
 """Team collaboration routes — workspaces, members, strategy sharing."""
+
 from typing import Optional
 
 from fastapi import APIRouter, Depends, status
@@ -36,6 +37,7 @@ class ShareCreate(BaseModel):
 
 
 # --- Workspace endpoints ---
+
 
 @router.get("/workspaces")
 async def list_workspaces(current_user: dict = Depends(get_current_user)):
@@ -80,6 +82,7 @@ async def delete_workspace(workspace_id: int, current_user: dict = Depends(get_c
 
 # --- Member endpoints ---
 
+
 @router.get("/workspaces/{workspace_id}/members")
 async def list_members(workspace_id: int, current_user: dict = Depends(get_current_user)):
     service = CollaborationService()
@@ -116,6 +119,7 @@ async def remove_member(workspace_id: int, user_id: int, current_user: dict = De
 
 # --- Strategy sharing ---
 
+
 @router.get("/shares/received")
 async def list_shared_with_me(current_user: dict = Depends(get_current_user)):
     service = CollaborationService()
@@ -126,7 +130,8 @@ async def list_shared_with_me(current_user: dict = Depends(get_current_user)):
 async def share_strategy(req: ShareCreate, current_user: dict = Depends(get_current_user)):
     service = CollaborationService()
     share_id = service.share_strategy(
-        req.strategy_id, current_user["id"],
+        req.strategy_id,
+        current_user["id"],
         shared_with_user_id=req.shared_with_user_id,
         shared_with_team_id=req.shared_with_team_id,
         permission=req.permission,

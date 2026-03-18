@@ -1,5 +1,7 @@
 """API Key management routes (P2 Issue: API Key Management)."""
+
 import hashlib
+import hmac
 import secrets
 from datetime import datetime
 from typing import Optional
@@ -11,10 +13,21 @@ from app.api.services.auth_service import get_current_user
 from app.api.errors import ErrorCode
 from app.api.exception_handlers import APIError
 from app.domains.auth.dao.api_key_dao import ApiKeyDao
+from app.infrastructure.config import get_settings
 
 router = APIRouter(prefix="/auth/api-keys", tags=["API Keys"])
 
 MAX_KEYS_PER_USER = 5
+_settings = get_settings()
+
+
+def _hash_secret(secret: str) -> str:
+    """Hash an API key secret using HMAC-SHA256 with the server key."""
+    return hmac.new(
+        _settings.secret_key.encode(),
+        secret.encode(),
+        hashlib.sha256,
+    ).hexdigest()
 
 
 class ApiKeyCreateRequest(BaseModel):
@@ -70,7 +83,7 @@ async def create_api_key(req: ApiKeyCreateRequest, current_user: dict = Depends(
 
     key_id = f"qm_{secrets.token_hex(16)}"
     secret = secrets.token_hex(32)
-    secret_hash = hashlib.sha256(secret.encode()).hexdigest()
+    secret_hash = _hash_secret(secret)
 
     row_id = dao.create(
         user_id=current_user["id"],

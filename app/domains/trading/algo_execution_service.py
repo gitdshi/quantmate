@@ -3,6 +3,7 @@
 Provides TWAP, VWAP, and iceberg order splitting algorithms
 that convert a large parent order into smaller child slices.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -13,6 +14,7 @@ from typing import Any
 @dataclass
 class OrderSlice:
     """A single child order slice."""
+
     sequence: int
     quantity: int
     scheduled_time: datetime
@@ -48,13 +50,15 @@ class AlgoExecutionService:
         slices: list[dict[str, Any]] = []
         for i in range(num_slices):
             qty = base_qty + (1 if i < remainder else 0)
-            slices.append({
-                "sequence": i + 1,
-                "quantity": qty,
-                "scheduled_time": (start_time + interval * i).isoformat(),
-                "price_limit": price_limit,
-                "status": "pending",
-            })
+            slices.append(
+                {
+                    "sequence": i + 1,
+                    "quantity": qty,
+                    "scheduled_time": (start_time + interval * i).isoformat(),
+                    "price_limit": price_limit,
+                    "status": "pending",
+                }
+            )
         return slices
 
     def vwap(
@@ -85,14 +89,16 @@ class AlgoExecutionService:
             if i == len(volume_profile) - 1:
                 qty = total_quantity - allocated
             allocated += qty
-            slices.append({
-                "sequence": i + 1,
-                "quantity": max(qty, 0),
-                "scheduled_time": (start_time + timedelta(minutes=interval_minutes * i)).isoformat(),
-                "price_limit": price_limit,
-                "volume_weight": round(ratio, 4),
-                "status": "pending",
-            })
+            slices.append(
+                {
+                    "sequence": i + 1,
+                    "quantity": max(qty, 0),
+                    "scheduled_time": (start_time + timedelta(minutes=interval_minutes * i)).isoformat(),
+                    "price_limit": price_limit,
+                    "volume_weight": round(ratio, 4),
+                    "status": "pending",
+                }
+            )
         return slices
 
     def iceberg(
@@ -118,12 +124,14 @@ class AlgoExecutionService:
             seq += 1
             qty = min(display_quantity, remaining)
             remaining -= qty
-            slices.append({
-                "sequence": seq,
-                "quantity": qty,
-                "price_limit": price_limit,
-                "visible": True,
-                "hidden_remaining": remaining,
-                "status": "pending",
-            })
+            slices.append(
+                {
+                    "sequence": seq,
+                    "quantity": qty,
+                    "price_limit": price_limit,
+                    "visible": True,
+                    "hidden_remaining": remaining,
+                    "status": "pending",
+                }
+            )
         return slices

@@ -4,6 +4,7 @@ Uses Redis to track failed login attempts per IP and per username.
 After MAX_ATTEMPTS failures within the WINDOW, the IP/username is locked
 for LOCKOUT_SECONDS. Successful login resets the counters.
 """
+
 from __future__ import annotations
 
 from typing import Optional
@@ -14,7 +15,7 @@ logger = get_logger(__name__)
 
 MAX_ATTEMPTS = 5
 LOCKOUT_SECONDS = 15 * 60  # 15 minutes
-WINDOW_SECONDS = 15 * 60   # sliding window = lockout window
+WINDOW_SECONDS = 15 * 60  # sliding window = lockout window
 
 _PREFIX_IP = "bf:ip:"
 _PREFIX_USER = "bf:user:"
@@ -25,6 +26,7 @@ _LOCK_PREFIX_USER = "bf:lock:user:"
 def _get_redis():
     """Reuse the same lazy singleton as rate_limit.py."""
     from app.api.rate_limit import _get_redis as _rl_redis
+
     return _rl_redis()
 
 

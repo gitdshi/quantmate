@@ -1,4 +1,5 @@
 """KYC submissions DAO (Issue #9)."""
+
 from __future__ import annotations
 
 from typing import Any, Optional
@@ -14,10 +15,7 @@ class KycDao:
     def get_latest(self, user_id: int) -> Optional[dict[str, Any]]:
         with connection("quantmate") as conn:
             row = conn.execute(
-                text(
-                    "SELECT * FROM kyc_submissions WHERE user_id = :uid "
-                    "ORDER BY created_at DESC LIMIT 1"
-                ),
+                text("SELECT * FROM kyc_submissions WHERE user_id = :uid ORDER BY created_at DESC LIMIT 1"),
                 {"uid": user_id},
             ).fetchone()
             return dict(row._mapping) if row else None
@@ -70,7 +68,5 @@ class KycDao:
 
     def count_pending(self) -> int:
         with connection("quantmate") as conn:
-            row = conn.execute(
-                text("SELECT COUNT(*) AS cnt FROM kyc_submissions WHERE status = 'pending'")
-            ).fetchone()
+            row = conn.execute(text("SELECT COUNT(*) AS cnt FROM kyc_submissions WHERE status = 'pending'")).fetchone()
             return row._mapping["cnt"] if row else 0

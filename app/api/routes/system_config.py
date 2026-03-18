@@ -1,15 +1,24 @@
 """System configuration routes (P2 Issue: System Config Backend)."""
+
 from typing import Optional
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from app.api.services.auth_service import get_current_user
+from app.api.models.user import TokenData
 from app.api.errors import ErrorCode
 from app.api.exception_handlers import APIError
 from app.domains.system.dao.system_config_dao import SystemConfigDao, DataSourceConfigDao
 
 router = APIRouter(prefix="/system", tags=["System Configuration"])
+
+
+def _require_admin(current_user: TokenData = Depends(get_current_user)) -> TokenData:
+    """Restrict endpoint to admin users only."""
+    if current_user.username != "admin":
+        raise APIError(status_code=403, code=ErrorCode.FORBIDDEN, message="Admin only")
+    return current_user
 
 
 class ConfigUpsertRequest(BaseModel):
@@ -28,6 +37,7 @@ class DataSourceConfigRequest(BaseModel):
 
 
 # ── System Configs ───────────────────────────────────────────────────
+
 
 @router.get("/configs")
 async def list_system_configs(
@@ -51,19 +61,21 @@ async def get_system_config(key: str, current_user: dict = Depends(get_current_u
 
 
 @router.put("/configs")
-async def upsert_system_config(req: ConfigUpsertRequest, current_user: dict = Depends(get_current_user)):
+async def upsert_system_config(req: ConfigUpsertRequest, current_user: TokenData = Depends(_require_admin)):
     """Upsert a system config."""
     dao = SystemConfigDao()
     dao.upsert(
-        key=req.config_key, value=req.config_value,
-        category=req.category, description=req.description,
+        key=req.config_key,
+        value=req.config_value,
+        category=req.category,
+        description=req.description,
         user_overridable=req.user_overridable,
     )
     return {"message": "Config saved"}
 
 
 @router.delete("/configs/{key}")
-async def delete_system_config(key: str, current_user: dict = Depends(get_current_user)):
+async def delete_system_config(key: str, current_user: TokenData = Depends(_require_admin)):
     """Delete a system config."""
     dao = SystemConfigDao()
     if not dao.delete(key):
@@ -73,6 +85,7 @@ async def delete_system_config(key: str, current_user: dict = Depends(get_curren
 
 # ── Data Source Configs ──────────────────────────────────────────────
 
+
 @router.get("/data-sources")
 async def list_data_sources(current_user: dict = Depends(get_current_user)):
     """List data source configurations."""
@@ -81,7 +94,7 @@ async def list_data_sources(current_user: dict = Depends(get_current_user)):
 
 
 @router.put("/data-sources")
-async def upsert_data_source(req: DataSourceConfigRequest, current_user: dict = Depends(get_current_user)):
+async def upsert_data_source(req: DataSourceConfigRequest, current_user: TokenData = Depends(_require_admin)):
     """Upsert a data source configuration."""
     dao = DataSourceConfigDao()
     dao.upsert(

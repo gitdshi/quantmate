@@ -1,4 +1,5 @@
 """Multi-market data access — HK and US markets."""
+
 from __future__ import annotations
 
 from typing import Any

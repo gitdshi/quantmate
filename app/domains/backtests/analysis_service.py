@@ -1,4 +1,5 @@
 """Walk-Forward analysis service."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -99,7 +100,7 @@ class MonteCarloService:
             max_dd = 0.0
             peak = capital
             for ret in shuffled:
-                capital *= (1 + ret)
+                capital *= 1 + ret
                 if capital > peak:
                     peak = capital
                 dd = (peak - capital) / peak if peak > 0 else 0

@@ -1,4 +1,5 @@
 """Performance attribution service — Brinson model."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -36,10 +37,7 @@ class PerformanceAttributionService:
             rb = benchmark_returns.get(sector, 0.0)
 
             # Benchmark total return
-            rb_total = sum(
-                benchmark_weights.get(s, 0) * benchmark_returns.get(s, 0)
-                for s in sectors
-            )
+            rb_total = sum(benchmark_weights.get(s, 0) * benchmark_returns.get(s, 0) for s in sectors)
 
             allocation = (wp - wb) * (rb - rb_total)
             selection = wb * (rp - rb)
@@ -49,16 +47,18 @@ class PerformanceAttributionService:
             total_selection += selection
             total_interaction += interaction
 
-            details.append({
-                "sector": sector,
-                "portfolio_weight": round(wp, 4),
-                "benchmark_weight": round(wb, 4),
-                "portfolio_return": round(rp, 4),
-                "benchmark_return": round(rb, 4),
-                "allocation_effect": round(allocation, 6),
-                "selection_effect": round(selection, 6),
-                "interaction_effect": round(interaction, 6),
-            })
+            details.append(
+                {
+                    "sector": sector,
+                    "portfolio_weight": round(wp, 4),
+                    "benchmark_weight": round(wb, 4),
+                    "portfolio_return": round(rp, 4),
+                    "benchmark_return": round(rb, 4),
+                    "allocation_effect": round(allocation, 6),
+                    "selection_effect": round(selection, 6),
+                    "interaction_effect": round(interaction, 6),
+                }
+            )
 
         total_active = total_allocation + total_selection + total_interaction
 

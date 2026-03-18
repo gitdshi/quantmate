@@ -1,11 +1,19 @@
 """Authentication routes."""
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+
+from fastapi import APIRouter, Depends, Request, status
 
 from app.infrastructure.config import get_settings
 from app.api.models.user import (
-    UserCreate, UserLogin, User, Token, TokenData,
-    PasswordChangeRequest, UserProfileUpdate, UserProfileResponse,
-    VALID_TIMEZONES, VALID_LANGUAGES,
+    UserCreate,
+    UserLogin,
+    User,
+    Token,
+    TokenData,
+    PasswordChangeRequest,
+    UserProfileUpdate,
+    UserProfileResponse,
+    VALID_TIMEZONES,
+    VALID_LANGUAGES,
 )
 from app.api.services.auth_service import (
     get_current_user,
@@ -116,10 +124,7 @@ async def get_me(current_user: TokenData = Depends(get_current_user)):
 
 
 @router.post("/change-password")
-async def change_password(
-    request: PasswordChangeRequest,
-    current_user: TokenData = Depends(get_current_user)
-):
+async def change_password(request: PasswordChangeRequest, current_user: TokenData = Depends(get_current_user)):
     """Change the current user's password. Required if must_change_password flag is set."""
     service = AuthService()
     try:
@@ -133,10 +138,12 @@ async def change_password(
 
 # --- User Profile (Issue #8) ---
 
+
 @router.get("/profile", response_model=UserProfileResponse)
 async def get_profile(current_user: TokenData = Depends(get_current_user)):
     """Get the current user's profile."""
     from app.domains.auth.dao.user_profile_dao import UserProfileDao
+
     dao = UserProfileDao()
     profile = dao.get(current_user.user_id)
     if not profile:
@@ -164,6 +171,7 @@ async def update_profile(
         )
 
     from app.domains.auth.dao.user_profile_dao import UserProfileDao
+
     dao = UserProfileDao()
     updated = dao.upsert(current_user.user_id, **body.model_dump(exclude_unset=True))
     return UserProfileResponse(**updated)

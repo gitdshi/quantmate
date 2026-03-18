@@ -1,14 +1,16 @@
 """Portfolio API routes (Issue: Portfolio Backend).
 
-Endpoints the frontend already calls:
+Endpoints:
 - GET  /portfolio/positions
 - POST /portfolio/close
 - GET  /portfolio/{id}/transactions
 - GET  /portfolio/{id}/snapshots
+- POST /portfolio/position-sizing
+- POST /portfolio/attribution
 """
+
 from __future__ import annotations
 
-from typing import Optional
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
@@ -32,6 +34,7 @@ class ClosePositionRequest(BaseModel):
 async def get_positions(current_user: TokenData = Depends(get_current_user)):
     """Get all open positions for the user's default portfolio."""
     from app.domains.portfolio.dao.portfolio_dao import PortfolioDao
+
     dao = PortfolioDao()
     portfolio = dao.get_or_create(current_user.user_id)
     positions = dao.list_positions(portfolio["id"])
@@ -49,6 +52,7 @@ async def close_position(
 ):
     """Close (sell) a position."""
     from app.domains.portfolio.dao.portfolio_dao import PortfolioDao
+
     dao = PortfolioDao()
     portfolio = dao.get_or_create(current_user.user_id)
     pid = portfolio["id"]
@@ -89,7 +93,12 @@ async def get_transactions(
 ):
     """Get transaction history."""
     from app.domains.portfolio.dao.portfolio_dao import PortfolioDao
+
     dao = PortfolioDao()
+    # Verify ownership: ensure portfolio belongs to current user
+    owned = dao.get_or_create(current_user.user_id)
+    if owned["id"] != portfolio_id:
+        raise APIError(status_code=403, code=ErrorCode.FORBIDDEN, message="Access denied to this portfolio")
     total = dao.count_transactions(portfolio_id)
     rows = dao.list_transactions(portfolio_id, limit=pagination.limit, offset=pagination.offset)
     return paginate(rows, total, pagination)
@@ -102,12 +111,18 @@ async def get_snapshots(
 ):
     """Get daily NAV snapshots."""
     from app.domains.portfolio.dao.portfolio_dao import PortfolioDao
+
     dao = PortfolioDao()
+    # Verify ownership: ensure portfolio belongs to current user
+    owned = dao.get_or_create(current_user.user_id)
+    if owned["id"] != portfolio_id:
+        raise APIError(status_code=403, code=ErrorCode.FORBIDDEN, message="Access denied to this portfolio")
     rows = dao.list_snapshots(portfolio_id)
     return {"data": rows}
 
 
 # ── Position Sizing ──────────────────────────────────────────────────────
+
 
 class PositionSizingRequest(BaseModel):
     method: str  # fixed_amount / fixed_pct / kelly / equal_risk / risk_parity
@@ -124,6 +139,7 @@ async def calculate_position_size(
 ):
     """Calculate position size using the specified method."""
     from app.domains.portfolio.position_sizing_service import PositionSizingService
+
     svc = PositionSizingService()
     try:
         return svc.calculate(
@@ -136,10 +152,12 @@ async def calculate_position_size(
     except ValueError as e:
         from app.api.exception_handlers import APIError
         from app.api.errors import ErrorCode
+
         raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message=str(e))
 
 
 # ── Performance Attribution ──────────────────────────────────────────────
+
 
 class AttributionRequest(BaseModel):
     portfolio_weights: dict[str, float]
@@ -155,6 +173,7 @@ async def performance_attribution(
 ):
     """Run Brinson performance attribution analysis."""
     from app.domains.portfolio.attribution_service import PerformanceAttributionService
+
     svc = PerformanceAttributionService()
     return svc.brinson_attribution(
         portfolio_weights=req.portfolio_weights,

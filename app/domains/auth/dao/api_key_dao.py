@@ -2,6 +2,7 @@
 
 All SQL touching `quantmate.api_keys` lives here.
 """
+
 from __future__ import annotations
 
 import json
@@ -50,9 +51,17 @@ class ApiKeyDao:
             d["secret_hash"] = row.secret_hash
             return d
 
-    def create(self, user_id: int, key_id: str, secret_hash: str, name: str,
-               permissions: Optional[list] = None, expires_at: Optional[datetime] = None,
-               ip_whitelist: Optional[list] = None, rate_limit: int = 60) -> int:
+    def create(
+        self,
+        user_id: int,
+        key_id: str,
+        secret_hash: str,
+        name: str,
+        permissions: Optional[list] = None,
+        expires_at: Optional[datetime] = None,
+        ip_whitelist: Optional[list] = None,
+        rate_limit: int = 60,
+    ) -> int:
         with connection("quantmate") as conn:
             result = conn.execute(
                 text("""

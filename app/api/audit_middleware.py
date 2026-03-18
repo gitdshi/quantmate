@@ -3,6 +3,7 @@
 Automatically logs all API requests to the audit_logs table.
 Sensitive operations (auth, strategy CRUD) include extra detail.
 """
+
 from __future__ import annotations
 
 import time
@@ -54,6 +55,7 @@ def _extract_user_info(request: Request) -> tuple[Optional[int], Optional[str]]:
         return None, None
     try:
         from app.api.services.auth_service import decode_token
+
         data = decode_token(auth[7:])
         if data:
             return data.user_id, data.username
@@ -93,12 +95,13 @@ class AuditMiddleware(BaseHTTPMiddleware):
             resource_id = _extract_resource_id(path)
 
             forwarded = request.headers.get("x-forwarded-for")
-            ip_address = forwarded.split(",")[0].strip() if forwarded else (
-                request.client.host if request.client else None
+            ip_address = (
+                forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else None)
             )
             user_agent = request.headers.get("user-agent", "")[:500]
 
             from app.domains.audit.dao.audit_log_dao import AuditLogDao
+
             dao = AuditLogDao()
             dao.insert(
                 user_id=user_id,

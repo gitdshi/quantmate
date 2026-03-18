@@ -1,7 +1,8 @@
 """Strategy template & marketplace routes."""
+
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field
 
 from app.api.services.auth_service import get_current_user
@@ -45,6 +46,7 @@ class RatingCreate(BaseModel):
 
 # --- Marketplace (public) ---
 
+
 @router.get("/marketplace")
 async def list_marketplace(
     category: Optional[str] = None,
@@ -58,6 +60,7 @@ async def list_marketplace(
 
 
 # --- My templates ---
+
 
 @router.get("/mine")
 async def list_my_templates(
@@ -74,9 +77,13 @@ async def list_my_templates(
 async def create_template(req: TemplateCreate, current_user: dict = Depends(get_current_user)):
     service = TemplateService()
     return service.create_template(
-        current_user["id"], name=req.name, code=req.code,
-        category=req.category, description=req.description,
-        params_schema=req.params_schema, default_params=req.default_params,
+        current_user["id"],
+        name=req.name,
+        code=req.code,
+        category=req.category,
+        description=req.description,
+        params_schema=req.params_schema,
+        default_params=req.default_params,
         visibility=req.visibility,
     )
 
@@ -119,6 +126,7 @@ async def clone_template(template_id: int, current_user: dict = Depends(get_curr
 
 # --- Comments ---
 
+
 @router.get("/{template_id}/comments")
 async def list_comments(template_id: int, current_user: dict = Depends(get_current_user)):
     service = TemplateService()
@@ -145,6 +153,7 @@ async def delete_comment(template_id: int, comment_id: int, current_user: dict =
 
 
 # --- Ratings ---
+
 
 @router.get("/{template_id}/ratings")
 async def get_ratings(template_id: int, current_user: dict = Depends(get_current_user)):

@@ -1,4 +1,5 @@
 """DAO for sync_log operations used by datasync daemon."""
+
 from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import List, Optional, Tuple, Any
@@ -12,11 +13,13 @@ logger = logging.getLogger(__name__)
 engine = get_tushare_engine()
 
 
-def write_sync_log(sync_date: date, endpoint: str, status: str,
-                   rows_synced: int = 0, error_message: Optional[str] = None):
+def write_sync_log(
+    sync_date: date, endpoint: str, status: str, rows_synced: int = 0, error_message: Optional[str] = None
+):
     with engine.begin() as conn:
-        conn.execute(text(
-            """
+        conn.execute(
+            text(
+                """
             INSERT INTO sync_log (sync_date, endpoint, status, rows_synced, error_message, started_at, finished_at)
             VALUES (:sync_date, :endpoint, :status, :rows_synced, :error_message, NOW(), NOW())
             ON DUPLICATE KEY UPDATE
@@ -25,45 +28,58 @@ def write_sync_log(sync_date: date, endpoint: str, status: str,
                 error_message = VALUES(error_message),
                 finished_at = NOW()
             """
-        ), {
-            'sync_date': sync_date,
-            'endpoint': endpoint,
-            'status': status,
-            'rows_synced': rows_synced,
-            'error_message': error_message
-        })
+            ),
+            {
+                "sync_date": sync_date,
+                "endpoint": endpoint,
+                "status": status,
+                "rows_synced": rows_synced,
+                "error_message": error_message,
+            },
+        )
 
 
 def get_sync_status(sync_date: date, endpoint: str) -> Optional[str]:
     with engine.connect() as conn:
-        res = conn.execute(text("SELECT status FROM sync_log WHERE sync_date=:d AND endpoint=:ep"), {'d': sync_date, 'ep': endpoint})
+        res = conn.execute(
+            text("SELECT status FROM sync_log WHERE sync_date=:d AND endpoint=:ep"), {"d": sync_date, "ep": endpoint}
+        )
         row = res.fetchone()
         return row[0] if row else None
 
 
 def find_failed_syncs(start: date, end: date) -> List[Tuple[date, str]]:
     with engine.connect() as conn:
-        res = conn.execute(text(
-            "SELECT sync_date, endpoint FROM sync_log WHERE sync_date >= :start AND sync_date <= :end AND status IN ('error','partial') ORDER BY sync_date ASC, endpoint"
-        ), {'start': start, 'end': end})
+        res = conn.execute(
+            text(
+                "SELECT sync_date, endpoint FROM sync_log WHERE sync_date >= :start AND sync_date <= :end AND status IN ('error','partial') ORDER BY sync_date ASC, endpoint"
+            ),
+            {"start": start, "end": end},
+        )
         return [(row[0], row[1]) for row in res.fetchall()]
 
 
 def write_tushare_stock_sync_log(sync_date: date, endpoint: str, status: str, rows: int = 0, err: Optional[str] = None):
     """Write to the legacy `tushare_stock_sync_log` table in the Tushare DB."""
     with engine.begin() as conn:
-        conn.execute(text(
-            """
+        conn.execute(
+            text(
+                """
             INSERT INTO tushare_stock_sync_log (sync_date, endpoint, status, rows_synced, error_message, started_at, finished_at)
             VALUES (:sd, :ep, :st, :rows, :err, NOW(), NOW())
             ON DUPLICATE KEY UPDATE status=VALUES(status), rows_synced=VALUES(rows_synced), error_message=VALUES(error_message), finished_at=NOW()
             """
-        ), {'sd': sync_date.strftime('%Y-%m-%d'), 'ep': endpoint, 'st': status, 'rows': rows, 'err': err})
+            ),
+            {"sd": sync_date.strftime("%Y-%m-%d"), "ep": endpoint, "st": status, "rows": rows, "err": err},
+        )
 
 
 def get_last_success_tushare_sync_date(endpoint: str):
     with engine.connect() as conn:
-        res = conn.execute(text("SELECT MAX(sync_date) FROM tushare_stock_sync_log WHERE endpoint=:ep AND status='success'"), {'ep': endpoint})
+        res = conn.execute(
+            text("SELECT MAX(sync_date) FROM tushare_stock_sync_log WHERE endpoint=:ep AND status='success'"),
+            {"ep": endpoint},
+        )
         row = res.fetchone()
         return row[0] if row and row[0] else None
 
@@ -86,6 +102,7 @@ class SyncLogDao:
                     {"ep": ep},
                 ).fetchone()
                 if row:
+
                     def _to_utc_iso(dt: datetime | None) -> str | None:
                         if not dt:
                             return None

@@ -1,4 +1,5 @@
 """Alert management routes (P2 Issue: Alert Engine, Notifications, Drawdown Monitoring)."""
+
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, status
@@ -38,6 +39,7 @@ class NotificationChannelCreateRequest(BaseModel):
 
 # ── Alert Rules ──────────────────────────────────────────────────────
 
+
 @router.get("/rules")
 async def list_alert_rules(current_user: dict = Depends(get_current_user)):
     """List all alert rules for the current user."""
@@ -57,9 +59,13 @@ async def create_alert_rule(req: AlertRuleCreateRequest, current_user: dict = De
 
     dao = AlertRuleDao()
     rule_id = dao.create(
-        user_id=current_user["id"], name=req.name, metric=req.metric,
-        comparator=req.comparator, threshold=req.threshold,
-        level=req.level, time_window=req.time_window,
+        user_id=current_user["id"],
+        name=req.name,
+        metric=req.metric,
+        comparator=req.comparator,
+        threshold=req.threshold,
+        level=req.level,
+        time_window=req.time_window,
     )
     return {"id": rule_id, "message": "Alert rule created"}
 
@@ -87,6 +93,7 @@ async def delete_alert_rule(rule_id: int, current_user: dict = Depends(get_curre
 
 # ── Alert History ────────────────────────────────────────────────────
 
+
 @router.get("/history")
 async def list_alert_history(
     level: Optional[str] = None,
@@ -113,6 +120,7 @@ async def acknowledge_alert(alert_id: int, current_user: dict = Depends(get_curr
 
 
 # ── Notification Channels ────────────────────────────────────────────
+
 
 @router.get("/channels")
 async def list_channels(current_user: dict = Depends(get_current_user)):

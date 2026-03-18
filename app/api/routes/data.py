@@ -1,7 +1,8 @@
 """Data and history routes."""
+
 from datetime import date, datetime
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
 from app.api.services.auth_service import get_current_user, get_current_user_optional
@@ -16,6 +17,7 @@ router = APIRouter(prefix="/data", tags=["Data"])
 
 class SymbolInfo(BaseModel):
     """Symbol information."""
+
     symbol: str
     name: str
     exchange: str
@@ -26,6 +28,7 @@ class SymbolInfo(BaseModel):
 
 class OHLCBar(BaseModel):
     """OHLC bar data."""
+
     datetime: datetime
     open: float
     high: float
@@ -37,6 +40,7 @@ class OHLCBar(BaseModel):
 
 class IndicatorData(BaseModel):
     """Indicator data."""
+
     datetime: datetime
     value: float
     name: str
@@ -48,7 +52,7 @@ async def list_symbols(
     keyword: Optional[str] = Query(None, description="Search by symbol or name"),
     limit: int = Query(100, le=1000),
     offset: int = Query(0, ge=0),
-    current_user: Optional[TokenData] = Depends(get_current_user_optional)
+    current_user: Optional[TokenData] = Depends(get_current_user_optional),
 ):
     """List available symbols."""
     service = DataService()
@@ -62,20 +66,22 @@ async def get_history(
     end_date: date = Query(..., description="End date"),
     interval: str = Query("daily", description="Interval: daily, weekly, monthly"),
     pagination: PaginationParams = Depends(),
-    current_user: Optional[TokenData] = Depends(get_current_user_optional)
+    current_user: Optional[TokenData] = Depends(get_current_user_optional),
 ):
     """Get historical OHLC data for a symbol (paginated)."""
     service = DataService()
-    
+
     try:
         bars = service.get_history(vt_symbol, start_date, end_date, interval)
         total = len(bars)
-        page_data = bars[pagination.offset:pagination.offset + pagination.limit]
+        page_data = bars[pagination.offset : pagination.offset + pagination.limit]
         return paginate(page_data, total, pagination)
     except ValueError as e:
         raise APIError(status_code=400, code=ErrorCode.DATA_INVALID_DATE_RANGE, message=str(e))
     except Exception as e:
-        raise APIError(status_code=500, code=ErrorCode.DATA_FETCH_FAILED, message="Failed to fetch history", detail=str(e))
+        raise APIError(
+            status_code=500, code=ErrorCode.DATA_FETCH_FAILED, message="Failed to fetch history", detail=str(e)
+        )
 
 
 @router.get("/indicators/{vt_symbol}")
@@ -84,12 +90,12 @@ async def get_indicators(
     start_date: date = Query(...),
     end_date: date = Query(...),
     indicators: str = Query("ma_10,ma_20,ma_60", description="Comma-separated indicator names"),
-    current_user: Optional[TokenData] = Depends(get_current_user_optional)
+    current_user: Optional[TokenData] = Depends(get_current_user_optional),
 ):
     """Get computed indicators for a symbol."""
     service = DataService()
     indicator_list = [i.strip() for i in indicators.split(",")]
-    
+
     try:
         data = service.get_indicators(vt_symbol, start_date, end_date, indicator_list)
         return data
@@ -98,36 +104,28 @@ async def get_indicators(
 
 
 @router.get("/overview")
-async def get_market_overview(
-    current_user: Optional[TokenData] = Depends(get_current_user_optional)
-):
+async def get_market_overview(current_user: Optional[TokenData] = Depends(get_current_user_optional)):
     """Get market overview statistics."""
     service = DataService()
     return service.get_market_overview()
 
 
 @router.get("/sectors")
-async def get_sectors(
-    current_user: Optional[TokenData] = Depends(get_current_user_optional)
-):
+async def get_sectors(current_user: Optional[TokenData] = Depends(get_current_user_optional)):
     """Get sector information."""
     service = DataService()
     return service.get_sectors()
 
 
 @router.get("/exchanges")
-async def get_exchanges(
-    current_user: Optional[TokenData] = Depends(get_current_user_optional)
-):
+async def get_exchanges(current_user: Optional[TokenData] = Depends(get_current_user_optional)):
     """Get exchange-level stock groupings (SSE, SZSE, BSE)."""
     service = DataService()
     return service.get_exchanges()
 
 
 @router.get("/indexes")
-async def get_indexes(
-    current_user: Optional[TokenData] = Depends(get_current_user_optional)
-):
+async def get_indexes(current_user: Optional[TokenData] = Depends(get_current_user_optional)):
     """Return available index codes from AkShare for benchmark selection."""
     service = DataService()
     return service.get_indexes()
@@ -138,7 +136,7 @@ async def get_symbols_by_filter(
     industry: Optional[str] = Query(None, description="Filter by industry name"),
     exchange: Optional[str] = Query(None, description="Filter by exchange: SSE, SZSE, BSE"),
     limit: int = Query(500, le=2000),
-    current_user: Optional[TokenData] = Depends(get_current_user_optional)
+    current_user: Optional[TokenData] = Depends(get_current_user_optional),
 ):
     """
     Get symbol list filtered by industry and/or exchange.
@@ -161,6 +159,7 @@ async def check_missing_dates(
 ):
     """Detect missing trading dates for a symbol."""
     from app.domains.extdata.data_cleaning_service import DataCleaningService
+
     svc = DataCleaningService()
     return svc.detect_missing_dates(symbol, start_date, end_date, table)
 
@@ -174,6 +173,7 @@ async def check_price_anomalies(
 ):
     """Detect abnormal daily price changes."""
     from app.domains.extdata.data_cleaning_service import DataCleaningService
+
     svc = DataCleaningService()
     return svc.detect_price_anomalies(symbol, threshold_pct, table)
 
@@ -186,6 +186,7 @@ async def check_ohlc_consistency(
 ):
     """Verify OHLC data consistency."""
     from app.domains.extdata.data_cleaning_service import DataCleaningService
+
     svc = DataCleaningService()
     return svc.check_ohlc_consistency(symbol, table)
 
@@ -199,5 +200,6 @@ async def data_quality_summary(
 ):
     """Run all data quality checks and return a score."""
     from app.domains.extdata.data_cleaning_service import DataCleaningService
+
     svc = DataCleaningService()
     return svc.summary(symbol, start_date, end_date)

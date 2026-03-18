@@ -1,0 +1,9 @@
+line-length = 120
+
+[lint]
+select = ["E", "F"]
+ignore = ["E501", "E402", "F403"]
+
+[lint.per-file-ignores]
+"app/strategies/**" = ["F403", "F841"]
+"app/datasync/**" = ["F402"]

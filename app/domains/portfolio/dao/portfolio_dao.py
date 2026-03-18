@@ -1,7 +1,7 @@
 """Portfolio DAO — positions, transactions, snapshots."""
+
 from __future__ import annotations
 
-import json
 from typing import Any, Optional
 
 from sqlalchemy import text
@@ -10,7 +10,6 @@ from app.infrastructure.db.connections import connection
 
 
 class PortfolioDao:
-
     # --- Portfolio ---
 
     def get_or_create(self, user_id: int) -> dict[str, Any]:
@@ -37,10 +36,7 @@ class PortfolioDao:
     def list_positions(self, portfolio_id: int) -> list[dict[str, Any]]:
         with connection("quantmate") as conn:
             rows = conn.execute(
-                text(
-                    "SELECT * FROM portfolio_positions "
-                    "WHERE portfolio_id = :pid AND quantity > 0 ORDER BY symbol"
-                ),
+                text("SELECT * FROM portfolio_positions WHERE portfolio_id = :pid AND quantity > 0 ORDER BY symbol"),
                 {"pid": portfolio_id},
             ).fetchall()
             return [dict(r._mapping) for r in rows]
@@ -48,10 +44,7 @@ class PortfolioDao:
     def get_position(self, portfolio_id: int, symbol: str) -> Optional[dict[str, Any]]:
         with connection("quantmate") as conn:
             row = conn.execute(
-                text(
-                    "SELECT * FROM portfolio_positions "
-                    "WHERE portfolio_id = :pid AND symbol = :sym"
-                ),
+                text("SELECT * FROM portfolio_positions WHERE portfolio_id = :pid AND symbol = :sym"),
                 {"pid": portfolio_id, "sym": symbol},
             ).fetchone()
             return dict(row._mapping) if row else None
@@ -59,10 +52,7 @@ class PortfolioDao:
     def upsert_position(self, portfolio_id: int, symbol: str, quantity: int, avg_cost: float) -> None:
         with connection("quantmate") as conn:
             existing = conn.execute(
-                text(
-                    "SELECT id FROM portfolio_positions "
-                    "WHERE portfolio_id = :pid AND symbol = :sym"
-                ),
+                text("SELECT id FROM portfolio_positions WHERE portfolio_id = :pid AND symbol = :sym"),
                 {"pid": portfolio_id, "sym": symbol},
             ).fetchone()
             if existing:
@@ -129,10 +119,7 @@ class PortfolioDao:
     def list_snapshots(self, portfolio_id: int, limit: int = 30) -> list[dict[str, Any]]:
         with connection("quantmate") as conn:
             rows = conn.execute(
-                text(
-                    "SELECT * FROM portfolio_snapshots WHERE portfolio_id = :pid "
-                    "ORDER BY date DESC LIMIT :lim"
-                ),
+                text("SELECT * FROM portfolio_snapshots WHERE portfolio_id = :pid ORDER BY date DESC LIMIT :lim"),
                 {"pid": portfolio_id, "lim": limit},
             ).fetchall()
             return [dict(r._mapping) for r in rows]

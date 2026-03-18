@@ -1,4 +1,5 @@
 """AI Assistant routes — conversations, messages, model configs."""
+
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, status
@@ -14,6 +15,7 @@ router = APIRouter(prefix="/ai", tags=["AI Assistant"])
 
 
 # --- Request models ---
+
 
 class ConversationCreate(BaseModel):
     title: Optional[str] = None
@@ -48,6 +50,7 @@ class ModelConfigUpdate(BaseModel):
 
 # --- Conversation endpoints ---
 
+
 @router.get("/conversations")
 async def list_conversations(
     conv_status: Optional[str] = Query(None, alias="status"),
@@ -57,8 +60,10 @@ async def list_conversations(
     service = AIService()
     total = service.count_conversations(current_user["id"])
     rows = service.list_conversations(
-        current_user["id"], status=conv_status,
-        limit=pagination.page_size, offset=pagination.offset,
+        current_user["id"],
+        status=conv_status,
+        limit=pagination.page_size,
+        offset=pagination.offset,
     )
     return paginate(rows, total, pagination)
 
@@ -106,6 +111,7 @@ async def delete_conversation(conversation_id: int, current_user: dict = Depends
 
 # --- Message endpoints ---
 
+
 @router.get("/conversations/{conversation_id}/messages")
 async def list_messages(conversation_id: int, current_user: dict = Depends(get_current_user)):
     service = AIService()
@@ -130,6 +136,7 @@ async def send_message(
 
 # --- Model config endpoints ---
 
+
 @router.get("/models")
 async def list_models(
     enabled_only: bool = Query(False),
@@ -153,8 +160,11 @@ async def create_model(req: ModelConfigCreate, current_user: dict = Depends(get_
     service = AIService()
     try:
         return service.create_model(
-            model_name=req.model_name, provider=req.provider,
-            endpoint=req.endpoint, temperature=req.temperature, max_tokens=req.max_tokens,
+            model_name=req.model_name,
+            provider=req.provider,
+            endpoint=req.endpoint,
+            temperature=req.temperature,
+            max_tokens=req.max_tokens,
         )
     except ValueError as e:
         raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message=str(e))

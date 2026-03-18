@@ -6,10 +6,10 @@ Default limits
 
 Returns 429 Too Many Requests with Retry-After header when exceeded.
 """
+
 from __future__ import annotations
 
 import time
-from typing import Optional
 
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -27,6 +27,7 @@ def _get_redis():
     global _redis_client
     if _redis_client is None:
         import redis as _redis_module
+
         settings = get_settings()
         _redis_client = _redis_module.Redis(
             host=settings.redis_host,
@@ -108,6 +109,7 @@ def _get_limit_for_path(path: str) -> tuple[int, str]:
 # Identifier extraction
 # ---------------------------------------------------------------------------
 
+
 def _extract_identifier(request: Request) -> str:
     """Get rate-limit key identifier: user_id from JWT if available, else client IP."""
     auth = request.headers.get("authorization", "")
@@ -115,6 +117,7 @@ def _extract_identifier(request: Request) -> str:
         token = auth[7:]
         try:
             from app.api.services.auth_service import decode_token
+
             data = decode_token(token)
             if data and data.user_id:
                 return f"user:{data.user_id}"
@@ -131,6 +134,7 @@ def _extract_identifier(request: Request) -> str:
 # ---------------------------------------------------------------------------
 # Middleware
 # ---------------------------------------------------------------------------
+
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """Sliding-window rate limiter backed by Redis sorted sets."""

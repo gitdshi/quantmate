@@ -1,4 +1,5 @@
 """Session management routes (P2 Issue: Session Management)."""
+
 from fastapi import APIRouter, Depends, status
 
 from app.api.services.auth_service import get_current_user

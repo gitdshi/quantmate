@@ -1,7 +1,8 @@
 """Factor Lab routes — factor definitions and evaluations."""
+
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel
 
 from app.api.services.auth_service import get_current_user
@@ -44,8 +45,10 @@ async def list_factors(
     service = FactorService()
     total = service.count_factors(current_user["id"])
     rows = service.list_factors(
-        current_user["id"], category=category,
-        limit=pagination.page_size, offset=pagination.offset,
+        current_user["id"],
+        category=category,
+        limit=pagination.page_size,
+        offset=pagination.offset,
     )
     return paginate(rows, total, pagination)
 
@@ -54,8 +57,12 @@ async def list_factors(
 async def create_factor(req: FactorCreate, current_user: dict = Depends(get_current_user)):
     service = FactorService()
     return service.create_factor(
-        current_user["id"], name=req.name, expression=req.expression,
-        category=req.category, description=req.description, params=req.params,
+        current_user["id"],
+        name=req.name,
+        expression=req.expression,
+        category=req.category,
+        description=req.description,
+        params=req.params,
     )
 
 
@@ -87,6 +94,7 @@ async def delete_factor(factor_id: int, current_user: dict = Depends(get_current
 
 
 # --- Evaluations ---
+
 
 @router.get("/{factor_id}/evaluations")
 async def list_evaluations(factor_id: int, current_user: dict = Depends(get_current_user)):

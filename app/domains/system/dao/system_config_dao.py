@@ -1,5 +1,5 @@
 """System configuration DAO."""
-import json
+
 from sqlalchemy import text
 from app.infrastructure.db.connections import get_quantmate_engine
 
@@ -23,21 +23,34 @@ class SystemConfigDao:
 
     def get(self, key: str) -> dict | None:
         with self.engine.connect() as conn:
-            row = conn.execute(
-                text("SELECT * FROM system_configs WHERE config_key = :key"),
-                {"key": key},
-            ).mappings().first()
+            row = (
+                conn.execute(
+                    text("SELECT * FROM system_configs WHERE config_key = :key"),
+                    {"key": key},
+                )
+                .mappings()
+                .first()
+            )
             return dict(row) if row else None
 
-    def upsert(self, key: str, value: str, category: str = "general",
-               description: str = None, user_overridable: bool = False) -> None:
+    def upsert(
+        self, key: str, value: str, category: str = "general", description: str = None, user_overridable: bool = False
+    ) -> None:
         with self.engine.begin() as conn:
-            conn.execute(text("""
+            conn.execute(
+                text("""
                 INSERT INTO system_configs (config_key, config_value, category, description, user_overridable)
                 VALUES (:key, :value, :category, :desc, :overridable)
                 ON DUPLICATE KEY UPDATE config_value = :value, description = :desc, user_overridable = :overridable
-            """), {"key": key, "value": value, "category": category,
-                   "desc": description, "overridable": user_overridable})
+            """),
+                {
+                    "key": key,
+                    "value": value,
+                    "category": category,
+                    "desc": description,
+                    "overridable": user_overridable,
+                },
+            )
 
     def delete(self, key: str) -> bool:
         with self.engine.begin() as conn:
@@ -67,22 +80,29 @@ class DataSourceConfigDao:
 
     def get(self, source_name: str) -> dict | None:
         with self.engine.connect() as conn:
-            row = conn.execute(
-                text("SELECT * FROM data_source_configs WHERE source_name = :name"),
-                {"name": source_name},
-            ).mappings().first()
+            row = (
+                conn.execute(
+                    text("SELECT * FROM data_source_configs WHERE source_name = :name"),
+                    {"name": source_name},
+                )
+                .mappings()
+                .first()
+            )
             if row:
                 d = dict(row)
                 d["token_encrypted"] = "***" if d.get("token_encrypted") else None
                 return d
             return None
 
-    def upsert(self, source_name: str, is_enabled: bool = True,
-               rate_limit_per_min: int = None, priority: int = 0) -> None:
+    def upsert(
+        self, source_name: str, is_enabled: bool = True, rate_limit_per_min: int = None, priority: int = 0
+    ) -> None:
         with self.engine.begin() as conn:
-            conn.execute(text("""
+            conn.execute(
+                text("""
                 INSERT INTO data_source_configs (source_name, is_enabled, rate_limit_per_min, priority)
                 VALUES (:name, :enabled, :rate, :priority)
                 ON DUPLICATE KEY UPDATE is_enabled = :enabled, rate_limit_per_min = :rate, priority = :priority
-            """), {"name": source_name, "enabled": is_enabled,
-                   "rate": rate_limit_per_min, "priority": priority})
+            """),
+                {"name": source_name, "enabled": is_enabled, "rate": rate_limit_per_min, "priority": priority},
+            )

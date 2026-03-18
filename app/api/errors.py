@@ -12,6 +12,7 @@ All API error responses follow the format:
     }
 }
 """
+
 from enum import Enum
 from typing import Optional
 from pydantic import BaseModel
@@ -70,6 +71,7 @@ class ErrorCode(str, Enum):
 
 class ErrorResponse(BaseModel):
     """Standardized error response body."""
+
     code: str
     message: str
     detail: Optional[str] = None
@@ -77,4 +79,5 @@ class ErrorResponse(BaseModel):
 
 class ErrorEnvelope(BaseModel):
     """Top-level error envelope: ``{"error": {...}}``."""
+
     error: ErrorResponse

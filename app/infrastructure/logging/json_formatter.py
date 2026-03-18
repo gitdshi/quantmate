@@ -4,13 +4,13 @@ Usage:
     from app.infrastructure.logging.json_formatter import configure_json_logging
     configure_json_logging()  # Call at application startup for JSON log output
 """
+
 from __future__ import annotations
 
 import json
 import logging
 import traceback
 from datetime import datetime, timezone
-from typing import Optional
 
 
 class JSONFormatter(logging.Formatter):

@@ -108,7 +108,11 @@ class StrategiesService:
         if parameters is not None:
             try:
                 existing_params = existing.get("parameters")
-                existing_parsed = json.loads(existing_params) if isinstance(existing_params, str) and existing_params else (existing_params or {})
+                existing_parsed = (
+                    json.loads(existing_params)
+                    if isinstance(existing_params, str) and existing_params
+                    else (existing_params or {})
+                )
             except Exception:
                 existing_parsed = {}
             try:
@@ -181,16 +185,20 @@ class StrategiesService:
         rows = self._history.list_history(strategy_id)
         out = []
         for r in rows:
-            out.append({
-                "id": r.get("id"),
-                "created_at": r.get("created_at").isoformat() if hasattr(r.get("created_at"), "isoformat") else str(r.get("created_at")),
-                "size": int(r.get("size") or 0),
-                "strategy_name": r.get("strategy_name"),
-                "class_name": r.get("class_name"),
-                "description": r.get("description"),
-                "version": r.get("version"),
-                "parameters": r.get("parameters"),
-            })
+            out.append(
+                {
+                    "id": r.get("id"),
+                    "created_at": r.get("created_at").isoformat()
+                    if hasattr(r.get("created_at"), "isoformat")
+                    else str(r.get("created_at")),
+                    "size": int(r.get("size") or 0),
+                    "strategy_name": r.get("strategy_name"),
+                    "class_name": r.get("class_name"),
+                    "description": r.get("description"),
+                    "version": r.get("version"),
+                    "parameters": r.get("parameters"),
+                }
+            )
         return out
 
     def get_code_history(self, user_id: int, strategy_id: int, history_id: int) -> dict[str, Any]:
@@ -238,7 +246,13 @@ class StrategiesService:
         # Apply history values
         hist_params = history.get("parameters")
         try:
-            params_val = hist_params if isinstance(hist_params, str) else json.dumps(hist_params) if hist_params is not None else None
+            params_val = (
+                hist_params
+                if isinstance(hist_params, str)
+                else json.dumps(hist_params)
+                if hist_params is not None
+                else None
+            )
         except Exception:
             params_val = None
 

@@ -31,12 +31,12 @@ class TurtleTradingStrategy(CtaTemplate):
     exit_window: int = 10
     atr_window: int = 20
     fixed_size: int = 1
-    
+
     # 止损参数
-    stop_loss_window: int = 10          # 计算标准差的回看周期
-    fixed_stop_multiplier: float = 2.0   # 固定止损：2倍标准差
+    stop_loss_window: int = 10  # 计算标准差的回看周期
+    fixed_stop_multiplier: float = 2.0  # 固定止损：2倍标准差
     trailing_stop_multiplier: float = 1.0  # 移动止损：1倍标准差
-    use_std_stop_loss: bool = True       # 是否使用基于标准差的止损
+    use_std_stop_loss: bool = True  # 是否使用基于标准差的止损
 
     entry_up: float = 0
     entry_down: float = 0
@@ -45,19 +45,22 @@ class TurtleTradingStrategy(CtaTemplate):
     atr_value: float = 0
     long_entry: float = 0
     long_stop: float = 0
-    
+
     # 止损状态变量
-    std_fixed_stop: float = 0      # 基于标准差的固定止损价
-    std_trailing_stop: float = 0   # 基于标准差的移动止损价
+    std_fixed_stop: float = 0  # 基于标准差的固定止损价
+    std_trailing_stop: float = 0  # 基于标准差的移动止损价
 
     parameters = [
-        "entry_window", "exit_window", "atr_window", "fixed_size",
-        "stop_loss_window", "fixed_stop_multiplier", "trailing_stop_multiplier", "use_std_stop_loss"
+        "entry_window",
+        "exit_window",
+        "atr_window",
+        "fixed_size",
+        "stop_loss_window",
+        "fixed_stop_multiplier",
+        "trailing_stop_multiplier",
+        "use_std_stop_loss",
     ]
-    variables = [
-        "entry_up", "entry_down", "exit_up", "exit_down", "atr_value",
-        "std_fixed_stop", "std_trailing_stop"
-    ]
+    variables = ["entry_up", "entry_down", "exit_up", "exit_down", "atr_value", "std_fixed_stop", "std_trailing_stop"]
 
     def on_init(self) -> None:
         """Initialize strategy: set up bar generator and array manager."""
@@ -65,14 +68,14 @@ class TurtleTradingStrategy(CtaTemplate):
 
         self.bg: BarGenerator = BarGenerator(self.on_bar)
         self.am: ArrayManager = ArrayManager()
-        
+
         # 初始化止损管理器
         self.stop_loss_manager = StopLossManager(
             fixed_std_multiplier=self.fixed_stop_multiplier,
             trailing_std_multiplier=self.trailing_stop_multiplier,
             lookback_period=self.stop_loss_window,
             use_fixed_stop=self.use_std_stop_loss,
-            use_trailing_stop=self.use_std_stop_loss
+            use_trailing_stop=self.use_std_stop_loss,
         )
 
         # load historical bars for indicators
@@ -100,9 +103,9 @@ class TurtleTradingStrategy(CtaTemplate):
             self.entry_up, self.entry_down = self.am.donchian(self.entry_window)
 
         self.exit_up, self.exit_down = self.am.donchian(self.exit_window)
-        
+
         # 获取最近N天收盘价用于计算标准差止损
-        recent_closes = list(self.am.close[-self.stop_loss_window:])
+        recent_closes = list(self.am.close[-self.stop_loss_window :])
         vt_symbol = f"{bar.symbol}.{bar.exchange.value}"
 
         if not self.pos:
@@ -113,7 +116,7 @@ class TurtleTradingStrategy(CtaTemplate):
             self.long_stop = 0
             self.std_fixed_stop = 0
             self.std_trailing_stop = 0
-            
+
             # 清除止损状态
             self.stop_loss_manager.remove_position(vt_symbol)
 
@@ -128,14 +131,14 @@ class TurtleTradingStrategy(CtaTemplate):
                 if state:
                     self.std_fixed_stop = state.fixed_stop_price
                     self.std_trailing_stop = state.trailing_stop_price
-                    
+
                     # 检查是否触发止损
                     if self.stop_loss_manager.should_stop_loss(vt_symbol, bar.close_price):
                         reason = self.stop_loss_manager.get_stop_reason(vt_symbol, bar.close_price)
                         self.write_log(f"触发止损: {reason}, 止损价={state.get_active_stop_price():.2f}")
                         self.sell(bar.close_price * 0.99, abs(self.pos), False)
                         return
-            
+
             # if long, maintain pyramiding and set protective exit
             self.send_buy_orders(self.entry_up)
 
@@ -154,19 +157,17 @@ class TurtleTradingStrategy(CtaTemplate):
     def on_trade(self, trade: TradeData) -> None:
         # Update stops and last entry price on fills
         vt_symbol = f"{trade.symbol}.{trade.exchange.value}"
-        
+
         # 获取最近收盘价用于计算止损
-        recent_closes = list(self.am.close[-self.stop_loss_window:])
-        
+        recent_closes = list(self.am.close[-self.stop_loss_window :])
+
         if trade.direction == Direction.LONG:
             self.long_entry = trade.price
             self.long_stop = self.long_entry - 2 * self.atr_value
-            
+
             # 设置基于标准差的止损
             if self.use_std_stop_loss and len(recent_closes) >= 2:
-                state = self.stop_loss_manager.set_entry(
-                    vt_symbol, trade.price, recent_closes, is_long=True
-                )
+                state = self.stop_loss_manager.set_entry(vt_symbol, trade.price, recent_closes, is_long=True)
                 self.std_fixed_stop = state.fixed_stop_price
                 self.std_trailing_stop = state.trailing_stop_price
                 self.write_log(

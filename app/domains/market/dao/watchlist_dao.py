@@ -1,4 +1,5 @@
 """Watchlist DAO (Issue #6)."""
+
 from __future__ import annotations
 
 from typing import Any, Optional
@@ -32,10 +33,7 @@ class WatchlistDao:
     def create(self, user_id: int, name: str, description: Optional[str] = None) -> int:
         with connection("quantmate") as conn:
             result = conn.execute(
-                text(
-                    "INSERT INTO watchlists (user_id, name, description) "
-                    "VALUES (:uid, :name, :desc)"
-                ),
+                text("INSERT INTO watchlists (user_id, name, description) VALUES (:uid, :name, :desc)"),
                 {"uid": user_id, "name": name, "desc": description},
             )
             conn.commit()
@@ -75,10 +73,7 @@ class WatchlistDao:
     def add_item(self, watchlist_id: int, symbol: str, notes: Optional[str] = None) -> int:
         with connection("quantmate") as conn:
             result = conn.execute(
-                text(
-                    "INSERT INTO watchlist_items (watchlist_id, symbol, notes) "
-                    "VALUES (:wid, :sym, :notes)"
-                ),
+                text("INSERT INTO watchlist_items (watchlist_id, symbol, notes) VALUES (:wid, :sym, :notes)"),
                 {"wid": watchlist_id, "sym": symbol, "notes": notes},
             )
             conn.commit()
@@ -87,10 +82,7 @@ class WatchlistDao:
     def remove_item(self, watchlist_id: int, symbol: str) -> bool:
         with connection("quantmate") as conn:
             result = conn.execute(
-                text(
-                    "DELETE FROM watchlist_items "
-                    "WHERE watchlist_id = :wid AND symbol = :sym"
-                ),
+                text("DELETE FROM watchlist_items WHERE watchlist_id = :wid AND symbol = :sym"),
                 {"wid": watchlist_id, "sym": symbol},
             )
             conn.commit()

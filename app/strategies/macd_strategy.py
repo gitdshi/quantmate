@@ -116,16 +116,16 @@ class MACDStrategy(CtaTemplate):
     def on_trade(self, trade: TradeData):
         # Log trade with clearer intent (entry vs exit, long vs short)
         try:
-            if trade.direction == Direction.LONG and getattr(trade, 'offset', None) == Offset.OPEN:
-                kind = 'Long entry'
-            elif trade.direction == Direction.SHORT and getattr(trade, 'offset', None) == Offset.CLOSE:
-                kind = 'Exit long'
-            elif trade.direction == Direction.SHORT and getattr(trade, 'offset', None) == Offset.OPEN:
-                kind = 'Short entry'
-            elif trade.direction == Direction.LONG and getattr(trade, 'offset', None) == Offset.CLOSE:
-                kind = 'Exit short'
+            if trade.direction == Direction.LONG and getattr(trade, "offset", None) == Offset.OPEN:
+                kind = "Long entry"
+            elif trade.direction == Direction.SHORT and getattr(trade, "offset", None) == Offset.CLOSE:
+                kind = "Exit long"
+            elif trade.direction == Direction.SHORT and getattr(trade, "offset", None) == Offset.OPEN:
+                kind = "Short entry"
+            elif trade.direction == Direction.LONG and getattr(trade, "offset", None) == Offset.CLOSE:
+                kind = "Exit short"
             else:
-                kind = f'{trade.direction} {getattr(trade, "offset", "")}'
+                kind = f"{trade.direction} {getattr(trade, 'offset', '')}"
         except Exception:
             kind = str(trade.direction)
 

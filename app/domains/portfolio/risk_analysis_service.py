@@ -3,6 +3,7 @@
 Computes parametric VaR, historical VaR, and runs stress-test scenarios
 against a portfolio of daily returns.
 """
+
 from __future__ import annotations
 
 import math
@@ -105,20 +106,24 @@ class RiskAnalysisService:
                 shock_pct = shocks.get(symbol, shocks.get("default", 0))
                 pnl = portfolio_value * weight * shock_pct
                 total_impact += pnl
-                details.append({
-                    "symbol": symbol,
-                    "weight": round(weight, 4),
-                    "shock_pct": round(shock_pct, 4),
-                    "pnl_impact": round(pnl, 2),
-                })
+                details.append(
+                    {
+                        "symbol": symbol,
+                        "weight": round(weight, 4),
+                        "shock_pct": round(shock_pct, 4),
+                        "pnl_impact": round(pnl, 2),
+                    }
+                )
 
-            results.append({
-                "name": scenario["name"],
-                "description": scenario.get("description", ""),
-                "total_impact": round(total_impact, 2),
-                "total_impact_pct": round(total_impact / portfolio_value, 6) if portfolio_value else 0,
-                "details": details,
-            })
+            results.append(
+                {
+                    "name": scenario["name"],
+                    "description": scenario.get("description", ""),
+                    "total_impact": round(total_impact, 2),
+                    "total_impact_pct": round(total_impact / portfolio_value, 6) if portfolio_value else 0,
+                    "details": details,
+                }
+            )
 
         return results
 
@@ -150,6 +155,7 @@ DEFAULT_SCENARIOS = [
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
+
 
 def _norm_ppf(p: float) -> float:
     """Approximate inverse normal CDF (rational approximation)."""

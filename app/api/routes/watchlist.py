@@ -1,4 +1,5 @@
 """Watchlist management API routes (Issue #6)."""
+
 from __future__ import annotations
 
 from typing import Optional
@@ -37,10 +38,12 @@ def _ensure_owner(watchlist: dict, user_id: int) -> None:
 
 # --- Watchlist CRUD ---
 
+
 @router.get("")
 async def list_watchlists(current_user: TokenData = Depends(get_current_user)):
     """List all watchlists for the current user."""
     from app.domains.market.dao.watchlist_dao import WatchlistDao
+
     dao = WatchlistDao()
     return {"data": dao.list_for_user(current_user.user_id)}
 
@@ -51,6 +54,7 @@ async def create_watchlist(
     current_user: TokenData = Depends(get_current_user),
 ):
     from app.domains.market.dao.watchlist_dao import WatchlistDao
+
     dao = WatchlistDao()
     wid = dao.create(current_user.user_id, body.name, body.description)
     return {"id": wid, "name": body.name}
@@ -63,6 +67,7 @@ async def update_watchlist(
     current_user: TokenData = Depends(get_current_user),
 ):
     from app.domains.market.dao.watchlist_dao import WatchlistDao
+
     dao = WatchlistDao()
     wl = dao.get(watchlist_id)
     if not wl:
@@ -78,6 +83,7 @@ async def delete_watchlist(
     current_user: TokenData = Depends(get_current_user),
 ):
     from app.domains.market.dao.watchlist_dao import WatchlistDao
+
     dao = WatchlistDao()
     wl = dao.get(watchlist_id)
     if not wl:
@@ -89,6 +95,7 @@ async def delete_watchlist(
 
 # --- Watchlist items ---
 
+
 @router.post("/{watchlist_id}/items")
 async def add_item(
     watchlist_id: int,
@@ -96,6 +103,7 @@ async def add_item(
     current_user: TokenData = Depends(get_current_user),
 ):
     from app.domains.market.dao.watchlist_dao import WatchlistDao
+
     dao = WatchlistDao()
     wl = dao.get(watchlist_id)
     if not wl:
@@ -112,6 +120,7 @@ async def remove_item(
     current_user: TokenData = Depends(get_current_user),
 ):
     from app.domains.market.dao.watchlist_dao import WatchlistDao
+
     dao = WatchlistDao()
     wl = dao.get(watchlist_id)
     if not wl:

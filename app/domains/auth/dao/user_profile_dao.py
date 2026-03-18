@@ -1,4 +1,5 @@
 """User profile DAO — CRUD for user_profiles table (Issue #8)."""
+
 from __future__ import annotations
 
 from typing import Any, Optional

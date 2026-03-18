@@ -5,12 +5,12 @@
 - GET  /kyc/pending — Admin: list pending reviews
 - POST /kyc/{id}/review — Admin: approve/reject
 """
+
 from __future__ import annotations
 
-import re
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from app.api.services.auth_service import get_current_user
@@ -25,6 +25,7 @@ VALID_ID_TYPES = {"mainland_id", "passport", "hk_pass"}
 
 
 # --- Request/Response models ---
+
 
 class KycSubmitRequest(BaseModel):
     real_name: str = Field(..., min_length=2, max_length=100)
@@ -65,6 +66,7 @@ def _require_admin(current_user: TokenData = Depends(get_current_user)) -> Token
 
 # --- Endpoints ---
 
+
 @router.post("/submit")
 async def submit_kyc(
     body: KycSubmitRequest,
@@ -79,6 +81,7 @@ async def submit_kyc(
         )
 
     from app.domains.auth.dao.kyc_dao import KycDao
+
     dao = KycDao()
 
     # Check if already approved
@@ -112,6 +115,7 @@ async def submit_kyc(
 async def get_kyc_status(current_user: TokenData = Depends(get_current_user)):
     """Get the current user's KYC status."""
     from app.domains.auth.dao.kyc_dao import KycDao
+
     dao = KycDao()
     sub = dao.get_latest(current_user.user_id)
     if not sub:
@@ -134,6 +138,7 @@ async def list_pending(
 ):
     """Admin: list pending KYC submissions."""
     from app.domains.auth.dao.kyc_dao import KycDao
+
     dao = KycDao()
     total = dao.count_pending()
     rows = dao.list_pending(limit=pagination.limit, offset=pagination.offset)
@@ -148,6 +153,7 @@ async def review_kyc(
 ):
     """Admin: approve or reject a KYC submission."""
     from app.domains.auth.dao.kyc_dao import KycDao
+
     dao = KycDao()
     dao.update_status(
         submission_id=submission_id,

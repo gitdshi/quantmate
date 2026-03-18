@@ -1,4 +1,5 @@
 """Factor Lab DAO — factor definitions and evaluations."""
+
 from __future__ import annotations
 
 import json
@@ -12,8 +13,9 @@ from app.infrastructure.db.connections import connection
 class FactorDefinitionDao:
     """CRUD for factor_definitions."""
 
-    def list_for_user(self, user_id: int, category: Optional[str] = None,
-                      limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
+    def list_for_user(
+        self, user_id: int, category: Optional[str] = None, limit: int = 50, offset: int = 0
+    ) -> list[dict[str, Any]]:
         query = "SELECT * FROM factor_definitions WHERE user_id = :uid"
         params: dict[str, Any] = {"uid": user_id, "limit": limit, "offset": offset}
         if category:
@@ -40,9 +42,15 @@ class FactorDefinitionDao:
             ).fetchone()
             return dict(row._mapping) if row else None
 
-    def create(self, user_id: int, name: str, expression: str,
-               category: Optional[str] = None, description: Optional[str] = None,
-               params: Optional[dict] = None) -> int:
+    def create(
+        self,
+        user_id: int,
+        name: str,
+        expression: str,
+        category: Optional[str] = None,
+        description: Optional[str] = None,
+        params: Optional[dict] = None,
+    ) -> int:
         with connection("quantmate") as conn:
             result = conn.execute(
                 text(
@@ -50,8 +58,11 @@ class FactorDefinitionDao:
                     "VALUES (:uid, :name, :cat, :expr, :desc, :params)"
                 ),
                 {
-                    "uid": user_id, "name": name, "cat": category,
-                    "expr": expression, "desc": description,
+                    "uid": user_id,
+                    "name": name,
+                    "cat": category,
+                    "expr": expression,
+                    "desc": description,
                     "params": json.dumps(params) if params else None,
                 },
             )
@@ -68,7 +79,9 @@ class FactorDefinitionDao:
         set_clause = ", ".join(f"{k} = :{k}" for k in data)
         with connection("quantmate") as conn:
             conn.execute(
-                text(f"UPDATE factor_definitions SET {set_clause}, updated_at = NOW() WHERE id = :fid AND user_id = :uid"),
+                text(
+                    f"UPDATE factor_definitions SET {set_clause}, updated_at = NOW() WHERE id = :fid AND user_id = :uid"
+                ),
                 {**data, "fid": factor_id, "uid": user_id},
             )
             conn.commit()
@@ -102,8 +115,7 @@ class FactorEvaluationDao:
             ).fetchone()
             return dict(row._mapping) if row else None
 
-    def create(self, factor_id: int, start_date: str, end_date: str,
-               metrics: Optional[dict] = None, **kwargs) -> int:
+    def create(self, factor_id: int, start_date: str, end_date: str, metrics: Optional[dict] = None, **kwargs) -> int:
         fields = {"factor_id": factor_id, "start_date": start_date, "end_date": end_date}
         for k in ("ic_mean", "ic_ir", "turnover", "long_ret", "short_ret", "long_short_ret"):
             if k in kwargs:

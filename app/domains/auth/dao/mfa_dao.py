@@ -2,10 +2,9 @@
 
 All SQL touching `quantmate.mfa_settings` lives here.
 """
+
 from __future__ import annotations
 
-import json
-from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import text
@@ -17,7 +16,9 @@ class MfaDao:
     def get_by_user_id(self, user_id: int) -> Optional[dict]:
         with connection("quantmate") as conn:
             row = conn.execute(
-                text("SELECT id, user_id, mfa_type, secret_encrypted, is_enabled, recovery_codes_hash, created_at FROM mfa_settings WHERE user_id = :uid"),
+                text(
+                    "SELECT id, user_id, mfa_type, secret_encrypted, is_enabled, recovery_codes_hash, created_at FROM mfa_settings WHERE user_id = :uid"
+                ),
                 {"uid": user_id},
             ).fetchone()
             if not row:

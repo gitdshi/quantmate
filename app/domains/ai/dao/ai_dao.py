@@ -1,4 +1,5 @@
 """AI domain DAO — conversations and messages."""
+
 from __future__ import annotations
 
 import json
@@ -14,7 +15,9 @@ class AIConversationDao:
 
     # --- Conversations ---
 
-    def list_for_user(self, user_id: int, status: Optional[str] = None, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
+    def list_for_user(
+        self, user_id: int, status: Optional[str] = None, limit: int = 50, offset: int = 0
+    ) -> list[dict[str, Any]]:
         query = "SELECT * FROM ai_conversations WHERE user_id = :uid"
         params: dict[str, Any] = {"uid": user_id, "limit": limit, "offset": offset}
         if status:
@@ -41,7 +44,9 @@ class AIConversationDao:
             ).fetchone()
             return dict(row._mapping) if row else None
 
-    def create(self, user_id: int, session_id: str, title: Optional[str] = None, model_used: Optional[str] = None) -> int:
+    def create(
+        self, user_id: int, session_id: str, title: Optional[str] = None, model_used: Optional[str] = None
+    ) -> int:
         with connection("quantmate") as conn:
             result = conn.execute(
                 text(
@@ -85,7 +90,9 @@ class AIConversationDao:
             ).fetchall()
             return [dict(r._mapping) for r in rows]
 
-    def add_message(self, conversation_id: int, role: str, content: str, tokens: int = 0, metadata: Optional[dict] = None) -> int:
+    def add_message(
+        self, conversation_id: int, role: str, content: str, tokens: int = 0, metadata: Optional[dict] = None
+    ) -> int:
         with connection("quantmate") as conn:
             result = conn.execute(
                 text(
@@ -102,7 +109,9 @@ class AIConversationDao:
             )
             # Update conversation token count
             conn.execute(
-                text("UPDATE ai_conversations SET total_tokens = total_tokens + :tokens, updated_at = NOW() WHERE id = :cid"),
+                text(
+                    "UPDATE ai_conversations SET total_tokens = total_tokens + :tokens, updated_at = NOW() WHERE id = :cid"
+                ),
                 {"tokens": tokens, "cid": conversation_id},
             )
             conn.commit()
@@ -137,16 +146,27 @@ class AIModelConfigDao:
             ).fetchone()
             return dict(row._mapping) if row else None
 
-    def create(self, model_name: str, provider: str, endpoint: Optional[str] = None,
-               temperature: float = 0.7, max_tokens: int = 4096) -> int:
+    def create(
+        self,
+        model_name: str,
+        provider: str,
+        endpoint: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 4096,
+    ) -> int:
         with connection("quantmate") as conn:
             result = conn.execute(
                 text(
                     "INSERT INTO ai_model_configs (model_name, provider, endpoint, temperature, max_tokens) "
                     "VALUES (:name, :provider, :endpoint, :temp, :max_tokens)"
                 ),
-                {"name": model_name, "provider": provider, "endpoint": endpoint,
-                 "temp": temperature, "max_tokens": max_tokens},
+                {
+                    "name": model_name,
+                    "provider": provider,
+                    "endpoint": endpoint,
+                    "temp": temperature,
+                    "max_tokens": max_tokens,
+                },
             )
             conn.commit()
             return result.lastrowid  # type: ignore[return-value]

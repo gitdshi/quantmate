@@ -1,7 +1,8 @@
 """Strategy CRUD routes."""
+
 from datetime import datetime
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 
 from app.api.models.user import TokenData
 from app.api.models.strategy import (
@@ -30,9 +31,7 @@ async def list_strategies(
     """List all strategies for current user (paginated)."""
     service = StrategiesService()
     total = service.count_strategies(current_user.user_id)
-    rows = service.list_strategies_paginated(
-        current_user.user_id, pagination.limit, pagination.offset
-    )
+    rows = service.list_strategies_paginated(current_user.user_id, pagination.limit, pagination.offset)
     items = [
         StrategyListItem(
             id=r["id"],
@@ -50,10 +49,7 @@ async def list_strategies(
 
 
 @router.post("", response_model=Strategy, status_code=status.HTTP_201_CREATED)
-async def create_strategy(
-    strategy_data: StrategyCreate,
-    current_user: TokenData = Depends(get_current_user)
-):
+async def create_strategy(strategy_data: StrategyCreate, current_user: TokenData = Depends(get_current_user)):
     """Create a new strategy."""
     service = StrategiesService()
     try:
@@ -66,7 +62,9 @@ async def create_strategy(
             code=strategy_data.code or "",
         )
     except ValueError as e:
-        raise APIError(status_code=status.HTTP_400_BAD_REQUEST, code=ErrorCode.STRATEGY_VALIDATION_FAILED, message=str(e))
+        raise APIError(
+            status_code=status.HTTP_400_BAD_REQUEST, code=ErrorCode.STRATEGY_VALIDATION_FAILED, message=str(e)
+        )
 
     return Strategy(
         id=row["id"],
@@ -84,16 +82,15 @@ async def create_strategy(
 
 
 @router.get("/{strategy_id}", response_model=Strategy)
-async def get_strategy(
-    strategy_id: int,
-    current_user: TokenData = Depends(get_current_user)
-):
+async def get_strategy(strategy_id: int, current_user: TokenData = Depends(get_current_user)):
     """Get a strategy by ID."""
     service = StrategiesService()
     try:
         row = service.get_strategy(current_user.user_id, strategy_id)
     except KeyError:
-        raise APIError(status_code=status.HTTP_404_NOT_FOUND, code=ErrorCode.STRATEGY_NOT_FOUND, message="Strategy not found")
+        raise APIError(
+            status_code=status.HTTP_404_NOT_FOUND, code=ErrorCode.STRATEGY_NOT_FOUND, message="Strategy not found"
+        )
 
     return Strategy(
         id=row["id"],
@@ -112,9 +109,7 @@ async def get_strategy(
 
 @router.put("/{strategy_id}", response_model=Strategy)
 async def update_strategy(
-    strategy_id: int,
-    strategy_data: StrategyUpdate,
-    current_user: TokenData = Depends(get_current_user)
+    strategy_id: int, strategy_data: StrategyUpdate, current_user: TokenData = Depends(get_current_user)
 ):
     """Update a strategy."""
     service = StrategiesService()
@@ -130,9 +125,13 @@ async def update_strategy(
             is_active=strategy_data.is_active,
         )
     except KeyError:
-        raise APIError(status_code=status.HTTP_404_NOT_FOUND, code=ErrorCode.STRATEGY_NOT_FOUND, message="Strategy not found")
+        raise APIError(
+            status_code=status.HTTP_404_NOT_FOUND, code=ErrorCode.STRATEGY_NOT_FOUND, message="Strategy not found"
+        )
     except ValueError as e:
-        raise APIError(status_code=status.HTTP_400_BAD_REQUEST, code=ErrorCode.STRATEGY_VALIDATION_FAILED, message=str(e))
+        raise APIError(
+            status_code=status.HTTP_400_BAD_REQUEST, code=ErrorCode.STRATEGY_VALIDATION_FAILED, message=str(e)
+        )
 
     return Strategy(
         id=row["id"],
@@ -150,46 +149,39 @@ async def update_strategy(
 
 
 @router.delete("/{strategy_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_strategy(
-    strategy_id: int,
-    current_user: TokenData = Depends(get_current_user)
-):
+async def delete_strategy(strategy_id: int, current_user: TokenData = Depends(get_current_user)):
     """Delete a strategy from database."""
     service = StrategiesService()
     try:
         service.delete_strategy(current_user.user_id, strategy_id)
     except KeyError:
-        raise APIError(status_code=status.HTTP_404_NOT_FOUND, code=ErrorCode.STRATEGY_NOT_FOUND, message="Strategy not found")
+        raise APIError(
+            status_code=status.HTTP_404_NOT_FOUND, code=ErrorCode.STRATEGY_NOT_FOUND, message="Strategy not found"
+        )
 
 
 @router.post("/{strategy_id}/validate", response_model=StrategyValidation)
-async def validate_strategy(
-    strategy_id: int,
-    current_user: TokenData = Depends(get_current_user)
-):
+async def validate_strategy(strategy_id: int, current_user: TokenData = Depends(get_current_user)):
     """Validate a strategy's code."""
     strategy = await get_strategy(strategy_id, current_user)
     return validate_strategy_code(strategy.code, strategy.class_name)
 
 
 @router.get("/{strategy_id}/code-history")
-async def list_strategy_code_history(
-    strategy_id: int,
-    current_user: TokenData = Depends(get_current_user)
-):
+async def list_strategy_code_history(strategy_id: int, current_user: TokenData = Depends(get_current_user)):
     """List stored code history for a DB strategy (latest first)."""
     service = StrategiesService()
     try:
         return service.list_code_history(current_user.user_id, strategy_id)
     except KeyError:
-        raise APIError(status_code=status.HTTP_404_NOT_FOUND, code=ErrorCode.STRATEGY_NOT_FOUND, message="Strategy not found")
+        raise APIError(
+            status_code=status.HTTP_404_NOT_FOUND, code=ErrorCode.STRATEGY_NOT_FOUND, message="Strategy not found"
+        )
 
 
 @router.get("/{strategy_id}/code-history/{history_id}")
 async def get_strategy_code_history(
-    strategy_id: int,
-    history_id: int,
-    current_user: TokenData = Depends(get_current_user)
+    strategy_id: int, history_id: int, current_user: TokenData = Depends(get_current_user)
 ):
     """Get a specific code history entry for a DB strategy."""
     service = StrategiesService()
@@ -199,14 +191,14 @@ async def get_strategy_code_history(
         msg = str(e)
         if "History" in msg:
             raise APIError(status_code=status.HTTP_404_NOT_FOUND, code=ErrorCode.NOT_FOUND, message="History not found")
-        raise APIError(status_code=status.HTTP_404_NOT_FOUND, code=ErrorCode.STRATEGY_NOT_FOUND, message="Strategy not found")
+        raise APIError(
+            status_code=status.HTTP_404_NOT_FOUND, code=ErrorCode.STRATEGY_NOT_FOUND, message="Strategy not found"
+        )
 
 
 @router.post("/{strategy_id}/code-history/{history_id}/restore")
 async def restore_strategy_code_history(
-    strategy_id: int,
-    history_id: int,
-    current_user: TokenData = Depends(get_current_user)
+    strategy_id: int, history_id: int, current_user: TokenData = Depends(get_current_user)
 ):
     """Restore a code history version to the strategy."""
     service = StrategiesService()
@@ -217,7 +209,9 @@ async def restore_strategy_code_history(
         msg = str(e)
         if "History" in msg:
             raise APIError(status_code=status.HTTP_404_NOT_FOUND, code=ErrorCode.NOT_FOUND, message="History not found")
-        raise APIError(status_code=status.HTTP_404_NOT_FOUND, code=ErrorCode.STRATEGY_NOT_FOUND, message="Strategy not found")
+        raise APIError(
+            status_code=status.HTTP_404_NOT_FOUND, code=ErrorCode.STRATEGY_NOT_FOUND, message="Strategy not found"
+        )
 
 
 @router.get("/builtin/list", response_model=List[StrategyListItem])
@@ -226,34 +220,36 @@ async def list_builtin_strategies():
     # Return built-in strategies from app/strategies/
     from pathlib import Path
     import importlib.util
-    
+
     strategies_dir = Path(__file__).resolve().parents[2] / "strategies"
     builtins = []
-    
+
     for py_file in strategies_dir.glob("*.py"):
         if py_file.name.startswith("_") or py_file.name == "stop_loss.py":
             continue
-        
+
         try:
             spec = importlib.util.spec_from_file_location(py_file.stem, py_file)
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
-            
+
             # Find strategy classes
             for name in dir(module):
                 obj = getattr(module, name)
                 if isinstance(obj, type) and name.endswith("Strategy") and name != "CtaTemplate":
-                    builtins.append(StrategyListItem(
-                        id=0,
-                        name=name,
-                        class_name=name,
-                        description=obj.__doc__ or f"Built-in {name}",
-                        version=0,
-                        is_active=True,
-                        created_at=datetime.utcnow(),
-                        updated_at=datetime.utcnow()
-                    ))
+                    builtins.append(
+                        StrategyListItem(
+                            id=0,
+                            name=name,
+                            class_name=name,
+                            description=obj.__doc__ or f"Built-in {name}",
+                            version=0,
+                            is_active=True,
+                            created_at=datetime.utcnow(),
+                            updated_at=datetime.utcnow(),
+                        )
+                    )
         except Exception:
             continue
-    
+
     return builtins

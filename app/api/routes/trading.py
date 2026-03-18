@@ -1,4 +1,5 @@
 """Trading routes (P2 Issue: Order Management, Paper Trading)."""
+
 from datetime import datetime
 from typing import Optional
 
@@ -53,8 +54,7 @@ async def create_order(req: OrderCreateRequest, current_user: dict = Depends(get
     if req.mode == "paper" and req.order_type == "market":
         fill_price = req.price or 0
         fee = round(fill_price * req.quantity * 0.0003, 4)
-        dao.update_status(order_id, "filled", filled_quantity=req.quantity,
-                          avg_fill_price=fill_price, fee=fee)
+        dao.update_status(order_id, "filled", filled_quantity=req.quantity, avg_fill_price=fill_price, fee=fee)
         dao.insert_trade(order_id, req.quantity, fill_price, fee)
 
     order = dao.get_by_id(order_id, current_user["id"])
@@ -128,6 +128,7 @@ class IcebergRequest(BaseModel):
 async def algo_twap(req: TWAPRequest, current_user: dict = Depends(get_current_user)):
     """Generate TWAP order slices."""
     from app.domains.trading.algo_execution_service import AlgoExecutionService
+
     svc = AlgoExecutionService()
     return {"slices": svc.twap(req.total_quantity, req.num_slices, req.start_time, req.end_time, req.price_limit)}
 
@@ -136,13 +137,19 @@ async def algo_twap(req: TWAPRequest, current_user: dict = Depends(get_current_u
 async def algo_vwap(req: VWAPRequest, current_user: dict = Depends(get_current_user)):
     """Generate VWAP order slices."""
     from app.domains.trading.algo_execution_service import AlgoExecutionService
+
     svc = AlgoExecutionService()
-    return {"slices": svc.vwap(req.total_quantity, req.volume_profile, req.start_time, req.interval_minutes, req.price_limit)}
+    return {
+        "slices": svc.vwap(
+            req.total_quantity, req.volume_profile, req.start_time, req.interval_minutes, req.price_limit
+        )
+    }
 
 
 @router.post("/algo/iceberg")
 async def algo_iceberg(req: IcebergRequest, current_user: dict = Depends(get_current_user)):
     """Generate Iceberg order slices."""
     from app.domains.trading.algo_execution_service import AlgoExecutionService
+
     svc = AlgoExecutionService()
     return {"slices": svc.iceberg(req.total_quantity, req.display_quantity, req.price_limit)}

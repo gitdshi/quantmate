@@ -6,10 +6,10 @@ Usage:
     python -m app.cli sync-status
     python -m app.cli create-user --username admin2 --email admin2@test.com
 """
+
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
@@ -23,8 +23,10 @@ def cmd_health(args):
     """Check API and database health."""
     try:
         from app.infrastructure.db.connections import connection
+
         with connection("quantmate") as conn:
             from sqlalchemy import text
+
             conn.execute(text("SELECT 1"))
         print("Database: OK")
     except Exception as e:
@@ -33,6 +35,7 @@ def cmd_health(args):
 
     try:
         import redis
+
         r = redis.Redis(host="localhost", port=6379, socket_timeout=2)
         r.ping()
         print("Redis: OK")
@@ -74,6 +77,7 @@ def cmd_sync_status(args):
     try:
         from app.infrastructure.db.connections import connection
         from sqlalchemy import text
+
         with connection("quantmate") as conn:
             rows = conn.execute(
                 text("SELECT item_key, last_sync_date, status, error_count FROM data_source_items ORDER BY item_key")
@@ -82,7 +86,9 @@ def cmd_sync_status(args):
             print("-" * 75)
             for r in rows:
                 m = r._mapping
-                print(f"{m['item_key']:<30} {str(m.get('last_sync_date', 'N/A')):<20} {m.get('status', 'N/A'):<12} {m.get('error_count', 0)}")
+                print(
+                    f"{m['item_key']:<30} {str(m.get('last_sync_date', 'N/A')):<20} {m.get('status', 'N/A'):<12} {m.get('error_count', 0)}"
+                )
     except Exception as e:
         print(f"Error: {e}")
         return 1
@@ -98,6 +104,7 @@ def cmd_create_user(args):
 
         if not args.password:
             import secrets
+
             args.password = secrets.token_urlsafe(16)
             print(f"Generated password: {args.password}")
 

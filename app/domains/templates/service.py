@@ -1,10 +1,13 @@
 """Strategy template domain service."""
+
 from __future__ import annotations
 
 from typing import Any, Optional
 
 from app.domains.templates.dao.template_dao import (
-    StrategyTemplateDao, StrategyCommentDao, StrategyRatingDao,
+    StrategyTemplateDao,
+    StrategyCommentDao,
+    StrategyRatingDao,
 )
 
 
@@ -16,8 +19,9 @@ class TemplateService:
 
     # --- Templates ---
 
-    def list_marketplace(self, category: Optional[str] = None,
-                         limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
+    def list_marketplace(
+        self, category: Optional[str] = None, limit: int = 50, offset: int = 0
+    ) -> list[dict[str, Any]]:
         return self._tpl_dao.list_public(category=category, limit=limit, offset=offset)
 
     def count_marketplace(self, category: Optional[str] = None) -> int:
@@ -84,7 +88,9 @@ class TemplateService:
     def get_ratings(self, template_id: int) -> dict[str, Any]:
         return self._rating_dao.get_for_template(template_id)
 
-    def rate_template(self, template_id: int, user_id: int, rating: int, review: Optional[str] = None) -> dict[str, Any]:
+    def rate_template(
+        self, template_id: int, user_id: int, rating: int, review: Optional[str] = None
+    ) -> dict[str, Any]:
         self.get_template(template_id)  # existence check
         if not 1 <= rating <= 5:
             raise ValueError("Rating must be between 1 and 5")

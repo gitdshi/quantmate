@@ -1,4 +1,5 @@
 """Indicator library routes (P2 Issue: Indicator Library Extension)."""
+
 from typing import Optional
 
 from fastapi import APIRouter, Depends, status
@@ -58,15 +59,20 @@ async def create_indicator(req: IndicatorCreateRequest, current_user: dict = Dep
         raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message="Invalid indicator category")
     dao = IndicatorConfigDao()
     indicator_id = dao.create(
-        name=req.name, display_name=req.display_name, category=req.category,
-        description=req.description, default_params=req.default_params,
+        name=req.name,
+        display_name=req.display_name,
+        category=req.category,
+        description=req.description,
+        default_params=req.default_params,
         formula=req.formula,
     )
     return {"id": indicator_id, "message": "Indicator created"}
 
 
 @router.put("/{indicator_id}")
-async def update_indicator(indicator_id: int, req: IndicatorUpdateRequest, current_user: dict = Depends(get_current_user)):
+async def update_indicator(
+    indicator_id: int, req: IndicatorUpdateRequest, current_user: dict = Depends(get_current_user)
+):
     """Update an indicator."""
     updates = {k: v for k, v in req.model_dump().items() if v is not None}
     if not updates:
@@ -82,5 +88,7 @@ async def delete_indicator(indicator_id: int, current_user: dict = Depends(get_c
     """Delete a custom indicator (cannot delete built-in)."""
     dao = IndicatorConfigDao()
     if not dao.delete(indicator_id):
-        raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message="Cannot delete built-in indicator or not found")
+        raise APIError(
+            status_code=400, code=ErrorCode.VALIDATION_ERROR, message="Cannot delete built-in indicator or not found"
+        )
     return {"message": "Indicator deleted"}

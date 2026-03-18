@@ -1,4 +1,5 @@
 """Backtest report export service — PDF/HTML/CSV generation."""
+
 from __future__ import annotations
 
 import csv

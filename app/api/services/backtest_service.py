@@ -4,6 +4,7 @@ Includes BacktestServiceV2 (RQ job integration) and BacktestService which
 extends it with synchronous backtest execution helpers. Exposes
 `get_backtest_service()` and compatibility alias `get_backtest_service_v2()`.
 """
+
 from datetime import date, datetime
 from typing import Optional, Dict, Any, List
 import uuid
@@ -23,7 +24,7 @@ if str(ROOT) not in sys.path:
 from vnpy.trader.constant import Interval
 from vnpy_ctastrategy.backtesting import BacktestingEngine, BacktestingMode
 
-from app.api.models.backtest import BacktestResult, BacktestStatus
+from app.api.models.backtest import BacktestResult
 from app.worker.service.config import get_queue
 from app.worker.service.tasks import (
     run_backtest_task,
@@ -60,7 +61,9 @@ def calculate_alpha_beta(strategy_returns: np.ndarray, benchmark_returns: np.nda
 
 def get_benchmark_data(start_date: date, end_date: date, benchmark_symbol: str = "399300.SZ") -> Optional[Dict]:
     try:
-        return AkshareBenchmarkDao().get_benchmark_data(start=start_date, end=end_date, benchmark_symbol=benchmark_symbol)
+        return AkshareBenchmarkDao().get_benchmark_data(
+            start=start_date, end=end_date, benchmark_symbol=benchmark_symbol
+        )
     except Exception:
         logger.exception("Error fetching benchmark data")
         return None
@@ -84,11 +87,24 @@ class BacktestServiceV2:
             "TurtleTradingStrategy": "app.strategies.turtle_trading",
         }
 
-    def submit_backtest(self, user_id: int, strategy_id: Optional[int], strategy_class_name: Optional[str],
-                        symbol: str, start_date: date, end_date: date, initial_capital: float = 100000.0,
-                        rate: float = 0.0001, slippage: float = 0.0, size: int = 1, pricetick: float = 0.01,
-                        parameters: Optional[Dict[str, Any]] = None, symbol_name: str = "", strategy_name: str = "",
-                        benchmark: str = "399300.SZ") -> str:
+    def submit_backtest(
+        self,
+        user_id: int,
+        strategy_id: Optional[int],
+        strategy_class_name: Optional[str],
+        symbol: str,
+        start_date: date,
+        end_date: date,
+        initial_capital: float = 100000.0,
+        rate: float = 0.0001,
+        slippage: float = 0.0,
+        size: int = 1,
+        pricetick: float = 0.01,
+        parameters: Optional[Dict[str, Any]] = None,
+        symbol_name: str = "",
+        strategy_name: str = "",
+        benchmark: str = "399300.SZ",
+    ) -> str:
         job_id = f"bt_{uuid.uuid4().hex[:16]}"
         strategy_code = None
         strategy_version = None
@@ -121,7 +137,7 @@ class BacktestServiceV2:
         }
         self.job_storage.save_job_metadata(job_id, metadata)
 
-        queue = get_queue('backtest')
+        queue = get_queue("backtest")
         queue.enqueue(
             run_backtest_task,
             strategy_code=strategy_code,
@@ -145,11 +161,23 @@ class BacktestServiceV2:
 
         return job_id
 
-    def submit_batch_backtest(self, user_id: int, strategy_id: Optional[int], strategy_class_name: Optional[str],
-                              symbols: List[str], start_date: date, end_date: date, initial_capital: float = 100000.0,
-                              rate: float = 0.0001, slippage: float = 0.0, size: int = 1, pricetick: float = 0.01,
-                              parameters: Optional[Dict[str, Any]] = None, strategy_name: str = "",
-                              benchmark: str = "399300.SZ") -> str:
+    def submit_batch_backtest(
+        self,
+        user_id: int,
+        strategy_id: Optional[int],
+        strategy_class_name: Optional[str],
+        symbols: List[str],
+        start_date: date,
+        end_date: date,
+        initial_capital: float = 100000.0,
+        rate: float = 0.0001,
+        slippage: float = 0.0,
+        size: int = 1,
+        pricetick: float = 0.01,
+        parameters: Optional[Dict[str, Any]] = None,
+        strategy_name: str = "",
+        benchmark: str = "399300.SZ",
+    ) -> str:
         job_id = f"bulk_{uuid.uuid4().hex[:16]}"
         strategy_code = None
         strategy_version = None
@@ -200,7 +228,7 @@ class BacktestServiceV2:
         except Exception:
             logger.exception("[Service] Error inserting bulk_backtest row")
 
-        queue = get_queue('backtest')
+        queue = get_queue("backtest")
         queue.enqueue(
             run_bulk_backtest_task,
             kwargs={
@@ -227,10 +255,21 @@ class BacktestServiceV2:
 
         return job_id
 
-    def submit_optimization(self, user_id: int, strategy_id: Optional[int], strategy_class_name: Optional[str],
-                            symbol: str, start_date: date, end_date: date, optimization_settings: Dict[str, Any],
-                            initial_capital: float = 100000.0, rate: float = 0.0001, slippage: float = 0.0,
-                            size: int = 1, pricetick: float = 0.01) -> str:
+    def submit_optimization(
+        self,
+        user_id: int,
+        strategy_id: Optional[int],
+        strategy_class_name: Optional[str],
+        symbol: str,
+        start_date: date,
+        end_date: date,
+        optimization_settings: Dict[str, Any],
+        initial_capital: float = 100000.0,
+        rate: float = 0.0001,
+        slippage: float = 0.0,
+        size: int = 1,
+        pricetick: float = 0.01,
+    ) -> str:
         job_id = f"opt_{uuid.uuid4().hex[:16]}"
         strategy_code = None
         if strategy_id:
@@ -252,7 +291,7 @@ class BacktestServiceV2:
         }
         self.job_storage.save_job_metadata(job_id, metadata)
 
-        queue = get_queue('optimization')
+        queue = get_queue("optimization")
         queue.enqueue(
             run_optimization_task,
             strategy_code=strategy_code,
@@ -304,7 +343,23 @@ class BacktestServiceV2:
             except Exception:
                 pass
 
-        for key in ["symbol", "symbol_name", "strategy_id", "strategy_class", "strategy_name", "strategy_version", "start_date", "end_date", "initial_capital", "rate", "slippage", "benchmark", "parameters", "symbols", "total_symbols"]:
+        for key in [
+            "symbol",
+            "symbol_name",
+            "strategy_id",
+            "strategy_class",
+            "strategy_name",
+            "strategy_version",
+            "start_date",
+            "end_date",
+            "initial_capital",
+            "rate",
+            "slippage",
+            "benchmark",
+            "parameters",
+            "symbols",
+            "total_symbols",
+        ]:
             if key in metadata:
                 response[key] = metadata.get(key)
 
@@ -319,9 +374,9 @@ class BacktestServiceV2:
             return False
         job_type = metadata.get("type", "")
         if "optimization" in job_type:
-            queue = get_queue('optimization')
+            queue = get_queue("optimization")
         else:
-            queue = get_queue('backtest')
+            queue = get_queue("backtest")
         return self.job_storage.cancel_job(job_id, queue)
 
     def _get_strategy_from_db(self, strategy_id: int, user_id: int) -> tuple:
@@ -332,6 +387,7 @@ class BacktestServiceV2:
 
     def _get_child_job_from_db(self, job_id: str, user_id: int) -> Optional[Dict[str, Any]]:
         import json as _json
+
         try:
             row = BacktestHistoryDao().get_job_row(job_id)
             if not row or row.get("user_id") != user_id:
@@ -390,21 +446,26 @@ class BacktestService(BacktestServiceV2):
         strategies = {}
         try:
             from app.strategies.triple_ma_strategy import TripleMAStrategy
+
             strategies["TripleMAStrategy"] = TripleMAStrategy
         except Exception:
             pass
         try:
             from app.strategies.turtle_trading import TurtleTradingStrategy
+
             strategies["TurtleTradingStrategy"] = TurtleTradingStrategy
         except Exception:
             pass
         return strategies
 
-    def _get_strategy_class(self, strategy_id: Optional[int] = None, strategy_class: Optional[str] = None, user_id: Optional[int] = None):
+    def _get_strategy_class(
+        self, strategy_id: Optional[int] = None, strategy_class: Optional[str] = None, user_id: Optional[int] = None
+    ):
         if strategy_class and strategy_class in self.builtin_strategies:
             return self.builtin_strategies[strategy_class]
         if strategy_id:
             from app.api.services.strategy_service import compile_strategy
+
             # Prefer user-scoped load if possible
             if user_id is not None:
                 code, class_name, _ = StrategySourceDao().get_strategy_source_for_user(strategy_id, user_id)
@@ -414,10 +475,21 @@ class BacktestService(BacktestServiceV2):
             return compile_strategy(code, class_name)
         raise ValueError(f"Strategy not found: id={strategy_id}, class={strategy_class}")
 
-    def run_single_backtest(self, strategy_id: Optional[int], strategy_class: Optional[str], vt_symbol: str,
-                            start_date: date, end_date: date, parameters: Dict[str, Any], capital: float = 100000.0,
-                            rate: float = 0.0001, slippage: float = 0.0, size: int = 1, benchmark: Optional[str] = None,
-                            period: str = "daily") -> Optional[BacktestResult]:
+    def run_single_backtest(
+        self,
+        strategy_id: Optional[int],
+        strategy_class: Optional[str],
+        vt_symbol: str,
+        start_date: date,
+        end_date: date,
+        parameters: Dict[str, Any],
+        capital: float = 100000.0,
+        rate: float = 0.0001,
+        slippage: float = 0.0,
+        size: int = 1,
+        benchmark: Optional[str] = None,
+        period: str = "daily",
+    ) -> Optional[BacktestResult]:
         strategy_cls = self._get_strategy_class(strategy_id, strategy_class)
         interval_map = {
             "daily": Interval.DAILY,
@@ -475,18 +547,21 @@ class BacktestService(BacktestServiceV2):
             result.symbol_name = stock_name
         strategy_daily_returns = None
         if df is not None and not df.empty:
-            result.daily_returns = df[["net_pnl"]].reset_index().to_dict(orient="records") if "net_pnl" in df.columns else None
-            result.equity_curve = df[["balance"]].reset_index().to_dict(orient="records") if "balance" in df.columns else None
+            result.daily_returns = (
+                df[["net_pnl"]].reset_index().to_dict(orient="records") if "net_pnl" in df.columns else None
+            )
+            result.equity_curve = (
+                df[["balance"]].reset_index().to_dict(orient="records") if "balance" in df.columns else None
+            )
             if "balance" in df.columns:
                 balance_series = df["balance"].values
                 strategy_daily_returns = np.diff(balance_series) / balance_series[:-1]
         if engine.history_data:
             stock_prices = []
             for bar in engine.history_data:
-                stock_prices.append({
-                    "datetime": bar.datetime.isoformat() if bar.datetime else None,
-                    "close": bar.close_price
-                })
+                stock_prices.append(
+                    {"datetime": bar.datetime.isoformat() if bar.datetime else None, "close": bar.close_price}
+                )
             result.stock_price_curve = stock_prices
         bm_symbol = benchmark or "000300.SH"
         benchmark_data = get_benchmark_data(start_date, end_date, bm_symbol)
@@ -501,14 +576,16 @@ class BacktestService(BacktestServiceV2):
         if engine.trades:
             trades = []
             for t in list(engine.trades.values())[:100]:
-                trades.append({
-                    "datetime": t.datetime.isoformat() if t.datetime else None,
-                    "symbol": t.symbol,
-                    "direction": str(t.direction.value) if hasattr(t.direction, 'value') else str(t.direction),
-                    "offset": str(t.offset.value) if hasattr(t.offset, 'value') else str(t.offset),
-                    "price": t.price,
-                    "volume": t.volume
-                })
+                trades.append(
+                    {
+                        "datetime": t.datetime.isoformat() if t.datetime else None,
+                        "symbol": t.symbol,
+                        "direction": str(t.direction.value) if hasattr(t.direction, "value") else str(t.direction),
+                        "offset": str(t.offset.value) if hasattr(t.offset, "value") else str(t.offset),
+                        "price": t.price,
+                        "volume": t.volume,
+                    }
+                )
             result.trades = trades
         return result
 
@@ -526,4 +603,3 @@ def get_backtest_service() -> BacktestService:
 
 def get_backtest_service_v2() -> BacktestService:
     return get_backtest_service()
-

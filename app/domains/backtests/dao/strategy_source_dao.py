@@ -15,6 +15,7 @@ class StrategySourceDao:
     def get_strategy_source_for_user(self, strategy_id: int, user_id: int) -> tuple[str, str, Optional[int]]:
         with connection("quantmate") as conn:
             from sqlalchemy import text
+
             row = conn.execute(
                 text("SELECT code, class_name, version FROM strategies WHERE id = :id AND user_id = :user_id"),
                 {"id": strategy_id, "user_id": user_id},
@@ -32,6 +33,7 @@ class StrategySourceDao:
             raise KeyError("Strategy not found")
         with connection("quantmate") as conn:
             from sqlalchemy import text
+
             row = conn.execute(
                 text("SELECT code FROM strategies WHERE class_name = :classname LIMIT 1"),
                 {"classname": class_name},

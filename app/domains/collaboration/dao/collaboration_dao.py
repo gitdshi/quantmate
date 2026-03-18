@@ -1,4 +1,5 @@
 """Collaboration DAO — team workspaces, members, strategy shares."""
+
 from __future__ import annotations
 
 from typing import Any, Optional
@@ -35,19 +36,13 @@ class TeamWorkspaceDao:
     def create(self, owner_id: int, name: str, description: Optional[str] = None) -> int:
         with connection("quantmate") as conn:
             result = conn.execute(
-                text(
-                    "INSERT INTO team_workspaces (name, description, owner_id) "
-                    "VALUES (:name, :desc, :oid)"
-                ),
+                text("INSERT INTO team_workspaces (name, description, owner_id) VALUES (:name, :desc, :oid)"),
                 {"name": name, "desc": description, "oid": owner_id},
             )
             workspace_id = result.lastrowid
             # Auto-add owner as member with 'owner' role
             conn.execute(
-                text(
-                    "INSERT INTO workspace_members (workspace_id, user_id, role) "
-                    "VALUES (:wid, :uid, 'owner')"
-                ),
+                text("INSERT INTO workspace_members (workspace_id, user_id, role) VALUES (:wid, :uid, 'owner')"),
                 {"wid": workspace_id, "uid": owner_id},
             )
             conn.commit()
@@ -61,7 +56,9 @@ class TeamWorkspaceDao:
         set_clause = ", ".join(f"{k} = :{k}" for k in data)
         with connection("quantmate") as conn:
             conn.execute(
-                text(f"UPDATE team_workspaces SET {set_clause}, updated_at = NOW() WHERE id = :wid AND owner_id = :oid"),
+                text(
+                    f"UPDATE team_workspaces SET {set_clause}, updated_at = NOW() WHERE id = :wid AND owner_id = :oid"
+                ),
                 {**data, "wid": workspace_id, "oid": owner_id},
             )
             conn.commit()
@@ -98,10 +95,7 @@ class WorkspaceMemberDao:
     def add_member(self, workspace_id: int, user_id: int, role: str = "member") -> None:
         with connection("quantmate") as conn:
             conn.execute(
-                text(
-                    "INSERT IGNORE INTO workspace_members (workspace_id, user_id, role) "
-                    "VALUES (:wid, :uid, :role)"
-                ),
+                text("INSERT IGNORE INTO workspace_members (workspace_id, user_id, role) VALUES (:wid, :uid, :role)"),
                 {"wid": workspace_id, "uid": user_id, "role": role},
             )
             conn.commit()
@@ -151,15 +145,27 @@ class StrategyShareDao:
             ).fetchall()
             return [dict(r._mapping) for r in rows]
 
-    def share(self, strategy_id: int, shared_by: int, shared_with_user_id: Optional[int] = None,
-              shared_with_team_id: Optional[int] = None, permission: str = "view") -> int:
+    def share(
+        self,
+        strategy_id: int,
+        shared_by: int,
+        shared_with_user_id: Optional[int] = None,
+        shared_with_team_id: Optional[int] = None,
+        permission: str = "view",
+    ) -> int:
         with connection("quantmate") as conn:
             result = conn.execute(
                 text(
                     "INSERT INTO strategy_shares (strategy_id, shared_by, shared_with_user_id, shared_with_team_id, permission) "
                     "VALUES (:sid, :by, :uid, :tid, :perm)"
                 ),
-                {"sid": strategy_id, "by": shared_by, "uid": shared_with_user_id, "tid": shared_with_team_id, "perm": permission},
+                {
+                    "sid": strategy_id,
+                    "by": shared_by,
+                    "uid": shared_with_user_id,
+                    "tid": shared_with_team_id,
+                    "perm": permission,
+                },
             )
             conn.commit()
             return result.lastrowid  # type: ignore[return-value]

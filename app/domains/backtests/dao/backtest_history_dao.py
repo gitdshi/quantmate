@@ -42,7 +42,7 @@ class BacktestHistoryDao:
                 pass
             try:
                 # numpy scalar types
-                if hasattr(o, 'item') and (isinstance(o, (np.generic,))):
+                if hasattr(o, "item") and (isinstance(o, (np.generic,))):
                     return o.item()
             except Exception:
                 pass
@@ -53,6 +53,7 @@ class BacktestHistoryDao:
 
         with connection("quantmate") as conn:
             from sqlalchemy import text
+
             conn.execute(
                 text(
                     """
@@ -92,6 +93,7 @@ class BacktestHistoryDao:
     def get_child_result_json(self, job_id: str) -> Optional[dict[str, Any]]:
         with connection("quantmate") as conn:
             from sqlalchemy import text
+
             row = conn.execute(
                 text("SELECT result FROM backtest_history WHERE job_id = :jid LIMIT 1"),
                 {"jid": job_id},
@@ -107,6 +109,7 @@ class BacktestHistoryDao:
         """Fetch a backtest_history row by job_id."""
         with connection("quantmate") as conn:
             from sqlalchemy import text
+
             row = conn.execute(
                 text(
                     """
@@ -125,6 +128,7 @@ class BacktestHistoryDao:
     def delete_single(self, job_id: str, user_id: int) -> None:
         with connection("quantmate") as conn:
             from sqlalchemy import text
+
             conn.execute(
                 text("DELETE FROM backtest_history WHERE job_id = :job_id AND user_id = :user_id"),
                 {"job_id": job_id, "user_id": user_id},
@@ -134,6 +138,7 @@ class BacktestHistoryDao:
     def delete_bulk_children(self, bulk_job_id: str, user_id: int) -> None:
         with connection("quantmate") as conn:
             from sqlalchemy import text
+
             conn.execute(
                 text("DELETE FROM backtest_history WHERE bulk_job_id = :bulk_job_id AND user_id = :user_id"),
                 {"bulk_job_id": bulk_job_id, "user_id": user_id},
@@ -143,6 +148,7 @@ class BacktestHistoryDao:
     def count_for_user(self, user_id: int) -> int:
         with connection("quantmate") as conn:
             from sqlalchemy import text
+
             row = conn.execute(
                 text("SELECT COUNT(*) as total FROM backtest_history WHERE user_id = :user_id"),
                 {"user_id": user_id},
@@ -152,6 +158,7 @@ class BacktestHistoryDao:
     def list_for_user(self, *, user_id: int, limit: int, offset: int) -> list[dict[str, Any]]:
         with connection("quantmate") as conn:
             from sqlalchemy import text
+
             rows = conn.execute(
                 text(
                     """
@@ -170,6 +177,7 @@ class BacktestHistoryDao:
     def get_detail_for_user(self, *, job_id: str, user_id: int) -> Optional[dict[str, Any]]:
         with connection("quantmate") as conn:
             from sqlalchemy import text
+
             row = conn.execute(
                 text(
                     """

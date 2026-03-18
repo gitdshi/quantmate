@@ -1,4 +1,5 @@
 """Report generation and management routes (P2 Issue: Reports Auto-gen, Performance Attribution)."""
+
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, status

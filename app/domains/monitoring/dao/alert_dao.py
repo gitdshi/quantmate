@@ -2,6 +2,7 @@
 
 All SQL touching `quantmate.alert_rules`, `alert_history`, `notification_channels` lives here.
 """
+
 from __future__ import annotations
 
 import json
@@ -25,9 +26,16 @@ class AlertRuleDao:
             ).fetchall()
             return [self._rule_to_dict(r) for r in rows]
 
-    def create(self, user_id: int, name: str, metric: str, comparator: str,
-               threshold: float, level: str = "warning",
-               time_window: Optional[int] = None) -> int:
+    def create(
+        self,
+        user_id: int,
+        name: str,
+        metric: str,
+        comparator: str,
+        threshold: float,
+        level: str = "warning",
+        time_window: Optional[int] = None,
+    ) -> int:
         with connection("quantmate") as conn:
             result = conn.execute(
                 text("""
@@ -35,8 +43,13 @@ class AlertRuleDao:
                     VALUES (:uid, :name, :metric, :comp, :thresh, :tw, :level)
                 """),
                 {
-                    "uid": user_id, "name": name, "metric": metric, "comp": comparator,
-                    "thresh": threshold, "tw": time_window, "level": level,
+                    "uid": user_id,
+                    "name": name,
+                    "metric": metric,
+                    "comp": comparator,
+                    "thresh": threshold,
+                    "tw": time_window,
+                    "level": level,
                 },
             )
             conn.commit()
@@ -86,8 +99,9 @@ class AlertRuleDao:
 
 
 class AlertHistoryDao:
-    def list_by_user(self, user_id: int, level: Optional[str] = None,
-                     page: int = 1, page_size: int = 20) -> tuple[list[dict], int]:
+    def list_by_user(
+        self, user_id: int, level: Optional[str] = None, page: int = 1, page_size: int = 20
+    ) -> tuple[list[dict], int]:
         with connection("quantmate") as conn:
             conditions = ["user_id = :uid"]
             params: dict = {"uid": user_id}
@@ -112,9 +126,13 @@ class AlertHistoryDao:
             ).fetchall()
             return [
                 {
-                    "id": r.id, "rule_id": r.rule_id, "user_id": r.user_id,
-                    "triggered_at": r.triggered_at, "level": r.level,
-                    "message": r.message, "status": r.status,
+                    "id": r.id,
+                    "rule_id": r.rule_id,
+                    "user_id": r.user_id,
+                    "triggered_at": r.triggered_at,
+                    "level": r.level,
+                    "message": r.message,
+                    "status": r.status,
                 }
                 for r in rows
             ], total_row.cnt
@@ -153,9 +171,12 @@ class NotificationChannelDao:
             ).fetchall()
             return [
                 {
-                    "id": r.id, "user_id": r.user_id, "channel_type": r.channel_type,
+                    "id": r.id,
+                    "user_id": r.user_id,
+                    "channel_type": r.channel_type,
                     "config": json.loads(r.config_json) if isinstance(r.config_json, str) else r.config_json,
-                    "is_active": bool(r.is_active), "created_at": r.created_at,
+                    "is_active": bool(r.is_active),
+                    "created_at": r.created_at,
                 }
                 for r in rows
             ]

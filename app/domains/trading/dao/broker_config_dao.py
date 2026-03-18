@@ -2,9 +2,9 @@
 
 All SQL touching `quantmate.broker_configs` lives here.
 """
+
 from __future__ import annotations
 
-from typing import Optional
 
 from sqlalchemy import text
 
@@ -23,9 +23,13 @@ class BrokerConfigDao:
             ).fetchall()
             return [
                 {
-                    "id": r.id, "user_id": r.user_id, "broker_type": r.broker_type,
-                    "name": r.name, "is_active": bool(r.is_active),
-                    "created_at": r.created_at, "updated_at": r.updated_at,
+                    "id": r.id,
+                    "user_id": r.user_id,
+                    "broker_type": r.broker_type,
+                    "name": r.name,
+                    "is_active": bool(r.is_active),
+                    "created_at": r.created_at,
+                    "updated_at": r.updated_at,
                 }
                 for r in rows
             ]

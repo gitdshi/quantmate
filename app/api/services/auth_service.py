@@ -3,11 +3,12 @@
 Moved from `app.api.middleware.auth` to `app.api.services.auth_service` to keep
 auth-related helpers alongside other API services.
 """
+
 from datetime import datetime, timedelta
 from typing import Optional
 import jwt
 from passlib.context import CryptContext
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from app.infrastructure.config import get_settings
@@ -33,7 +34,9 @@ def get_password_hash(password: str) -> str:
     return pwd_context.hash(password, scheme="argon2")
 
 
-def create_access_token(user_id: int, username: str, expires_delta: Optional[timedelta] = None, must_change_password: bool = False) -> str:
+def create_access_token(
+    user_id: int, username: str, expires_delta: Optional[timedelta] = None, must_change_password: bool = False
+) -> str:
     """Create a JWT access token."""
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
@@ -71,7 +74,7 @@ def decode_token(token: str) -> Optional[TokenData]:
             user_id=payload["user_id"],
             username=payload["username"],
             exp=datetime.fromtimestamp(payload["exp"]),
-            must_change_password=payload.get("must_change_password", False)
+            must_change_password=payload.get("must_change_password", False),
         )
     except jwt.ExpiredSignatureError:
         return None
@@ -83,23 +86,23 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     """Get current user from JWT token."""
     token = credentials.credentials
     token_data = decode_token(token)
-    
+
     if token_data is None:
         raise APIError(
             status_code=status.HTTP_401_UNAUTHORIZED,
             code=ErrorCode.AUTH_INVALID_TOKEN,
             message="Invalid or expired token",
         )
-    
+
     return token_data
 
 
 async def get_current_user_optional(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(HTTPBearer(auto_error=False))
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(HTTPBearer(auto_error=False)),
 ) -> Optional[TokenData]:
     """Get current user if token provided, otherwise return None."""
     if credentials is None:
         return None
-    
+
     token_data = decode_token(credentials.credentials)
     return token_data

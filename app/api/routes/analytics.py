@@ -4,6 +4,7 @@ Frontend already calls:
 - GET /api/analytics/dashboard
 - GET /api/analytics/risk-metrics
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
@@ -18,13 +19,12 @@ router = APIRouter(prefix="/analytics", tags=["Analytics"])
 async def get_dashboard(current_user: TokenData = Depends(get_current_user)):
     """Return aggregated portfolio analytics dashboard data."""
     from app.domains.portfolio.dao.portfolio_dao import PortfolioDao
+
     dao = PortfolioDao()
     portfolio = dao.get_or_create(current_user.user_id)
     positions = dao.list_positions(portfolio["id"])
 
-    total_market_value = sum(
-        float(p.get("quantity", 0)) * float(p.get("avg_cost", 0)) for p in positions
-    )
+    total_market_value = sum(float(p.get("quantity", 0)) * float(p.get("avg_cost", 0)) for p in positions)
     total_value = float(portfolio["cash"]) + total_market_value
 
     return {
@@ -50,6 +50,7 @@ async def get_dashboard(current_user: TokenData = Depends(get_current_user)):
 async def get_risk_metrics(current_user: TokenData = Depends(get_current_user)):
     """Return risk metrics calculated from portfolio snapshots."""
     from app.domains.portfolio.dao.portfolio_dao import PortfolioDao
+
     dao = PortfolioDao()
     portfolio = dao.get_or_create(current_user.user_id)
     snapshots = dao.list_snapshots(portfolio["id"], limit=252)  # ~1 year
@@ -88,10 +89,7 @@ async def get_live_pnl(current_user: TokenData = Depends(get_current_user)):
     positions = dao.list_positions(portfolio["id"])
 
     # Use avg_cost as price proxy when real-time feed unavailable
-    current_prices = {
-        p["symbol"]: float(p.get("last_price") or p.get("avg_cost", 0))
-        for p in positions
-    }
+    current_prices = {p["symbol"]: float(p.get("last_price") or p.get("avg_cost", 0)) for p in positions}
 
     svc = PnLMonitorService()
     return svc.calculate_live_pnl(

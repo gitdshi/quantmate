@@ -1,4 +1,5 @@
 """Trade log query/export API routes (Issue: Trade Audit Log)."""
+
 from __future__ import annotations
 
 import csv
@@ -30,6 +31,7 @@ async def query_trade_logs(
 ):
     """Query trade logs with filters and pagination."""
     from app.domains.market.dao.trade_log_dao import TradeLogDao
+
     dao = TradeLogDao()
     total = dao.count(symbol=symbol, event_type=event_type, direction=direction, strategy_id=strategy_id)
     rows = dao.query(
@@ -61,6 +63,7 @@ async def export_trade_logs(
 ):
     """Export trade logs as CSV or JSON."""
     from app.domains.market.dao.trade_log_dao import TradeLogDao
+
     dao = TradeLogDao()
     rows = dao.query(symbol=symbol, event_type=event_type, limit=limit, offset=0)
     items = []

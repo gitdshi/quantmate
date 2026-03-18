@@ -2,6 +2,7 @@
 
 All SQL touching `quantmate.user_sessions` lives here.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -13,8 +14,9 @@ from app.infrastructure.db.connections import connection
 
 
 class SessionDao:
-    def create(self, user_id: int, token_hash: str, device_info: Optional[str],
-               ip_address: Optional[str], expires_at: datetime) -> int:
+    def create(
+        self, user_id: int, token_hash: str, device_info: Optional[str], ip_address: Optional[str], expires_at: datetime
+    ) -> int:
         with connection("quantmate") as conn:
             result = conn.execute(
                 text("""

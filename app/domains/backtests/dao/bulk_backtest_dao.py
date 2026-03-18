@@ -33,6 +33,7 @@ class BulkBacktestDao:
     ) -> None:
         with connection("quantmate") as conn:
             from sqlalchemy import text
+
             conn.execute(
                 text(
                     """
@@ -69,6 +70,7 @@ class BulkBacktestDao:
     def delete_bulk_parent(self, job_id: str, user_id: int) -> None:
         with connection("quantmate") as conn:
             from sqlalchemy import text
+
             conn.execute(
                 text("DELETE FROM bulk_backtest WHERE job_id = :job_id AND user_id = :user_id"),
                 {"job_id": job_id, "user_id": user_id},
@@ -80,6 +82,7 @@ class BulkBacktestDao:
             return []
         with connection("quantmate") as conn:
             from sqlalchemy import text
+
             placeholders = ",".join([f":id{i}" for i in range(len(job_ids))])
             params = {f"id{i}": jid for i, jid in enumerate(job_ids)}
             rows = conn.execute(
@@ -93,6 +96,7 @@ class BulkBacktestDao:
     def get_owner_user_id(self, job_id: str) -> Optional[int]:
         with connection("quantmate") as conn:
             from sqlalchemy import text
+
             row = conn.execute(
                 text("SELECT user_id FROM bulk_backtest WHERE job_id = :jid"),
                 {"jid": job_id},
@@ -102,8 +106,11 @@ class BulkBacktestDao:
     def get_metrics(self, job_id: str) -> Optional[dict[str, Any]]:
         with connection("quantmate") as conn:
             from sqlalchemy import text
+
             row = conn.execute(
-                text("SELECT best_return, best_symbol, completed_count, total_symbols, status as bulk_status, best_symbol_name FROM bulk_backtest WHERE job_id = :jid"),
+                text(
+                    "SELECT best_return, best_symbol, completed_count, total_symbols, status as bulk_status, best_symbol_name FROM bulk_backtest WHERE job_id = :jid"
+                ),
                 {"jid": job_id},
             ).fetchone()
             return dict(row._mapping) if row else None
@@ -111,15 +118,19 @@ class BulkBacktestDao:
     def update_best_symbol_name(self, job_id: str, best_symbol_name: Optional[str]) -> None:
         with connection("quantmate") as conn:
             from sqlalchemy import text
+
             conn.execute(
                 text("UPDATE bulk_backtest SET best_symbol_name = :bsn WHERE job_id = :jid"),
                 {"bsn": best_symbol_name, "jid": job_id},
             )
             conn.commit()
 
-    def update_progress(self, job_id: str, completed_count: int, best_return: Any, best_symbol: Any, best_symbol_name: Any) -> None:
+    def update_progress(
+        self, job_id: str, completed_count: int, best_return: Any, best_symbol: Any, best_symbol_name: Any
+    ) -> None:
         with connection("quantmate") as conn:
             from sqlalchemy import text
+
             conn.execute(
                 text(
                     """
@@ -135,9 +146,19 @@ class BulkBacktestDao:
             )
             conn.commit()
 
-    def finish(self, job_id: str, status: str, completed_at: datetime, completed_count: int, best_return: Any, best_symbol: Any, best_symbol_name: Any) -> None:
+    def finish(
+        self,
+        job_id: str,
+        status: str,
+        completed_at: datetime,
+        completed_count: int,
+        best_return: Any,
+        best_symbol: Any,
+        best_symbol_name: Any,
+    ) -> None:
         with connection("quantmate") as conn:
             from sqlalchemy import text
+
             conn.execute(
                 text(
                     """
@@ -151,6 +172,14 @@ class BulkBacktestDao:
                     WHERE job_id = :jid
                     """
                 ),
-                {"st": status, "cc": completed_count, "br": best_return, "bs": best_symbol, "bsn": best_symbol_name, "ca": completed_at, "jid": job_id},
+                {
+                    "st": status,
+                    "cc": completed_count,
+                    "br": best_return,
+                    "bs": best_symbol,
+                    "bsn": best_symbol_name,
+                    "ca": completed_at,
+                    "jid": job_id,
+                },
             )
             conn.commit()

@@ -1,4 +1,5 @@
 """Multi-market data routes (HK / US)."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query
@@ -13,6 +14,7 @@ router = APIRouter(prefix="/market", tags=["MultiMarket"])
 async def list_exchanges(current_user: TokenData = Depends(get_current_user)):
     """List supported exchanges."""
     from app.domains.market.multi_market_dao import MultiMarketDao
+
     return MultiMarketDao().list_exchanges()
 
 
@@ -23,6 +25,7 @@ async def list_hk_stocks(
 ):
     """List Hong Kong listed stocks."""
     from app.domains.market.multi_market_dao import MultiMarketDao
+
     return MultiMarketDao().list_hk_stocks(limit=limit)
 
 
@@ -35,6 +38,7 @@ async def get_hk_daily(
 ):
     """Get HK stock daily OHLCV data."""
     from app.domains.market.multi_market_dao import MultiMarketDao
+
     return MultiMarketDao().get_hk_daily(ts_code, start_date, end_date)
 
 
@@ -45,6 +49,7 @@ async def list_us_stocks(
 ):
     """List US listed stocks."""
     from app.domains.market.multi_market_dao import MultiMarketDao
+
     return MultiMarketDao().list_us_stocks(limit=limit)
 
 
@@ -57,4 +62,5 @@ async def get_us_daily(
 ):
     """Get US stock daily OHLCV data."""
     from app.domains.market.multi_market_dao import MultiMarketDao
+
     return MultiMarketDao().get_us_daily(ts_code, start_date, end_date)

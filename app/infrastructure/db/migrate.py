@@ -7,10 +7,10 @@ Usage:
     python -m app.infrastructure.db.migrate          # apply pending migrations
     python -m app.infrastructure.db.migrate --status  # show migration status
 """
+
 from __future__ import annotations
 
 import hashlib
-import os
 import sys
 from pathlib import Path
 
@@ -23,14 +23,16 @@ MIGRATIONS_DIR = Path(__file__).resolve().parents[3] / "mysql" / "migrations"
 
 def _ensure_migration_table(conn):
     """Create the schema_migrations table if it doesn't exist."""
-    conn.execute(text("""
+    conn.execute(
+        text("""
         CREATE TABLE IF NOT EXISTS schema_migrations (
             version VARCHAR(14) NOT NULL PRIMARY KEY,
             name VARCHAR(255) NOT NULL,
             applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             checksum VARCHAR(64)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-    """))
+    """)
+    )
     conn.commit()
 
 
@@ -93,10 +95,7 @@ def apply_migrations(dry_run: bool = False) -> list[str]:
 
             # Record migration
             conn.execute(
-                text(
-                    "INSERT INTO schema_migrations (version, name, checksum) "
-                    "VALUES (:version, :name, :checksum)"
-                ),
+                text("INSERT INTO schema_migrations (version, name, checksum) VALUES (:version, :name, :checksum)"),
                 {"version": version, "name": path.name, "checksum": checksum},
             )
             conn.commit()

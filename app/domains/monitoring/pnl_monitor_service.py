@@ -3,6 +3,7 @@
 Tracks portfolio P&L in real-time, detects anomalous drawdowns,
 position concentration spikes, and sudden P&L swings.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -51,16 +52,18 @@ class PnLMonitorService:
             total_cost += cost_value
             total_market += market_value
 
-            position_pnls.append({
-                "symbol": symbol,
-                "quantity": qty,
-                "avg_cost": avg_cost,
-                "current_price": price,
-                "cost_value": round(cost_value, 2),
-                "market_value": round(market_value, 2),
-                "unrealized_pnl": round(unrealized, 2),
-                "pnl_pct": round(pnl_pct, 2),
-            })
+            position_pnls.append(
+                {
+                    "symbol": symbol,
+                    "quantity": qty,
+                    "avg_cost": avg_cost,
+                    "current_price": price,
+                    "cost_value": round(cost_value, 2),
+                    "market_value": round(market_value, 2),
+                    "unrealized_pnl": round(unrealized, 2),
+                    "pnl_pct": round(pnl_pct, 2),
+                }
+            )
 
         total_value = cash + total_market
         total_pnl = total_market - total_cost
@@ -92,13 +95,15 @@ class PnLMonitorService:
             latest_return = daily_returns[-1]
             dd_rule = self._alert_rules[0]
             if latest_return <= dd_rule["threshold"]:
-                alerts.append({
-                    "rule": dd_rule["name"],
-                    "severity": "high",
-                    "message": f"Daily return {latest_return:.2%} exceeds drawdown threshold {dd_rule['threshold']:.2%}",
-                    "value": latest_return,
-                    "threshold": dd_rule["threshold"],
-                })
+                alerts.append(
+                    {
+                        "rule": dd_rule["name"],
+                        "severity": "high",
+                        "message": f"Daily return {latest_return:.2%} exceeds drawdown threshold {dd_rule['threshold']:.2%}",
+                        "value": latest_return,
+                        "threshold": dd_rule["threshold"],
+                    }
+                )
 
         # Rule 2: Position concentration
         if total_value > 0 and positions:
@@ -107,30 +112,35 @@ class PnLMonitorService:
                 mv = float(p.get("market_value", 0))
                 weight = mv / total_value
                 if weight >= conc_rule["threshold"]:
-                    alerts.append({
-                        "rule": conc_rule["name"],
-                        "severity": "medium",
-                        "message": f"{p.get('symbol', '?')} weight {weight:.1%} exceeds {conc_rule['threshold']:.0%}",
-                        "value": weight,
-                        "threshold": conc_rule["threshold"],
-                    })
+                    alerts.append(
+                        {
+                            "rule": conc_rule["name"],
+                            "severity": "medium",
+                            "message": f"{p.get('symbol', '?')} weight {weight:.1%} exceeds {conc_rule['threshold']:.0%}",
+                            "value": weight,
+                            "threshold": conc_rule["threshold"],
+                        }
+                    )
 
         # Rule 3: P&L spike (z-score)
         if len(daily_returns) >= 20:
             spike_rule = self._alert_rules[2]
             import statistics
+
             mean = statistics.mean(daily_returns)
             std = statistics.stdev(daily_returns)
             if std > 0:
                 z = (daily_returns[-1] - mean) / std
                 if abs(z) >= spike_rule["threshold"]:
-                    alerts.append({
-                        "rule": spike_rule["name"],
-                        "severity": "high",
-                        "message": f"P&L z-score {z:.2f} exceeds {spike_rule['threshold']} std deviations",
-                        "value": z,
-                        "threshold": spike_rule["threshold"],
-                    })
+                    alerts.append(
+                        {
+                            "rule": spike_rule["name"],
+                            "severity": "high",
+                            "message": f"P&L z-score {z:.2f} exceeds {spike_rule['threshold']} std deviations",
+                            "value": z,
+                            "threshold": spike_rule["threshold"],
+                        }
+                    )
 
         return alerts
 

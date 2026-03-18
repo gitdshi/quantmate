@@ -1,4 +1,5 @@
 """Broker configuration routes (P2 Issue: Broker Config Management)."""
+
 from typing import Optional
 
 from fastapi import APIRouter, Depends, status
@@ -33,8 +34,9 @@ async def list_broker_configs(current_user: dict = Depends(get_current_user)):
     # Strip sensitive fields before returning
     for c in configs:
         if "config" in c and isinstance(c["config"], dict):
-            c["config"] = {k: "***" if "secret" in k.lower() or "password" in k.lower() else v
-                           for k, v in c["config"].items()}
+            c["config"] = {
+                k: "***" if "secret" in k.lower() or "password" in k.lower() else v for k, v in c["config"].items()
+            }
     return {"configs": configs}
 
 
@@ -52,7 +54,9 @@ async def create_broker_config(req: BrokerConfigCreateRequest, current_user: dic
 
 
 @router.put("/configs/{config_id}")
-async def update_broker_config(config_id: int, req: BrokerConfigUpdateRequest, current_user: dict = Depends(get_current_user)):
+async def update_broker_config(
+    config_id: int, req: BrokerConfigUpdateRequest, current_user: dict = Depends(get_current_user)
+):
     """Update a broker configuration."""
     updates = {k: v for k, v in req.model_dump().items() if v is not None}
     if not updates:

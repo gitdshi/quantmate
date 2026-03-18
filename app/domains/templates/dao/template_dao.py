@@ -1,4 +1,5 @@
 """Strategy template DAO — templates, comments, ratings."""
+
 from __future__ import annotations
 
 import json
@@ -63,9 +64,17 @@ class StrategyTemplateDao:
             ).fetchone()
             return dict(row._mapping) if row else None
 
-    def create(self, author_id: int, name: str, code: str, category: Optional[str] = None,
-               description: Optional[str] = None, params_schema: Optional[dict] = None,
-               default_params: Optional[dict] = None, visibility: str = "private") -> int:
+    def create(
+        self,
+        author_id: int,
+        name: str,
+        code: str,
+        category: Optional[str] = None,
+        description: Optional[str] = None,
+        params_schema: Optional[dict] = None,
+        default_params: Optional[dict] = None,
+        visibility: str = "private",
+    ) -> int:
         with connection("quantmate") as conn:
             result = conn.execute(
                 text(
@@ -74,7 +83,10 @@ class StrategyTemplateDao:
                     "VALUES (:author, :name, :cat, :desc, :code, :schema, :defaults, :vis)"
                 ),
                 {
-                    "author": author_id, "name": name, "cat": category, "desc": description,
+                    "author": author_id,
+                    "name": name,
+                    "cat": category,
+                    "desc": description,
                     "code": code,
                     "schema": json.dumps(params_schema) if params_schema else None,
                     "defaults": json.dumps(default_params) if default_params else None,
@@ -99,7 +111,9 @@ class StrategyTemplateDao:
         set_clause = ", ".join(f"{k} = :{k}" for k in data)
         with connection("quantmate") as conn:
             conn.execute(
-                text(f"UPDATE strategy_templates SET {set_clause}, updated_at = NOW() WHERE id = :tid AND author_id = :uid"),
+                text(
+                    f"UPDATE strategy_templates SET {set_clause}, updated_at = NOW() WHERE id = :tid AND author_id = :uid"
+                ),
                 {**data, "tid": template_id, "uid": author_id},
             )
             conn.commit()
@@ -162,12 +176,15 @@ class StrategyRatingDao:
         with connection("quantmate") as conn:
             row = conn.execute(
                 text(
-                    "SELECT AVG(rating) AS avg_rating, COUNT(*) AS count "
-                    "FROM strategy_ratings WHERE template_id = :tid"
+                    "SELECT AVG(rating) AS avg_rating, COUNT(*) AS count FROM strategy_ratings WHERE template_id = :tid"
                 ),
                 {"tid": template_id},
             ).fetchone()
-            return {"avg_rating": float(row._mapping["avg_rating"] or 0), "count": row._mapping["count"]} if row else {"avg_rating": 0, "count": 0}
+            return (
+                {"avg_rating": float(row._mapping["avg_rating"] or 0), "count": row._mapping["count"]}
+                if row
+                else {"avg_rating": 0, "count": 0}
+            )
 
     def upsert(self, template_id: int, user_id: int, rating: int, review: Optional[str] = None) -> None:
         with connection("quantmate") as conn:

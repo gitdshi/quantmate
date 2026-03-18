@@ -1,5 +1,6 @@
 """Pagination utilities for QuantMate API (Issue #12)."""
-from typing import Any, Generic, List, Optional, TypeVar
+
+from typing import Any, List, TypeVar
 
 from fastapi import Query
 from pydantic import BaseModel
@@ -14,6 +15,7 @@ MAX_PAGE_SIZE = 100
 
 class PaginationMeta(BaseModel):
     """Pagination metadata included in paginated responses."""
+
     page: int
     page_size: int
     total: int
@@ -22,6 +24,7 @@ class PaginationMeta(BaseModel):
 
 class PaginatedResponse(BaseModel):
     """Standard paginated response envelope."""
+
     data: List[Any]
     meta: PaginationMeta
 

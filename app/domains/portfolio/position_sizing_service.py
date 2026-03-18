@@ -1,4 +1,5 @@
 """Position sizing service — various position sizing methods."""
+
 from __future__ import annotations
 
 import math
@@ -78,6 +79,6 @@ class PositionSizingService:
         if asset_vol <= 0 or num_assets <= 0:
             return 0
         # Simple risk parity: allocate proportional to inverse volatility
-        weight = (target_vol / (asset_vol * math.sqrt(num_assets)))
+        weight = target_vol / (asset_vol * math.sqrt(num_assets))
         amount = capital * min(weight, 1.0)
         return min(amount, max_single, max(remaining, 0))

@@ -1,4 +1,5 @@
 """MFA routes (P2 Issue: Multi-Factor Authentication)."""
+
 import hashlib
 import secrets
 
@@ -44,31 +45,32 @@ def _generate_recovery_codes(count: int = 8) -> list[str]:
 def _hash_recovery_codes(codes: list[str]) -> str:
     """Hash recovery codes for storage."""
     import json
+
     hashed = [hashlib.sha256(c.encode()).hexdigest() for c in codes]
     return json.dumps(hashed)
 
 
 def _verify_totp_code(secret: str, code: str) -> bool:
     """Verify a TOTP code against the secret.
-    
+
     Uses HMAC-based verification with a 30-second time step.
     In production, use pyotp library. This is a simplified implementation.
     """
     import hmac
     import struct
     import time
-    
+
     # Simple TOTP verification: accept current and adjacent time steps
     time_step = 30
     current_time = int(time.time()) // time_step
-    
+
     for offset in range(-1, 2):
         t = current_time + offset
         t_bytes = struct.pack(">Q", t)
         secret_bytes = bytes.fromhex(secret)
         h = hmac.new(secret_bytes, t_bytes, hashlib.sha1).digest()
         o = h[-1] & 0x0F
-        truncated = struct.unpack(">I", h[o:o + 4])[0] & 0x7FFFFFFF
+        truncated = struct.unpack(">I", h[o : o + 4])[0] & 0x7FFFFFFF
         otp = str(truncated % 1000000).zfill(6)
         if hmac.compare_digest(otp, code):
             return True

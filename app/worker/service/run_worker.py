@@ -4,6 +4,7 @@ This module is functionally identical to the previous `app.worker.run_worker`
 but lives under `app.worker.service` so the package root (`app.worker`) can
 remain minimal with only `main.py`.
 """
+
 import os
 import sys
 from pathlib import Path
@@ -17,9 +18,11 @@ if str(ROOT) not in sys.path:
 os.chdir(ROOT)
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
 from app.infrastructure.logging import configure_logging, get_logger  # noqa: E402
+
 configure_logging()
 logger = get_logger(__name__)
 
@@ -27,9 +30,11 @@ logger = get_logger(__name__)
 from app.worker.service import tasks  # noqa
 from app.worker.service.config import redis_conn, QUEUES
 
+
 def main():
     from rq import Worker
-    queue_names = sys.argv[1:] if len(sys.argv) > 1 else ['backtest', 'optimization', 'default']
+
+    queue_names = sys.argv[1:] if len(sys.argv) > 1 else ["backtest", "optimization", "default"]
     queues = [QUEUES[name] for name in queue_names if name in QUEUES]
     if not queues:
         logger.error("No valid queues specified. Available queues: %s", list(QUEUES.keys()))

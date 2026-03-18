@@ -1,4 +1,5 @@
 """Factor Lab domain service."""
+
 from __future__ import annotations
 
 from typing import Any, Optional
@@ -13,8 +14,9 @@ class FactorService:
 
     # --- Factor definitions ---
 
-    def list_factors(self, user_id: int, category: Optional[str] = None,
-                     limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
+    def list_factors(
+        self, user_id: int, category: Optional[str] = None, limit: int = 50, offset: int = 0
+    ) -> list[dict[str, Any]]:
         return self._factor_dao.list_for_user(user_id, category=category, limit=limit, offset=offset)
 
     def count_factors(self, user_id: int) -> int:
@@ -60,8 +62,11 @@ class FactorService:
             "long_short_ret": 0.15,
         }
         eval_id = self._eval_dao.create(
-            factor_id, start_date, end_date,
-            metrics=stub_metrics, **stub_metrics,
+            factor_id,
+            start_date,
+            end_date,
+            metrics=stub_metrics,
+            **stub_metrics,
         )
         return self._eval_dao.get(eval_id) or {"id": eval_id}
 

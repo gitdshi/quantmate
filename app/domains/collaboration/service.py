@@ -1,10 +1,13 @@
 """Collaboration domain service — teams and sharing."""
+
 from __future__ import annotations
 
 from typing import Any, Optional
 
 from app.domains.collaboration.dao.collaboration_dao import (
-    TeamWorkspaceDao, WorkspaceMemberDao, StrategyShareDao,
+    TeamWorkspaceDao,
+    WorkspaceMemberDao,
+    StrategyShareDao,
 )
 
 
@@ -77,12 +80,17 @@ class CollaborationService:
     def list_shared_with_me(self, user_id: int) -> list[dict[str, Any]]:
         return self._share_dao.list_shared_with_user(user_id)
 
-    def share_strategy(self, strategy_id: int, user_id: int,
-                       shared_with_user_id: Optional[int] = None,
-                       shared_with_team_id: Optional[int] = None,
-                       permission: str = "view") -> int:
+    def share_strategy(
+        self,
+        strategy_id: int,
+        user_id: int,
+        shared_with_user_id: Optional[int] = None,
+        shared_with_team_id: Optional[int] = None,
+        permission: str = "view",
+    ) -> int:
         return self._share_dao.share(
-            strategy_id, user_id,
+            strategy_id,
+            user_id,
             shared_with_user_id=shared_with_user_id,
             shared_with_team_id=shared_with_team_id,
             permission=permission,

@@ -4,6 +4,7 @@ Global exception handlers for FastAPI.
 Issue #16: Registers exception handlers that convert all errors
 into the standardized ``{"error": {"code", "message", "detail"}}`` format.
 """
+
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -65,6 +66,7 @@ def _error_json(status_code: int, code: str, message: str, detail: str | None = 
 
 # ── Handler functions ────────────────────────────────────────────────────
 
+
 async def api_error_handler(request: Request, exc: APIError) -> JSONResponse:
     """Handle ``APIError`` raised anywhere in the app."""
     return _error_json(exc.status_code, exc.code, exc.message, exc.detail)
@@ -115,6 +117,7 @@ async def generic_exception_handler(request: Request, exc: Exception) -> JSONRes
 
 
 # ── Registration helper ─────────────────────────────────────────────────
+
 
 def register_exception_handlers(app: FastAPI) -> None:
     """Register all global exception handlers on the FastAPI app."""
