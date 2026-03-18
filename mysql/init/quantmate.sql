@@ -222,7 +222,24 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Tracks applied database migrations';
 
 INSERT IGNORE INTO schema_migrations (version, name) VALUES
-    ('00000000000000', 'baseline_init_quantmate');
+    ('00000000000000', 'baseline_init_quantmate'),
+    ('000', '000_create_migration_table.sql'),
+    ('001', '001_create_audit_logs.sql'),
+    ('002', '002_create_user_profiles.sql'),
+    ('003', '003_create_kyc_submissions.sql'),
+    ('004', '004_create_data_source_items.sql'),
+    ('005', '005_create_watchlists.sql'),
+    ('006', '006_create_portfolio_tables.sql'),
+    ('007', '007_create_trade_logs.sql'),
+    ('008', '008_add_weekly_monthly_index_tables.sql'),
+    ('009', '009_create_mfa_apikey_sessions.sql'),
+    ('010', '010_create_trading_tables.sql'),
+    ('011', '011_create_alerts_reports_tables.sql'),
+    ('012', '012_create_system_config_optimization_indicator.sql'),
+    ('013', '013_create_tushare_extended_tables.sql'),
+    ('014', '014_create_akshare_minute_preset_tables.sql'),
+    ('015', '015_create_p3_feature_tables.sql'),
+    ('016', '016_create_multi_market_tables.sql');
 
 -- Migration 001: Audit logs
 CREATE TABLE IF NOT EXISTS audit_logs (
