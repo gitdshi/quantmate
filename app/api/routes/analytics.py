@@ -68,7 +68,7 @@ async def get_risk_metrics(current_user: TokenData = Depends(get_current_user)):
 
     return {
         "volatility": {
-            "daily": 0.0,   # TODO: calculate from daily return series
+            "daily": 0.0,  # TODO: calculate from daily return series
             "monthly": 0.0,
             "annual": 0.0,
         },
@@ -97,7 +97,7 @@ async def get_risk_metrics(current_user: TokenData = Depends(get_current_user)):
         "liquidity": {
             "cash_ratio": round(cash_ratio, 4),
             "current_ratio": round(cash_ratio, 4),  # simplified
-            "quick_ratio": round(cash_ratio, 4),     # simplified
+            "quick_ratio": round(cash_ratio, 4),  # simplified
         },
     }
 

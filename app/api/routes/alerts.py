@@ -72,7 +72,9 @@ async def create_alert_rule(req: AlertRuleCreateRequest, current_user: TokenData
 
 
 @router.put("/rules/{rule_id}")
-async def update_alert_rule(rule_id: int, req: AlertRuleUpdateRequest, current_user: TokenData = Depends(get_current_user)):
+async def update_alert_rule(
+    rule_id: int, req: AlertRuleUpdateRequest, current_user: TokenData = Depends(get_current_user)
+):
     """Update an alert rule."""
     dao = AlertRuleDao()
     updates = {k: v for k, v in req.model_dump().items() if v is not None}

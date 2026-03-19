@@ -64,7 +64,9 @@ async def get_workspace(workspace_id: int, current_user: TokenData = Depends(get
 
 
 @router.put("/workspaces/{workspace_id}")
-async def update_workspace(workspace_id: int, req: WorkspaceUpdate, current_user: TokenData = Depends(get_current_user)):
+async def update_workspace(
+    workspace_id: int, req: WorkspaceUpdate, current_user: TokenData = Depends(get_current_user)
+):
     service = CollaborationService()
     try:
         return service.update_workspace(current_user.user_id, workspace_id, **req.model_dump(exclude_none=True))

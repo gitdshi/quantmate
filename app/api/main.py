@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
 # Ensure project root is importable
@@ -152,8 +153,12 @@ async def lifespan(app: FastAPI):
         else:
             # Existing admin: if ADMIN_PASSWORD is explicitly provided, enforce it.
             if admin_password:
-                user_dao.update_user_password(admin_user["id"], get_password_hash(admin_password), must_change_password=True)
-                logger.info("Updated existing admin password from ADMIN_PASSWORD and marked as requiring password change.")
+                user_dao.update_user_password(
+                    admin_user["id"], get_password_hash(admin_password), must_change_password=True
+                )
+                logger.info(
+                    "Updated existing admin password from ADMIN_PASSWORD and marked as requiring password change."
+                )
 
             # Existing admin: upgrade if necessary
             DEFAULT_ADMIN_HASH = "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5GyYqVvmvhxKe"

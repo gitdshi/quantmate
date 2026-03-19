@@ -23,6 +23,7 @@ from vnpy.trader.setting import SETTINGS as VNPY_SETTINGS
 # Configure vn.py DB backend before any code path can initialize the global database singleton.
 # This must run at import time in the worker process, otherwise vn.py may cache the SQLite backend.
 
+
 def _configure_vnpy_mysql_from_env() -> None:
     """Force vn.py to use MySQL (vnpy DB) based on the application's MYSQL_* env vars."""
     host = os.getenv("MYSQL_HOST")
@@ -51,6 +52,7 @@ from vnpy_ctastrategy.backtesting import BacktestingEngine
 # empyrical (used by vnpy_ctastrategy) still references np.NINF, removed in NumPy 2.0.
 # Patch for runtime compatibility while keeping vn.py's numpy>=2 requirement.
 import numpy as _np
+
 if not hasattr(_np, "NINF"):
     _np.NINF = -_np.inf
 
@@ -62,6 +64,7 @@ from app.domains.backtests.dao.akshare_benchmark_dao import AkshareBenchmarkDao
 from app.domains.backtests.dao.backtest_history_dao import BacktestHistoryDao
 from app.domains.backtests.dao.bulk_backtest_dao import BulkBacktestDao
 from app.domains.backtests.dao.strategy_source_dao import StrategySourceDao
+
 
 def convert_to_vnpy_symbol(symbol: str) -> str:
     """Convert a symbol into the VNPy vt_symbol format.

@@ -65,7 +65,9 @@ async def create_risk_rule(req: RiskRuleCreateRequest, current_user: TokenData =
 
 
 @router.put("/rules/{rule_id}")
-async def update_risk_rule(rule_id: int, req: RiskRuleUpdateRequest, current_user: TokenData = Depends(get_current_user)):
+async def update_risk_rule(
+    rule_id: int, req: RiskRuleUpdateRequest, current_user: TokenData = Depends(get_current_user)
+):
     """Update a risk rule."""
     dao = RiskRuleDao()
     updates = {k: v for k, v in req.model_dump().items() if v is not None}
