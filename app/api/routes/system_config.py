@@ -42,7 +42,7 @@ class DataSourceConfigRequest(BaseModel):
 @router.get("/configs")
 async def list_system_configs(
     category: Optional[str] = None,
-    current_user: dict = Depends(get_current_user),
+    current_user: TokenData = Depends(get_current_user),
 ):
     """List system configurations."""
     dao = SystemConfigDao()
@@ -51,7 +51,7 @@ async def list_system_configs(
 
 
 @router.get("/configs/{key}")
-async def get_system_config(key: str, current_user: dict = Depends(get_current_user)):
+async def get_system_config(key: str, current_user: TokenData = Depends(get_current_user)):
     """Get a single system config."""
     dao = SystemConfigDao()
     config = dao.get(key)
@@ -87,7 +87,7 @@ async def delete_system_config(key: str, current_user: TokenData = Depends(_requ
 
 
 @router.get("/data-sources")
-async def list_data_sources(current_user: dict = Depends(get_current_user)):
+async def list_data_sources(current_user: TokenData = Depends(get_current_user)):
     """List data source configurations."""
     dao = DataSourceConfigDao()
     return {"sources": dao.list_all()}

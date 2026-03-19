@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel
 
 from app.api.services.auth_service import get_current_user
+from app.api.models.user import TokenData
 from app.api.errors import ErrorCode
 from app.api.exception_handlers import APIError
 from app.api.pagination import PaginationParams, paginate
@@ -55,12 +56,12 @@ class ModelConfigUpdate(BaseModel):
 async def list_conversations(
     conv_status: Optional[str] = Query(None, alias="status"),
     pagination: PaginationParams = Depends(),
-    current_user: dict = Depends(get_current_user),
+    current_user: TokenData = Depends(get_current_user),
 ):
     service = AIService()
-    total = service.count_conversations(current_user["id"])
+    total = service.count_conversations(current_user.user_id)
     rows = service.list_conversations(
-        current_user["id"],
+        current_user.user_id,
         status=conv_status,
         limit=pagination.page_size,
         offset=pagination.offset,
@@ -71,18 +72,18 @@ async def list_conversations(
 @router.post("/conversations", status_code=status.HTTP_201_CREATED)
 async def create_conversation(
     req: ConversationCreate,
-    current_user: dict = Depends(get_current_user),
+    current_user: TokenData = Depends(get_current_user),
 ):
     service = AIService()
-    conv = service.create_conversation(current_user["id"], title=req.title, model=req.model)
+    conv = service.create_conversation(current_user.user_id, title=req.title, model=req.model)
     return conv
 
 
 @router.get("/conversations/{conversation_id}")
-async def get_conversation(conversation_id: int, current_user: dict = Depends(get_current_user)):
+async def get_conversation(conversation_id: int, current_user: TokenData = Depends(get_current_user)):
     service = AIService()
     try:
-        return service.get_conversation(current_user["id"], conversation_id)
+        return service.get_conversation(current_user.user_id, conversation_id)
     except KeyError:
         raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Conversation not found")
 
@@ -91,20 +92,20 @@ async def get_conversation(conversation_id: int, current_user: dict = Depends(ge
 async def update_conversation(
     conversation_id: int,
     req: ConversationUpdate,
-    current_user: dict = Depends(get_current_user),
+    current_user: TokenData = Depends(get_current_user),
 ):
     service = AIService()
     try:
-        return service.update_conversation(current_user["id"], conversation_id, **req.model_dump(exclude_none=True))
+        return service.update_conversation(current_user.user_id, conversation_id, **req.model_dump(exclude_none=True))
     except KeyError:
         raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Conversation not found")
 
 
 @router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_conversation(conversation_id: int, current_user: dict = Depends(get_current_user)):
+async def delete_conversation(conversation_id: int, current_user: TokenData = Depends(get_current_user)):
     service = AIService()
     try:
-        service.delete_conversation(current_user["id"], conversation_id)
+        service.delete_conversation(current_user.user_id, conversation_id)
     except KeyError:
         raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Conversation not found")
 
@@ -113,10 +114,10 @@ async def delete_conversation(conversation_id: int, current_user: dict = Depends
 
 
 @router.get("/conversations/{conversation_id}/messages")
-async def list_messages(conversation_id: int, current_user: dict = Depends(get_current_user)):
+async def list_messages(conversation_id: int, current_user: TokenData = Depends(get_current_user)):
     service = AIService()
     try:
-        return service.list_messages(current_user["id"], conversation_id)
+        return service.list_messages(current_user.user_id, conversation_id)
     except KeyError:
         raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Conversation not found")
 
@@ -125,11 +126,11 @@ async def list_messages(conversation_id: int, current_user: dict = Depends(get_c
 async def send_message(
     conversation_id: int,
     req: MessageSend,
-    current_user: dict = Depends(get_current_user),
+    current_user: TokenData = Depends(get_current_user),
 ):
     service = AIService()
     try:
-        return service.send_message(current_user["id"], conversation_id, req.content)
+        return service.send_message(current_user.user_id, conversation_id, req.content)
     except KeyError:
         raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Conversation not found")
 
@@ -140,14 +141,14 @@ async def send_message(
 @router.get("/models")
 async def list_models(
     enabled_only: bool = Query(False),
-    current_user: dict = Depends(get_current_user),
+    current_user: TokenData = Depends(get_current_user),
 ):
     service = AIService()
     return service.list_models(enabled_only=enabled_only)
 
 
 @router.get("/models/{model_id}")
-async def get_model(model_id: int, current_user: dict = Depends(get_current_user)):
+async def get_model(model_id: int, current_user: TokenData = Depends(get_current_user)):
     service = AIService()
     try:
         return service.get_model(model_id)
@@ -156,7 +157,7 @@ async def get_model(model_id: int, current_user: dict = Depends(get_current_user
 
 
 @router.post("/models", status_code=status.HTTP_201_CREATED)
-async def create_model(req: ModelConfigCreate, current_user: dict = Depends(get_current_user)):
+async def create_model(req: ModelConfigCreate, current_user: TokenData = Depends(get_current_user)):
     service = AIService()
     try:
         return service.create_model(
@@ -171,7 +172,7 @@ async def create_model(req: ModelConfigCreate, current_user: dict = Depends(get_
 
 
 @router.put("/models/{model_id}")
-async def update_model(model_id: int, req: ModelConfigUpdate, current_user: dict = Depends(get_current_user)):
+async def update_model(model_id: int, req: ModelConfigUpdate, current_user: TokenData = Depends(get_current_user)):
     service = AIService()
     try:
         return service.update_model(model_id, **req.model_dump(exclude_none=True))
@@ -180,7 +181,7 @@ async def update_model(model_id: int, req: ModelConfigUpdate, current_user: dict
 
 
 @router.delete("/models/{model_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_model(model_id: int, current_user: dict = Depends(get_current_user)):
+async def delete_model(model_id: int, current_user: TokenData = Depends(get_current_user)):
     service = AIService()
     try:
         service.delete_model(model_id)

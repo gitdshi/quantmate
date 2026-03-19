@@ -17,7 +17,10 @@ router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
 @router.get("/dashboard")
 async def get_dashboard(current_user: TokenData = Depends(get_current_user)):
-    """Return aggregated portfolio analytics dashboard data."""
+    """Return aggregated portfolio analytics dashboard data.
+
+    Returns the nested structure expected by the frontend AnalyticsDashboard component.
+    """
     from app.domains.portfolio.dao.portfolio_dao import PortfolioDao
 
     dao = PortfolioDao()
@@ -28,53 +31,75 @@ async def get_dashboard(current_user: TokenData = Depends(get_current_user)):
     total_value = float(portfolio["cash"]) + total_market_value
 
     return {
-        "total_value": total_value,
-        "cash": float(portfolio["cash"]),
-        "market_value": total_market_value,
-        "positions_count": len(positions),
-        "daily_pnl": 0.0,  # TODO: real-time price integration
-        "daily_return": 0.0,
-        "positions": [
-            {
-                "symbol": p["symbol"],
-                "quantity": p["quantity"],
-                "avg_cost": float(p["avg_cost"]),
-                "market_value": float(p["quantity"]) * float(p["avg_cost"]),
-            }
-            for p in positions
-        ],
+        "portfolio_stats": {
+            "total_value": total_value,
+            "total_pnl": 0.0,  # TODO: calculate from cost basis
+            "total_pnl_pct": 0.0,
+            "daily_pnl": 0.0,  # TODO: real-time price integration
+            "daily_pnl_pct": 0.0,
+            "positions_count": len(positions),
+        },
+        "performance_history": [],  # TODO: build from portfolio snapshots
+        "strategy_performance": [],  # TODO: aggregate from backtest results
+        "sector_allocation": [],  # TODO: derive from position sectors
+        "risk_metrics": {
+            "volatility": 0.0,
+            "max_drawdown": 0.0,
+            "var_95": 0.0,
+            "beta": 0.0,
+            "alpha": 0.0,
+        },
     }
 
 
 @router.get("/risk-metrics")
 async def get_risk_metrics(current_user: TokenData = Depends(get_current_user)):
-    """Return risk metrics calculated from portfolio snapshots."""
+    """Return risk metrics in the nested structure expected by the frontend RiskMetrics component."""
     from app.domains.portfolio.dao.portfolio_dao import PortfolioDao
 
     dao = PortfolioDao()
     portfolio = dao.get_or_create(current_user.user_id)
+    positions = dao.list_positions(portfolio["id"])
     snapshots = dao.list_snapshots(portfolio["id"], limit=252)  # ~1 year
 
-    if not snapshots:
-        return {
-            "volatility": 0.0,
-            "sharpe_ratio": 0.0,
-            "max_drawdown": 0.0,
-            "returns_1d": 0.0,
-            "returns_5d": 0.0,
-            "returns_20d": 0.0,
-            "returns_ytd": 0.0,
-        }
+    # Calculate cash ratio from portfolio data
+    total_market_value = sum(float(p.get("quantity", 0)) * float(p.get("avg_cost", 0)) for p in positions)
+    total_value = float(portfolio["cash"]) + total_market_value
+    cash_ratio = float(portfolio["cash"]) / total_value if total_value > 0 else 1.0
 
-    latest = snapshots[0]
     return {
-        "volatility": 0.0,  # TODO: calculate from daily returns
-        "sharpe_ratio": 0.0,
-        "max_drawdown": 0.0,
-        "returns_1d": float(latest.get("returns_1d") or 0),
-        "returns_5d": float(latest.get("returns_5d") or 0),
-        "returns_20d": float(latest.get("returns_20d") or 0),
-        "returns_ytd": float(latest.get("returns_ytd") or 0),
+        "volatility": {
+            "daily": 0.0,   # TODO: calculate from daily return series
+            "monthly": 0.0,
+            "annual": 0.0,
+        },
+        "value_at_risk": {
+            "var_95": 0.0,
+            "var_99": 0.0,
+            "cvar_95": 0.0,
+        },
+        "drawdown": {
+            "current": 0.0,
+            "max": 0.0,
+            "max_duration": 0,
+            "recovery_time": None,
+        },
+        "beta": {
+            "beta": 0.0,
+            "alpha": 0.0,
+            "r_squared": 0.0,
+        },
+        "concentration": {
+            "top_position_pct": 0.0,
+            "top_3_positions_pct": 0.0,
+            "top_5_positions_pct": 0.0,
+            "herfindahl_index": 0.0,
+        },
+        "liquidity": {
+            "cash_ratio": round(cash_ratio, 4),
+            "current_ratio": round(cash_ratio, 4),  # simplified
+            "quick_ratio": round(cash_ratio, 4),     # simplified
+        },
     }
 
 

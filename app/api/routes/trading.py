@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel
 
 from app.api.services.auth_service import get_current_user
+from app.api.models.user import TokenData
 from app.api.errors import ErrorCode
 from app.api.exception_handlers import APIError
 from app.domains.trading.dao.order_dao import OrderDao
@@ -27,7 +28,7 @@ class OrderCreateRequest(BaseModel):
 
 
 @router.post("/orders", status_code=status.HTTP_201_CREATED)
-async def create_order(req: OrderCreateRequest, current_user: dict = Depends(get_current_user)):
+async def create_order(req: OrderCreateRequest, current_user: TokenData = Depends(get_current_user)):
     """Submit a new order."""
     if req.direction not in ("buy", "sell"):
         raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message="Invalid direction")
@@ -38,7 +39,7 @@ async def create_order(req: OrderCreateRequest, current_user: dict = Depends(get
 
     dao = OrderDao()
     order_id = dao.create(
-        user_id=current_user["id"],
+        user_id=current_user.user_id,
         symbol=req.symbol,
         direction=req.direction,
         order_type=req.order_type,
@@ -57,7 +58,7 @@ async def create_order(req: OrderCreateRequest, current_user: dict = Depends(get
         dao.update_status(order_id, "filled", filled_quantity=req.quantity, avg_fill_price=fill_price, fee=fee)
         dao.insert_trade(order_id, req.quantity, fill_price, fee)
 
-    order = dao.get_by_id(order_id, current_user["id"])
+    order = dao.get_by_id(order_id, current_user.user_id)
     return order
 
 
@@ -67,12 +68,12 @@ async def list_orders(
     mode: Optional[str] = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    current_user: dict = Depends(get_current_user),
+    current_user: TokenData = Depends(get_current_user),
 ):
     """List orders for the current user."""
     dao = OrderDao()
     orders, total = dao.list_by_user(
-        current_user["id"], status=status_filter, mode=mode, page=page, page_size=page_size
+        current_user.user_id, status=status_filter, mode=mode, page=page, page_size=page_size
     )
     return {
         "data": orders,
@@ -81,20 +82,20 @@ async def list_orders(
 
 
 @router.get("/orders/{order_id}")
-async def get_order(order_id: int, current_user: dict = Depends(get_current_user)):
+async def get_order(order_id: int, current_user: TokenData = Depends(get_current_user)):
     """Get a specific order."""
     dao = OrderDao()
-    order = dao.get_by_id(order_id, current_user["id"])
+    order = dao.get_by_id(order_id, current_user.user_id)
     if not order:
         raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Order not found")
     return order
 
 
 @router.post("/orders/{order_id}/cancel")
-async def cancel_order(order_id: int, current_user: dict = Depends(get_current_user)):
+async def cancel_order(order_id: int, current_user: TokenData = Depends(get_current_user)):
     """Cancel a pending order."""
     dao = OrderDao()
-    if not dao.cancel(order_id, current_user["id"]):
+    if not dao.cancel(order_id, current_user.user_id):
         raise APIError(status_code=400, code=ErrorCode.BAD_REQUEST, message="Cannot cancel this order")
     return {"message": "Order cancelled"}
 
@@ -125,7 +126,7 @@ class IcebergRequest(BaseModel):
 
 
 @router.post("/algo/twap")
-async def algo_twap(req: TWAPRequest, current_user: dict = Depends(get_current_user)):
+async def algo_twap(req: TWAPRequest, current_user: TokenData = Depends(get_current_user)):
     """Generate TWAP order slices."""
     from app.domains.trading.algo_execution_service import AlgoExecutionService
 
@@ -134,7 +135,7 @@ async def algo_twap(req: TWAPRequest, current_user: dict = Depends(get_current_u
 
 
 @router.post("/algo/vwap")
-async def algo_vwap(req: VWAPRequest, current_user: dict = Depends(get_current_user)):
+async def algo_vwap(req: VWAPRequest, current_user: TokenData = Depends(get_current_user)):
     """Generate VWAP order slices."""
     from app.domains.trading.algo_execution_service import AlgoExecutionService
 
@@ -147,7 +148,7 @@ async def algo_vwap(req: VWAPRequest, current_user: dict = Depends(get_current_u
 
 
 @router.post("/algo/iceberg")
-async def algo_iceberg(req: IcebergRequest, current_user: dict = Depends(get_current_user)):
+async def algo_iceberg(req: IcebergRequest, current_user: TokenData = Depends(get_current_user)):
     """Generate Iceberg order slices."""
     from app.domains.trading.algo_execution_service import AlgoExecutionService
 

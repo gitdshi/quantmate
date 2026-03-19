@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel
 
 from app.api.services.auth_service import get_current_user
+from app.api.models.user import TokenData
 from app.api.errors import ErrorCode
 from app.api.exception_handlers import APIError
 from app.domains.system.dao.indicator_dao import IndicatorConfigDao
@@ -33,7 +34,7 @@ class IndicatorUpdateRequest(BaseModel):
 @router.get("")
 async def list_indicators(
     category: Optional[str] = None,
-    current_user: dict = Depends(get_current_user),
+    current_user: TokenData = Depends(get_current_user),
 ):
     """List all available indicators."""
     dao = IndicatorConfigDao()
@@ -42,7 +43,7 @@ async def list_indicators(
 
 
 @router.get("/{indicator_id}")
-async def get_indicator(indicator_id: int, current_user: dict = Depends(get_current_user)):
+async def get_indicator(indicator_id: int, current_user: TokenData = Depends(get_current_user)):
     """Get indicator detail."""
     dao = IndicatorConfigDao()
     indicator = dao.get_by_id(indicator_id)
@@ -52,7 +53,7 @@ async def get_indicator(indicator_id: int, current_user: dict = Depends(get_curr
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-async def create_indicator(req: IndicatorCreateRequest, current_user: dict = Depends(get_current_user)):
+async def create_indicator(req: IndicatorCreateRequest, current_user: TokenData = Depends(get_current_user)):
     """Create a custom indicator."""
     valid_categories = ("trend", "oscillator", "volume", "volatility", "custom")
     if req.category not in valid_categories:
@@ -71,7 +72,7 @@ async def create_indicator(req: IndicatorCreateRequest, current_user: dict = Dep
 
 @router.put("/{indicator_id}")
 async def update_indicator(
-    indicator_id: int, req: IndicatorUpdateRequest, current_user: dict = Depends(get_current_user)
+    indicator_id: int, req: IndicatorUpdateRequest, current_user: TokenData = Depends(get_current_user)
 ):
     """Update an indicator."""
     updates = {k: v for k, v in req.model_dump().items() if v is not None}
@@ -84,7 +85,7 @@ async def update_indicator(
 
 
 @router.delete("/{indicator_id}")
-async def delete_indicator(indicator_id: int, current_user: dict = Depends(get_current_user)):
+async def delete_indicator(indicator_id: int, current_user: TokenData = Depends(get_current_user)):
     """Delete a custom indicator (cannot delete built-in)."""
     dao = IndicatorConfigDao()
     if not dao.delete(indicator_id):

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel
 
 from app.api.services.auth_service import get_current_user
+from app.api.models.user import TokenData
 from app.api.errors import ErrorCode
 from app.api.exception_handlers import APIError
 from app.domains.system.dao.optimization_dao import OptimizationTaskDao
@@ -22,11 +23,11 @@ class OptimizationCreateRequest(BaseModel):
 async def list_optimization_tasks(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    current_user: dict = Depends(get_current_user),
+    current_user: TokenData = Depends(get_current_user),
 ):
     """List optimization tasks for the current user."""
     dao = OptimizationTaskDao()
-    tasks, total = dao.list_by_user(current_user["id"], page=page, page_size=page_size)
+    tasks, total = dao.list_by_user(current_user.user_id, page=page, page_size=page_size)
     return {
         "data": tasks,
         "meta": {"page": page, "page_size": page_size, "total": total},
@@ -34,24 +35,24 @@ async def list_optimization_tasks(
 
 
 @router.get("/tasks/{task_id}")
-async def get_optimization_task(task_id: int, current_user: dict = Depends(get_current_user)):
+async def get_optimization_task(task_id: int, current_user: TokenData = Depends(get_current_user)):
     """Get optimization task detail."""
     dao = OptimizationTaskDao()
-    task = dao.get_by_id(task_id, current_user["id"])
+    task = dao.get_by_id(task_id, current_user.user_id)
     if not task:
         raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Task not found")
     return task
 
 
 @router.post("/tasks", status_code=status.HTTP_201_CREATED)
-async def create_optimization_task(req: OptimizationCreateRequest, current_user: dict = Depends(get_current_user)):
+async def create_optimization_task(req: OptimizationCreateRequest, current_user: TokenData = Depends(get_current_user)):
     """Create a new optimization task."""
     valid_methods = ("grid", "random", "bayesian")
     if req.search_method not in valid_methods:
         raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message="Invalid search method")
     dao = OptimizationTaskDao()
     task_id = dao.create(
-        user_id=current_user["id"],
+        user_id=current_user.user_id,
         strategy_id=req.strategy_id,
         search_method=req.search_method,
         param_space=req.param_space,
@@ -61,8 +62,8 @@ async def create_optimization_task(req: OptimizationCreateRequest, current_user:
 
 
 @router.get("/tasks/{task_id}/results")
-async def get_optimization_results(task_id: int, current_user: dict = Depends(get_current_user)):
+async def get_optimization_results(task_id: int, current_user: TokenData = Depends(get_current_user)):
     """Get results for an optimization task."""
     dao = OptimizationTaskDao()
-    results = dao.get_results(task_id, current_user["id"])
+    results = dao.get_results(task_id, current_user.user_id)
     return {"results": results}

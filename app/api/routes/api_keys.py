@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel
 
 from app.api.services.auth_service import get_current_user
+from app.api.models.user import TokenData
 from app.api.errors import ErrorCode
 from app.api.exception_handlers import APIError
 from app.domains.auth.dao.api_key_dao import ApiKeyDao
@@ -60,20 +61,20 @@ class ApiKeyListItem(BaseModel):
 
 
 @router.get("/", response_model=list[ApiKeyListItem])
-async def list_api_keys(current_user: dict = Depends(get_current_user)):
+async def list_api_keys(current_user: TokenData = Depends(get_current_user)):
     """List all API keys for the current user."""
     dao = ApiKeyDao()
-    keys = dao.list_by_user(current_user["id"])
+    keys = dao.list_by_user(current_user.user_id)
     return keys
 
 
 @router.post("/", response_model=ApiKeyCreateResponse, status_code=status.HTTP_201_CREATED)
-async def create_api_key(req: ApiKeyCreateRequest, current_user: dict = Depends(get_current_user)):
+async def create_api_key(req: ApiKeyCreateRequest, current_user: TokenData = Depends(get_current_user)):
     """Create a new API key. The secret is only shown once."""
     dao = ApiKeyDao()
 
     # Check limit
-    count = dao.count_by_user(current_user["id"])
+    count = dao.count_by_user(current_user.user_id)
     if count >= MAX_KEYS_PER_USER:
         raise APIError(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -86,7 +87,7 @@ async def create_api_key(req: ApiKeyCreateRequest, current_user: dict = Depends(
     secret_hash = _hash_secret(secret)
 
     row_id = dao.create(
-        user_id=current_user["id"],
+        user_id=current_user.user_id,
         key_id=key_id,
         secret_hash=secret_hash,
         name=req.name,
@@ -106,10 +107,10 @@ async def create_api_key(req: ApiKeyCreateRequest, current_user: dict = Depends(
 
 
 @router.delete("/{api_key_id}")
-async def revoke_api_key(api_key_id: int, current_user: dict = Depends(get_current_user)):
+async def revoke_api_key(api_key_id: int, current_user: TokenData = Depends(get_current_user)):
     """Revoke an API key."""
     dao = ApiKeyDao()
-    if not dao.revoke(api_key_id, current_user["id"]):
+    if not dao.revoke(api_key_id, current_user.user_id):
         raise APIError(
             status_code=status.HTTP_404_NOT_FOUND,
             code=ErrorCode.NOT_FOUND,

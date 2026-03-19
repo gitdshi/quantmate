@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel
 
 from app.api.services.auth_service import get_current_user
+from app.api.models.user import TokenData
 from app.api.errors import ErrorCode
 from app.api.exception_handlers import APIError
 from app.domains.trading.dao.broker_config_dao import BrokerConfigDao
@@ -27,10 +28,10 @@ class BrokerConfigUpdateRequest(BaseModel):
 
 
 @router.get("/configs")
-async def list_broker_configs(current_user: dict = Depends(get_current_user)):
+async def list_broker_configs(current_user: TokenData = Depends(get_current_user)):
     """List broker configurations for the current user."""
     dao = BrokerConfigDao()
-    configs = dao.list_by_user(current_user["id"])
+    configs = dao.list_by_user(current_user.user_id)
     # Strip sensitive fields before returning
     for c in configs:
         if "config" in c and isinstance(c["config"], dict):
@@ -41,11 +42,11 @@ async def list_broker_configs(current_user: dict = Depends(get_current_user)):
 
 
 @router.post("/configs", status_code=status.HTTP_201_CREATED)
-async def create_broker_config(req: BrokerConfigCreateRequest, current_user: dict = Depends(get_current_user)):
+async def create_broker_config(req: BrokerConfigCreateRequest, current_user: TokenData = Depends(get_current_user)):
     """Create a new broker configuration."""
     dao = BrokerConfigDao()
     config_id = dao.create(
-        user_id=current_user["id"],
+        user_id=current_user.user_id,
         broker_name=req.broker_name,
         config=req.config,
         is_paper=req.is_paper,
@@ -55,22 +56,22 @@ async def create_broker_config(req: BrokerConfigCreateRequest, current_user: dic
 
 @router.put("/configs/{config_id}")
 async def update_broker_config(
-    config_id: int, req: BrokerConfigUpdateRequest, current_user: dict = Depends(get_current_user)
+    config_id: int, req: BrokerConfigUpdateRequest, current_user: TokenData = Depends(get_current_user)
 ):
     """Update a broker configuration."""
     updates = {k: v for k, v in req.model_dump().items() if v is not None}
     if not updates:
         raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message="No fields to update")
     dao = BrokerConfigDao()
-    if not dao.update(config_id, current_user["id"], **updates):
+    if not dao.update(config_id, current_user.user_id, **updates):
         raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Broker config not found")
     return {"message": "Broker config updated"}
 
 
 @router.delete("/configs/{config_id}")
-async def delete_broker_config(config_id: int, current_user: dict = Depends(get_current_user)):
+async def delete_broker_config(config_id: int, current_user: TokenData = Depends(get_current_user)):
     """Delete a broker configuration."""
     dao = BrokerConfigDao()
-    if not dao.delete(config_id, current_user["id"]):
+    if not dao.delete(config_id, current_user.user_id):
         raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Broker config not found")
     return {"message": "Broker config deleted"}

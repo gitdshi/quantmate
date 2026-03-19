@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel
 
 from app.api.services.auth_service import get_current_user
+from app.api.models.user import TokenData
 from app.api.errors import ErrorCode
 from app.api.exception_handlers import APIError
 from app.api.pagination import PaginationParams, paginate
@@ -40,12 +41,12 @@ class EvaluationRun(BaseModel):
 async def list_factors(
     category: Optional[str] = None,
     pagination: PaginationParams = Depends(),
-    current_user: dict = Depends(get_current_user),
+    current_user: TokenData = Depends(get_current_user),
 ):
     service = FactorService()
-    total = service.count_factors(current_user["id"])
+    total = service.count_factors(current_user.user_id)
     rows = service.list_factors(
-        current_user["id"],
+        current_user.user_id,
         category=category,
         limit=pagination.page_size,
         offset=pagination.offset,
@@ -54,10 +55,10 @@ async def list_factors(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-async def create_factor(req: FactorCreate, current_user: dict = Depends(get_current_user)):
+async def create_factor(req: FactorCreate, current_user: TokenData = Depends(get_current_user)):
     service = FactorService()
     return service.create_factor(
-        current_user["id"],
+        current_user.user_id,
         name=req.name,
         expression=req.expression,
         category=req.category,
@@ -67,28 +68,28 @@ async def create_factor(req: FactorCreate, current_user: dict = Depends(get_curr
 
 
 @router.get("/{factor_id}")
-async def get_factor(factor_id: int, current_user: dict = Depends(get_current_user)):
+async def get_factor(factor_id: int, current_user: TokenData = Depends(get_current_user)):
     service = FactorService()
     try:
-        return service.get_factor(current_user["id"], factor_id)
+        return service.get_factor(current_user.user_id, factor_id)
     except KeyError:
         raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Factor not found")
 
 
 @router.put("/{factor_id}")
-async def update_factor(factor_id: int, req: FactorUpdate, current_user: dict = Depends(get_current_user)):
+async def update_factor(factor_id: int, req: FactorUpdate, current_user: TokenData = Depends(get_current_user)):
     service = FactorService()
     try:
-        return service.update_factor(current_user["id"], factor_id, **req.model_dump(exclude_none=True))
+        return service.update_factor(current_user.user_id, factor_id, **req.model_dump(exclude_none=True))
     except KeyError:
         raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Factor not found")
 
 
 @router.delete("/{factor_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_factor(factor_id: int, current_user: dict = Depends(get_current_user)):
+async def delete_factor(factor_id: int, current_user: TokenData = Depends(get_current_user)):
     service = FactorService()
     try:
-        service.delete_factor(current_user["id"], factor_id)
+        service.delete_factor(current_user.user_id, factor_id)
     except KeyError:
         raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Factor not found")
 
@@ -97,27 +98,27 @@ async def delete_factor(factor_id: int, current_user: dict = Depends(get_current
 
 
 @router.get("/{factor_id}/evaluations")
-async def list_evaluations(factor_id: int, current_user: dict = Depends(get_current_user)):
+async def list_evaluations(factor_id: int, current_user: TokenData = Depends(get_current_user)):
     service = FactorService()
     try:
-        return service.list_evaluations(current_user["id"], factor_id)
+        return service.list_evaluations(current_user.user_id, factor_id)
     except KeyError:
         raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Factor not found")
 
 
 @router.post("/{factor_id}/evaluations", status_code=status.HTTP_201_CREATED)
-async def run_evaluation(factor_id: int, req: EvaluationRun, current_user: dict = Depends(get_current_user)):
+async def run_evaluation(factor_id: int, req: EvaluationRun, current_user: TokenData = Depends(get_current_user)):
     service = FactorService()
     try:
-        return service.run_evaluation(current_user["id"], factor_id, req.start_date, req.end_date)
+        return service.run_evaluation(current_user.user_id, factor_id, req.start_date, req.end_date)
     except KeyError:
         raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Factor not found")
 
 
 @router.delete("/{factor_id}/evaluations/{eval_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_evaluation(factor_id: int, eval_id: int, current_user: dict = Depends(get_current_user)):
+async def delete_evaluation(factor_id: int, eval_id: int, current_user: TokenData = Depends(get_current_user)):
     service = FactorService()
     try:
-        service.delete_evaluation(current_user["id"], factor_id, eval_id)
+        service.delete_evaluation(current_user.user_id, factor_id, eval_id)
     except KeyError as e:
         raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message=str(e).strip("'"))

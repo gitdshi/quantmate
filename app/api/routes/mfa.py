@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel
 
 from app.api.services.auth_service import get_current_user
+from app.api.models.user import TokenData
 from app.api.errors import ErrorCode
 from app.api.exception_handlers import APIError
 from app.domains.auth.dao.mfa_dao import MfaDao
@@ -78,7 +79,7 @@ def _verify_totp_code(secret: str, code: str) -> bool:
 
 
 @router.post("/setup", response_model=MfaSetupResponse)
-async def mfa_setup(current_user: dict = Depends(get_current_user)):
+async def mfa_setup(current_user: TokenData = Depends(get_current_user)):
     """Set up MFA for the current user. Returns secret and recovery codes."""
     secret = _generate_totp_secret()
     recovery_codes = _generate_recovery_codes()
@@ -86,7 +87,7 @@ async def mfa_setup(current_user: dict = Depends(get_current_user)):
 
     dao = MfaDao()
     dao.upsert(
-        user_id=current_user["id"],
+        user_id=current_user.user_id,
         mfa_type="totp",
         secret_encrypted=secret,
         recovery_codes_hash=codes_hash,
@@ -104,10 +105,10 @@ async def mfa_setup(current_user: dict = Depends(get_current_user)):
 
 
 @router.post("/verify")
-async def mfa_verify(req: MfaVerifyRequest, current_user: dict = Depends(get_current_user)):
+async def mfa_verify(req: MfaVerifyRequest, current_user: TokenData = Depends(get_current_user)):
     """Verify MFA code and enable MFA."""
     dao = MfaDao()
-    mfa = dao.get_by_user_id(current_user["id"])
+    mfa = dao.get_by_user_id(current_user.user_id)
     if not mfa:
         raise APIError(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -122,15 +123,15 @@ async def mfa_verify(req: MfaVerifyRequest, current_user: dict = Depends(get_cur
             message="Invalid MFA code",
         )
 
-    dao.enable(current_user["id"])
+    dao.enable(current_user.user_id)
     return {"message": "MFA enabled successfully"}
 
 
 @router.post("/disable")
-async def mfa_disable(req: MfaDisableRequest, current_user: dict = Depends(get_current_user)):
+async def mfa_disable(req: MfaDisableRequest, current_user: TokenData = Depends(get_current_user)):
     """Disable MFA for the current user."""
     dao = MfaDao()
-    mfa = dao.get_by_user_id(current_user["id"])
+    mfa = dao.get_by_user_id(current_user.user_id)
     if not mfa or not mfa["is_enabled"]:
         raise APIError(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -145,17 +146,17 @@ async def mfa_disable(req: MfaDisableRequest, current_user: dict = Depends(get_c
             message="Invalid MFA code",
         )
 
-    dao.disable(current_user["id"])
+    dao.disable(current_user.user_id)
     return {"message": "MFA disabled successfully"}
 
 
 @router.post("/recovery")
-async def mfa_recovery(req: MfaRecoveryRequest, current_user: dict = Depends(get_current_user)):
+async def mfa_recovery(req: MfaRecoveryRequest, current_user: TokenData = Depends(get_current_user)):
     """Use a recovery code to bypass MFA."""
     import json
 
     dao = MfaDao()
-    mfa = dao.get_by_user_id(current_user["id"])
+    mfa = dao.get_by_user_id(current_user.user_id)
     if not mfa or not mfa["is_enabled"]:
         raise APIError(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -176,11 +177,11 @@ async def mfa_recovery(req: MfaRecoveryRequest, current_user: dict = Depends(get
     # Remove used code
     stored_hashes.remove(code_hash)
     dao.upsert(
-        user_id=current_user["id"],
+        user_id=current_user.user_id,
         mfa_type=mfa["mfa_type"],
         secret_encrypted=mfa["secret_encrypted"],
         recovery_codes_hash=json.dumps(stored_hashes),
     )
-    dao.enable(current_user["id"])
+    dao.enable(current_user.user_id)
 
     return {"message": "Recovery code accepted", "remaining_codes": len(stored_hashes)}
