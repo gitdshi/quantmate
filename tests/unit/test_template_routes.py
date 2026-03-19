@@ -10,7 +10,7 @@ from app.api.exception_handlers import register_exception_handlers
 
 @pytest.fixture
 def mock_user():
-    return {"id": 1, "username": "testuser"}
+    return type("User", (), {"id": 1, "user_id": 1, "username": "testuser"})()
 
 
 @pytest.fixture
@@ -166,3 +166,4 @@ class TestTemplateRatingRoutes:
     def test_rate_template_invalid(self, MockTplDao, MockRatingDao, client):
         resp = client.post("/api/v1/templates/1/ratings", json={"rating": 0})
         assert resp.status_code == 422  # Pydantic validation
+

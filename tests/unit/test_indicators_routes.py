@@ -1,4 +1,4 @@
-"""Tests for P2: Indicator library routes."""
+﻿"""Tests for P2: Indicator library routes."""
 import pytest
 from unittest.mock import patch
 from fastapi import FastAPI
@@ -10,7 +10,7 @@ from app.api.exception_handlers import register_exception_handlers
 
 @pytest.fixture
 def mock_user():
-    return {"id": 1, "username": "testuser"}
+    return type("User", (), {"id": 1, "user_id": 1, "username": "testuser"})()
 
 
 @pytest.fixture
@@ -31,7 +31,7 @@ class TestIndicators:
     def test_list_indicators(self, MockDao, client):
         instance = MockDao.return_value
         instance.list_all.return_value = [
-            {"id": 1, "name": "SMA", "display_name": "简单移动平均", "category": "trend"}
+            {"id": 1, "name": "SMA", "display_name": "Simple Moving Average", "category": "trend"}
         ]
         resp = client.get("/api/v1/indicators")
         assert resp.status_code == 200
@@ -110,3 +110,4 @@ class TestIndicators:
         instance.delete.return_value = False  # Built-in cannot be deleted
         resp = client.delete("/api/v1/indicators/1")
         assert resp.status_code == 400
+

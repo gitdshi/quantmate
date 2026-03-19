@@ -10,7 +10,7 @@ from app.api.exception_handlers import register_exception_handlers
 
 @pytest.fixture
 def mock_user():
-    return {"id": 1, "username": "testuser"}
+    return type("User", (), {"id": 1, "user_id": 1, "username": "testuser"})()
 
 
 @pytest.fixture
@@ -107,3 +107,4 @@ class TestOrders:
         instance.cancel.return_value = False
         resp = client.post("/api/v1/trade/orders/999/cancel")
         assert resp.status_code == 400
+

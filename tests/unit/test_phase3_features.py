@@ -171,6 +171,7 @@ class TestPortfolio:
 
     def test_transactions(self, client):
         with patch("app.domains.portfolio.dao.portfolio_dao.PortfolioDao") as MockDao:
+            MockDao.return_value.get_or_create.return_value = {"id": 1, "cash": 0}
             MockDao.return_value.count_transactions.return_value = 0
             MockDao.return_value.list_transactions.return_value = []
             resp = client.get("/portfolio/1/transactions")
@@ -178,6 +179,7 @@ class TestPortfolio:
 
     def test_snapshots(self, client):
         with patch("app.domains.portfolio.dao.portfolio_dao.PortfolioDao") as MockDao:
+            MockDao.return_value.get_or_create.return_value = {"id": 1, "cash": 0}
             MockDao.return_value.list_snapshots.return_value = []
             resp = client.get("/portfolio/1/snapshots")
         assert resp.status_code == 200
@@ -199,8 +201,8 @@ class TestAnalytics:
             resp = client.get("/analytics/dashboard")
         assert resp.status_code == 200
         body = resp.json()
-        assert body["total_value"] == 1000000
-        assert body["positions_count"] == 0
+        assert body["portfolio_stats"]["total_value"] == 1000000
+        assert body["portfolio_stats"]["positions_count"] == 0
 
     def test_risk_metrics_no_snapshots(self, client):
         with patch("app.domains.portfolio.dao.portfolio_dao.PortfolioDao") as MockDao:
@@ -208,7 +210,7 @@ class TestAnalytics:
             MockDao.return_value.list_snapshots.return_value = []
             resp = client.get("/analytics/risk-metrics")
         assert resp.status_code == 200
-        assert resp.json()["volatility"] == 0.0
+        assert resp.json()["volatility"]["daily"] == 0.0
 
 
 # ==================================================================

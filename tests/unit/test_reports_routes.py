@@ -10,7 +10,7 @@ from app.api.exception_handlers import register_exception_handlers
 
 @pytest.fixture
 def mock_user():
-    return {"id": 1, "username": "testuser"}
+    return type("User", (), {"id": 1, "user_id": 1, "username": "testuser"})()
 
 
 @pytest.fixture
@@ -85,3 +85,4 @@ class TestReports:
     def test_generate_report_invalid_type(self, MockDao, client):
         resp = client.post("/api/v1/reports", json={"report_type": "invalid"})
         assert resp.status_code == 400
+

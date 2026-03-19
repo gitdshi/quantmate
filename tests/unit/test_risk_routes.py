@@ -10,7 +10,7 @@ from app.api.exception_handlers import register_exception_handlers
 
 @pytest.fixture
 def mock_user():
-    return {"id": 1, "username": "testuser"}
+    return type("User", (), {"id": 1, "user_id": 1, "username": "testuser"})()
 
 
 @pytest.fixture
@@ -112,3 +112,4 @@ class TestPreTradeRiskCheck:
         resp = client.post("/api/v1/risk/check?symbol=000001.SZ&direction=buy&quantity=100")
         assert resp.status_code == 200
         assert resp.json()["overall"] == "pass"
+

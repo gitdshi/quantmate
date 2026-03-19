@@ -10,7 +10,7 @@ from app.api.exception_handlers import register_exception_handlers
 
 @pytest.fixture
 def mock_user():
-    return {"id": 1, "username": "testuser"}
+    return type("User", (), {"id": 1, "user_id": 1, "username": "testuser"})()
 
 
 @pytest.fixture
@@ -130,3 +130,4 @@ class TestFactorEvaluationRoutes:
         MockEvalDao.return_value.delete.return_value = True
         resp = client.delete("/api/v1/factors/1/evaluations/1")
         assert resp.status_code == 204
+

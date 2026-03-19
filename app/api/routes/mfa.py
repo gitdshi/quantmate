@@ -94,7 +94,11 @@ async def mfa_setup(current_user: TokenData = Depends(get_current_user)):
     )
 
     # Build provisioning URI for QR code
-    username = current_user.get("username", "user")
+    username = getattr(current_user, "username", None)
+    if not username and isinstance(current_user, dict):
+        username = current_user.get("username")
+    if not username:
+        username = "user"
     uri = f"otpauth://totp/QuantMate:{username}?secret={secret}&issuer=QuantMate"
 
     return MfaSetupResponse(

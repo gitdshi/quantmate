@@ -10,7 +10,7 @@ from app.api.exception_handlers import register_exception_handlers
 
 @pytest.fixture
 def mock_user():
-    return {"id": 1, "username": "testuser"}
+    return type("User", (), {"id": 1, "user_id": 1, "username": "testuser"})()
 
 
 @pytest.fixture
@@ -163,3 +163,4 @@ class TestAIModelRoutes:
         instance.delete.return_value = False
         resp = client.delete("/api/v1/ai/models/999")
         assert resp.status_code == 404
+

@@ -1,4 +1,5 @@
 .venv
+.venv-ci
 .vscode
 github
 .DS_Store
@@ -7,6 +8,7 @@ mysql/data
 .env.staging
 .env.test
 .data
+.ruff_cache
 
 # Data sync daemon (removed)
 *.log

@@ -10,7 +10,7 @@ from app.api.exception_handlers import register_exception_handlers
 
 @pytest.fixture
 def mock_user():
-    return {"id": 1, "username": "testuser"}
+    return type("User", (), {"id": 1, "user_id": 1, "username": "testuser"})()
 
 
 @pytest.fixture
@@ -84,3 +84,4 @@ class TestOptimizationTasks:
         resp = client.get("/api/v1/optimization/tasks/1/results")
         assert resp.status_code == 200
         assert len(resp.json()["results"]) == 1
+

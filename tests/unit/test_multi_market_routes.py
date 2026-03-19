@@ -10,7 +10,7 @@ from app.api.exception_handlers import register_exception_handlers
 
 @pytest.fixture
 def mock_user():
-    return {"id": 1, "username": "testuser"}
+    return type("User", (), {"id": 1, "user_id": 1, "username": "testuser"})()
 
 
 @pytest.fixture
@@ -88,3 +88,4 @@ class TestMultiMarketRoutes:
         MockDao.return_value.list_hk_stocks.return_value = []
         resp = client.get("/api/v1/market/hk/stocks?limit=3000")
         assert resp.status_code == 422  # Exceeds le=2000
+
