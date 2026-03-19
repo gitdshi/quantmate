@@ -3,7 +3,7 @@
 -- index_daily and adj_factor already exist
 
 -- Weekly K-line (same structure as stock_daily)
-CREATE TABLE IF NOT EXISTS stock_weekly (
+CREATE TABLE IF NOT EXISTS tushare.stock_weekly (
     ts_code       VARCHAR(32)    NOT NULL,
     trade_date    DATE           NOT NULL,
     open          DECIMAL(16,2),
@@ -17,11 +17,11 @@ CREATE TABLE IF NOT EXISTS stock_weekly (
     amount        DECIMAL(20,2),
     PRIMARY KEY (ts_code, trade_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-CREATE INDEX idx_weekly_ts ON stock_weekly(ts_code);
-CREATE INDEX idx_weekly_date ON stock_weekly(trade_date);
+CREATE INDEX idx_weekly_ts ON tushare.stock_weekly(ts_code);
+CREATE INDEX idx_weekly_date ON tushare.stock_weekly(trade_date);
 
 -- Monthly K-line (same structure as stock_daily)
-CREATE TABLE IF NOT EXISTS stock_monthly (
+CREATE TABLE IF NOT EXISTS tushare.stock_monthly (
     ts_code       VARCHAR(32)    NOT NULL,
     trade_date    DATE           NOT NULL,
     open          DECIMAL(16,2),
@@ -35,11 +35,11 @@ CREATE TABLE IF NOT EXISTS stock_monthly (
     amount        DECIMAL(20,2),
     PRIMARY KEY (ts_code, trade_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-CREATE INDEX idx_monthly_ts ON stock_monthly(ts_code);
-CREATE INDEX idx_monthly_date ON stock_monthly(trade_date);
+CREATE INDEX idx_monthly_ts ON tushare.stock_monthly(ts_code);
+CREATE INDEX idx_monthly_date ON tushare.stock_monthly(trade_date);
 
 -- Index weekly K-line
-CREATE TABLE IF NOT EXISTS index_weekly (
+CREATE TABLE IF NOT EXISTS tushare.index_weekly (
     index_code    VARCHAR(32)    NOT NULL,
     trade_date    DATE           NOT NULL,
     open          DECIMAL(16,2),
@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS index_weekly (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Register new data source items
-INSERT INTO data_source_items (source, item_key, item_name, enabled, description) VALUES
+INSERT INTO quantmate.data_source_items (source, item_key, item_name, enabled, description) VALUES
 ('tushare', 'stock_weekly',  '周线行情',      1, 'A股周K线'),
 ('tushare', 'stock_monthly', '月线行情',      1, 'A股月K线'),
 ('tushare', 'index_weekly',  '指数周线',      1, '指数周K线'),
@@ -60,7 +60,7 @@ INSERT INTO data_source_items (source, item_key, item_name, enabled, description
 ON DUPLICATE KEY UPDATE item_name = VALUES(item_name);
 
 -- Extend data_sync_status step_name ENUM to include new steps
-ALTER TABLE data_sync_status
+ALTER TABLE quantmate.data_sync_status
     MODIFY COLUMN step_name ENUM(
         'akshare_index',
         'tushare_stock_basic',

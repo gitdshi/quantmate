@@ -27,4 +27,4 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Immutable audit log for all user operations';
 
 -- Restrict DELETE/UPDATE on audit_logs for application user (optional security layer)
--- Note: Enforce via application-level controls; DB-level requires separate restricted user
+-- Note: Enforce via application-level controls; DB-level requires separate restricted user.
