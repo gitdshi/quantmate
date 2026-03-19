@@ -3,6 +3,7 @@
 Provides lightweight `moving_average` and `pct_change` implementations that
 work with pandas Series when available or plain Python iterables otherwise.
 """
+
 from typing import Iterable, List, Union
 import math
 
@@ -12,7 +13,7 @@ except Exception:  # pragma: no cover - pandas optional
     pd = None
 
 
-def moving_average(values: Union[Iterable[float], 'pd.Series'], window: int) -> Union[List[float], 'pd.Series']:
+def moving_average(values: Union[Iterable[float], "pd.Series"], window: int) -> Union[List[float], "pd.Series"]:
     """Compute a simple moving average.
 
     If `values` is a pandas Series and pandas is available, returns a Series
@@ -48,7 +49,7 @@ def moving_average(values: Union[Iterable[float], 'pd.Series'], window: int) -> 
     return res
 
 
-def pct_change(values: Union[Iterable[float], 'pd.Series'], periods: int = 1) -> Union[List[float], 'pd.Series']:
+def pct_change(values: Union[Iterable[float], "pd.Series"], periods: int = 1) -> Union[List[float], "pd.Series"]:
     """Compute percent change over `periods` periods.
 
     If `values` is a pandas Series and pandas is available, delegates to

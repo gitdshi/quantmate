@@ -25,6 +25,7 @@ class StrategyHistoryDao:
     ) -> None:
         with connection("quantmate") as conn:
             from sqlalchemy import text
+
             conn.execute(
                 text(
                     """
@@ -50,6 +51,7 @@ class StrategyHistoryDao:
     def rotate_keep_latest(self, strategy_id: int, keep: int = 5) -> None:
         with connection("quantmate") as conn:
             from sqlalchemy import text
+
             rows = conn.execute(
                 text("SELECT id FROM strategy_history WHERE strategy_id = :sid ORDER BY created_at DESC"),
                 {"sid": strategy_id},
@@ -66,9 +68,7 @@ class StrategyHistoryDao:
                 placeholders.append(f":{key}")
 
             conn.execute(
-                text(
-                    f"DELETE FROM strategy_history WHERE strategy_id = :sid AND id NOT IN ({','.join(placeholders)})"
-                ),
+                text(f"DELETE FROM strategy_history WHERE strategy_id = :sid AND id NOT IN ({','.join(placeholders)})"),
                 params,
             )
             conn.commit()
@@ -76,6 +76,7 @@ class StrategyHistoryDao:
     def list_history(self, strategy_id: int) -> list[dict[str, Any]]:
         with connection("quantmate") as conn:
             from sqlalchemy import text
+
             rows = conn.execute(
                 text(
                     """
@@ -93,6 +94,7 @@ class StrategyHistoryDao:
     def get_history(self, strategy_id: int, history_id: int) -> Optional[dict[str, Any]]:
         with connection("quantmate") as conn:
             from sqlalchemy import text
+
             row = conn.execute(
                 text(
                     """

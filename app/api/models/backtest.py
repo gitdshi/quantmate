@@ -1,4 +1,5 @@
 """Backtest models."""
+
 from datetime import datetime, date
 from typing import Optional, Dict, Any, List
 from enum import Enum
@@ -7,6 +8,7 @@ from pydantic import BaseModel, Field
 
 class BacktestStatus(str, Enum):
     """Backtest job status."""
+
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -16,6 +18,7 @@ class BacktestStatus(str, Enum):
 
 class BacktestRequest(BaseModel):
     """Single backtest request."""
+
     strategy_id: Optional[int] = None
     strategy_class: Optional[str] = None  # Use built-in strategy by class name
     vt_symbol: str = Field(..., description="Symbol in format '000001.SZSE'")
@@ -27,10 +30,12 @@ class BacktestRequest(BaseModel):
     slippage: float = 0.0
     size: int = 1  # Contract size
     benchmark: Optional[str] = None
+    period: str = Field("daily", description="Data period: daily, weekly, monthly, minute")
 
 
 class BatchBacktestRequest(BaseModel):
     """Batch backtest request."""
+
     strategy_id: Optional[int] = None
     strategy_class: Optional[str] = None
     symbols: List[str] = Field(..., description="List of vt_symbols")
@@ -43,10 +48,12 @@ class BatchBacktestRequest(BaseModel):
     size: int = 1
     top_n: int = 10  # Return top N results
     benchmark: Optional[str] = None
+    period: str = Field("daily", description="Data period: daily, weekly, monthly, minute")
 
 
 class BacktestResult(BaseModel):
     """Backtest result statistics."""
+
     symbol: str
     start_date: date
     end_date: date
@@ -63,13 +70,13 @@ class BacktestResult(BaseModel):
     total_trades: int = 0
     win_rate: float = 0.0
     profit_factor: float = 0.0
-    
+
     # Benchmark comparison (HS300)
     alpha: Optional[float] = None
     beta: Optional[float] = None
     benchmark_return: Optional[float] = None
     benchmark_symbol: str = "000300.SH"
-    
+
     # Daily data for charts
     daily_returns: Optional[List[Dict[str, Any]]] = None
     equity_curve: Optional[List[Dict[str, Any]]] = None
@@ -83,6 +90,7 @@ class BacktestResult(BaseModel):
 
 class BacktestJob(BaseModel):
     """Backtest job status."""
+
     job_id: str
     status: BacktestStatus
     progress: float = 0.0  # 0-100
@@ -96,6 +104,7 @@ class BacktestJob(BaseModel):
 
 class BatchBacktestJob(BaseModel):
     """Batch backtest job status."""
+
     job_id: str
     status: BacktestStatus
     total_symbols: int

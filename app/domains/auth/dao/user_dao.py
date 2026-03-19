@@ -27,6 +27,7 @@ class UserDao:
     def username_exists(self, username: str) -> bool:
         with connection("quantmate") as conn:
             from sqlalchemy import text
+
             row = conn.execute(
                 text("SELECT 1 FROM users WHERE username = :u LIMIT 1"),
                 {"u": username},
@@ -38,15 +39,24 @@ class UserDao:
             return False
         with connection("quantmate") as conn:
             from sqlalchemy import text
+
             row = conn.execute(
                 text("SELECT 1 FROM users WHERE email = :e LIMIT 1"),
                 {"e": email},
             ).fetchone()
             return bool(row)
 
-    def insert_user(self, username: str, email: Optional[str], hashed_password: str, created_at: datetime, must_change_password: bool = False) -> int:
+    def insert_user(
+        self,
+        username: str,
+        email: Optional[str],
+        hashed_password: str,
+        created_at: datetime,
+        must_change_password: bool = False,
+    ) -> int:
         with connection("quantmate") as conn:
             from sqlalchemy import text
+
             result = conn.execute(
                 text(
                     """
@@ -68,8 +78,11 @@ class UserDao:
     def get_user_for_login(self, username: str) -> Optional[dict]:
         with connection("quantmate") as conn:
             from sqlalchemy import text
+
             row = conn.execute(
-                text("SELECT id, username, hashed_password, is_active, must_change_password FROM users WHERE username = :u"),
+                text(
+                    "SELECT id, username, hashed_password, is_active, must_change_password FROM users WHERE username = :u"
+                ),
                 {"u": username},
             ).fetchone()
             if not row:
@@ -85,8 +98,11 @@ class UserDao:
     def get_user_by_id(self, user_id: int) -> Optional[dict]:
         with connection("quantmate") as conn:
             from sqlalchemy import text
+
             row = conn.execute(
-                text("SELECT id, username, email, hashed_password, is_active, must_change_password, created_at FROM users WHERE id = :uid"),
+                text(
+                    "SELECT id, username, email, hashed_password, is_active, must_change_password, created_at FROM users WHERE id = :uid"
+                ),
                 {"uid": user_id},
             ).fetchone()
             if not row:
@@ -105,6 +121,7 @@ class UserDao:
         """Update user's password and optionally reset must_change_password flag."""
         with connection("quantmate") as conn:
             from sqlalchemy import text
+
             conn.execute(
                 text(
                     """

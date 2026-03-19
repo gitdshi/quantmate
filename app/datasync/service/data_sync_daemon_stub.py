@@ -4,7 +4,7 @@ This is a temporary workaround until the full DataSyncDaemon class is implemente
 """
 
 from typing import List, Optional
-from datetime import date, timedelta
+from datetime import date
 
 
 class DataSyncDaemon:

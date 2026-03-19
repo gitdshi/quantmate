@@ -1,16 +1,15 @@
 """Backtest routes."""
+
 from datetime import datetime
-from typing import List, Optional
 import uuid
 import json
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, BackgroundTasks
 from pydantic import BaseModel
 
 from app.api.models.user import TokenData
 from app.api.models.backtest import (
     BacktestRequest,
     BatchBacktestRequest,
-    BacktestResult,
     BacktestJob,
     BatchBacktestJob,
     BacktestStatus,
@@ -19,6 +18,9 @@ from app.api.services.auth_service import get_current_user
 from app.api.services.backtest_service import BacktestService
 from app.worker.service.tasks import save_backtest_to_db
 from app.api.services.job_storage_service import get_job_storage
+from app.api.errors import ErrorCode
+from app.api.exception_handlers import APIError
+from app.api.pagination import PaginationParams, paginate
 
 from app.domains.backtests.dao.backtest_history_dao import BacktestHistoryDao
 
@@ -31,6 +33,7 @@ _batch_jobs: dict[str, BatchBacktestJob] = {}
 
 class BacktestSubmitResponse(BaseModel):
     """Response after submitting a backtest."""
+
     job_id: str
     status: BacktestStatus
     message: str
@@ -38,104 +41,80 @@ class BacktestSubmitResponse(BaseModel):
 
 @router.post("", response_model=BacktestSubmitResponse)
 async def submit_backtest(
-    request: BacktestRequest,
-    background_tasks: BackgroundTasks,
-    current_user: TokenData = Depends(get_current_user)
+    request: BacktestRequest, background_tasks: BackgroundTasks, current_user: TokenData = Depends(get_current_user)
 ):
     """Submit a single backtest job."""
     job_id = str(uuid.uuid4())
-    
+
     job = BacktestJob(
         job_id=job_id,
         status=BacktestStatus.PENDING,
         progress=0.0,
         message="Queued for execution",
-        created_at=datetime.utcnow()
+        created_at=datetime.utcnow(),
     )
     _jobs[job_id] = job
-    
+
     # Run backtest in background
-    background_tasks.add_task(
-        run_backtest_task,
-        job_id,
-        request,
-        current_user.user_id
-    )
-    
-    return BacktestSubmitResponse(
-        job_id=job_id,
-        status=BacktestStatus.PENDING,
-        message="Backtest queued successfully"
-    )
+    background_tasks.add_task(run_backtest_task, job_id, request, current_user.user_id)
+
+    return BacktestSubmitResponse(job_id=job_id, status=BacktestStatus.PENDING, message="Backtest queued successfully")
 
 
 @router.post("/batch", response_model=BacktestSubmitResponse)
 async def submit_batch_backtest(
     request: BatchBacktestRequest,
     background_tasks: BackgroundTasks,
-    current_user: TokenData = Depends(get_current_user)
+    current_user: TokenData = Depends(get_current_user),
 ):
     """Submit a batch backtest job."""
     job_id = str(uuid.uuid4())
-    
+
     job = BatchBacktestJob(
         job_id=job_id,
         status=BacktestStatus.PENDING,
         total_symbols=len(request.symbols),
         completed_symbols=0,
         progress=0.0,
-        created_at=datetime.utcnow()
+        created_at=datetime.utcnow(),
     )
     _batch_jobs[job_id] = job
-    
-    background_tasks.add_task(
-        run_batch_backtest_task,
-        job_id,
-        request,
-        current_user.user_id
-    )
-    
+
+    background_tasks.add_task(run_batch_backtest_task, job_id, request, current_user.user_id)
+
     return BacktestSubmitResponse(
         job_id=job_id,
         status=BacktestStatus.PENDING,
-        message=f"Batch backtest queued for {len(request.symbols)} symbols"
+        message=f"Batch backtest queued for {len(request.symbols)} symbols",
     )
 
 
 @router.get("/{job_id}", response_model=BacktestJob)
-async def get_backtest_status(
-    job_id: str,
-    current_user: TokenData = Depends(get_current_user)
-):
+async def get_backtest_status(job_id: str, current_user: TokenData = Depends(get_current_user)):
     """Get backtest job status and results."""
     if job_id in _jobs:
         return _jobs[job_id]
-    
-    raise HTTPException(status_code=404, detail="Job not found")
+
+    raise APIError(status_code=404, code=ErrorCode.JOB_NOT_FOUND, message="Job not found")
 
 
 @router.get("/batch/{job_id}", response_model=BatchBacktestJob)
-async def get_batch_backtest_status(
-    job_id: str,
-    current_user: TokenData = Depends(get_current_user)
-):
+async def get_batch_backtest_status(job_id: str, current_user: TokenData = Depends(get_current_user)):
     """Get batch backtest job status and results."""
     if job_id in _batch_jobs:
         return _batch_jobs[job_id]
-    
-    raise HTTPException(status_code=404, detail="Batch job not found")
+
+    raise APIError(status_code=404, code=ErrorCode.JOB_NOT_FOUND, message="Batch job not found")
 
 
 @router.get("/history/list")
 async def list_backtest_history(
-    limit: int = 50,
-    offset: int = 0,
-    current_user: TokenData = Depends(get_current_user)
+    pagination: PaginationParams = Depends(), current_user: TokenData = Depends(get_current_user)
 ):
     """List past backtest runs for current user from database."""
     dao = BacktestHistoryDao()
     total = dao.count_for_user(current_user.user_id)
-    rows = dao.list_for_user(user_id=current_user.user_id, limit=limit, offset=offset)
+    rows = dao.list_for_user(user_id=current_user.user_id, limit=pagination.limit, offset=pagination.offset)
 
     history = []
     for row in rows:
@@ -168,19 +147,16 @@ async def list_backtest_history(
             }
         )
 
-    return {"total": total, "jobs": history}
+    return paginate(history, total, pagination)
 
 
 @router.get("/history/{job_id}")
-async def get_backtest_history_detail(
-    job_id: str,
-    current_user: TokenData = Depends(get_current_user)
-):
+async def get_backtest_history_detail(job_id: str, current_user: TokenData = Depends(get_current_user)):
     """Get detailed backtest result from database by job_id."""
     dao = BacktestHistoryDao()
     row = dao.get_detail_for_user(job_id=job_id, user_id=current_user.user_id)
     if not row:
-        raise HTTPException(status_code=404, detail="Backtest not found")
+        raise APIError(status_code=404, code=ErrorCode.BACKTEST_NOT_FOUND, message="Backtest not found")
 
     result_data = None
     if row.get("result"):
@@ -215,10 +191,7 @@ async def get_backtest_history_detail(
 
 
 @router.delete("/{job_id}")
-async def cancel_backtest(
-    job_id: str,
-    current_user: TokenData = Depends(get_current_user)
-):
+async def cancel_backtest(job_id: str, current_user: TokenData = Depends(get_current_user)):
     """Cancel a pending or running backtest."""
     if job_id in _jobs:
         job = _jobs[job_id]
@@ -226,9 +199,9 @@ async def cancel_backtest(
             job.status = BacktestStatus.CANCELLED
             job.message = "Cancelled by user"
             return {"message": "Job cancelled"}
-        raise HTTPException(status_code=400, detail="Job cannot be cancelled")
-    
-    raise HTTPException(status_code=404, detail="Job not found")
+        raise APIError(status_code=400, code=ErrorCode.JOB_CANCEL_FAILED, message="Job cannot be cancelled")
+
+    raise APIError(status_code=404, code=ErrorCode.JOB_NOT_FOUND, message="Job not found")
 
 
 # Background task functions
@@ -238,7 +211,7 @@ async def run_backtest_task(job_id: str, request: BacktestRequest, user_id: int)
     job.status = BacktestStatus.RUNNING
     job.started_at = datetime.utcnow()
     job.message = "Running backtest..."
-    
+
     try:
         service = BacktestService()
         result = service.run_single_backtest(
@@ -252,9 +225,10 @@ async def run_backtest_task(job_id: str, request: BacktestRequest, user_id: int)
             rate=request.rate,
             slippage=request.slippage,
             size=request.size,
-            benchmark=getattr(request, 'benchmark', None)
+            benchmark=getattr(request, "benchmark", None),
+            period=getattr(request, "period", "daily"),
         )
-        
+
         job.status = BacktestStatus.COMPLETED
         job.completed_at = datetime.utcnow()
         job.progress = 100.0
@@ -263,7 +237,7 @@ async def run_backtest_task(job_id: str, request: BacktestRequest, user_id: int)
         # Persist to database and job storage for history and UI
         try:
             # Convert result to serializable dict
-            res_dict = result.dict() if hasattr(result, 'dict') else result
+            res_dict = result.dict() if hasattr(result, "dict") else result
         except Exception:
             res_dict = None
 
@@ -276,8 +250,12 @@ async def run_backtest_task(job_id: str, request: BacktestRequest, user_id: int)
                 symbol=request.vt_symbol,
                 start_date=str(request.start_date),
                 end_date=str(request.end_date),
-                parameters=(res_dict.get('parameters') if isinstance(res_dict, dict) and res_dict.get('parameters') is not None else request.parameters),
-                status='completed',
+                parameters=(
+                    res_dict.get("parameters")
+                    if isinstance(res_dict, dict) and res_dict.get("parameters") is not None
+                    else request.parameters
+                ),
+                status="completed",
                 result=res_dict,
             )
         except Exception:
@@ -287,19 +265,22 @@ async def run_backtest_task(job_id: str, request: BacktestRequest, user_id: int)
         try:
             # Save result to Redis job storage for UI consistency
             js = get_job_storage()
-            js.save_job_metadata(job_id, {
-                'job_id': job_id,
-                'user_id': user_id,
-                'type': 'backtest',
-                'status': 'finished',
-                'created_at': datetime.utcnow().isoformat(),
-                'updated_at': datetime.utcnow().isoformat(),
-                'parameters': res_dict.get('parameters') if isinstance(res_dict, dict) else request.parameters,
-            })
+            js.save_job_metadata(
+                job_id,
+                {
+                    "job_id": job_id,
+                    "user_id": user_id,
+                    "type": "backtest",
+                    "status": "finished",
+                    "created_at": datetime.utcnow().isoformat(),
+                    "updated_at": datetime.utcnow().isoformat(),
+                    "parameters": res_dict.get("parameters") if isinstance(res_dict, dict) else request.parameters,
+                },
+            )
             js.save_result(job_id, res_dict or {})
         except Exception:
             pass
-        
+
     except Exception as e:
         job.status = BacktestStatus.FAILED
         job.completed_at = datetime.utcnow()
@@ -315,7 +296,7 @@ async def run_backtest_task(job_id: str, request: BacktestRequest, user_id: int)
                 start_date=str(request.start_date),
                 end_date=str(request.end_date),
                 parameters=request.parameters,
-                status='failed',
+                status="failed",
                 result=None,
                 error=str(e),
             )
@@ -327,16 +308,16 @@ async def run_batch_backtest_task(job_id: str, request: BatchBacktestRequest, us
     """Run batch backtest in background."""
     job = _batch_jobs[job_id]
     job.status = BacktestStatus.RUNNING
-    
+
     try:
         service = BacktestService()
         results = []
         errors = []
-        
+
         for i, symbol in enumerate(request.symbols):
             if job.status == BacktestStatus.CANCELLED:
                 break
-            
+
             try:
                 result = service.run_single_backtest(
                     strategy_id=request.strategy_id,
@@ -349,14 +330,15 @@ async def run_batch_backtest_task(job_id: str, request: BatchBacktestRequest, us
                     rate=request.rate,
                     slippage=request.slippage,
                     size=request.size,
-                    benchmark=getattr(request, 'benchmark', None)
+                    benchmark=getattr(request, "benchmark", None),
+                    period=getattr(request, "period", "daily"),
                 )
                 if result:
                     results.append(result)
                     # Persist child result into backtest_history for batch runs
                     try:
                         child_job_id = f"{job_id}__{symbol}"
-                        res_dict = result.dict() if hasattr(result, 'dict') else result
+                        res_dict = result.dict() if hasattr(result, "dict") else result
                         save_backtest_to_db(
                             job_id=child_job_id,
                             user_id=user_id,
@@ -365,25 +347,112 @@ async def run_batch_backtest_task(job_id: str, request: BatchBacktestRequest, us
                             symbol=symbol,
                             start_date=str(request.start_date),
                             end_date=str(request.end_date),
-                            parameters=(res_dict.get('parameters') if isinstance(res_dict, dict) and res_dict.get('parameters') is not None else request.parameters),
-                            status='completed',
+                            parameters=(
+                                res_dict.get("parameters")
+                                if isinstance(res_dict, dict) and res_dict.get("parameters") is not None
+                                else request.parameters
+                            ),
+                            status="completed",
                             result=res_dict,
                         )
                     except Exception:
                         pass
             except Exception as e:
                 errors.append({"symbol": symbol, "error": str(e)})
-            
+
             job.completed_symbols = i + 1
             job.progress = (i + 1) / len(request.symbols) * 100
-        
+
         # Sort by total_return and keep top N
         results.sort(key=lambda r: r.total_return, reverse=True)
-        job.results = results[:request.top_n]
+        job.results = results[: request.top_n]
         job.errors = errors
         job.status = BacktestStatus.COMPLETED
         job.completed_at = datetime.utcnow()
-        
-    except Exception as e:
+
+    except Exception:
         job.status = BacktestStatus.FAILED
         job.completed_at = datetime.utcnow()
+
+
+# ── Export & Analysis endpoints ──────────────────────────────────────────
+
+
+class ExportRequest(BaseModel):
+    format: str = "csv"  # csv, html, json
+
+
+class WalkForwardRequest(BaseModel):
+    total_bars: int
+    in_sample_pct: float = 0.7
+    num_windows: int = 5
+
+
+class MonteCarloRequest(BaseModel):
+    trade_returns: list[float]
+    num_simulations: int = 1000
+    initial_capital: float = 1000000
+
+
+@router.post("/{job_id}/export")
+async def export_backtest(
+    job_id: str,
+    req: ExportRequest,
+    current_user: TokenData = Depends(get_current_user),
+):
+    """Export a backtest result to CSV/HTML/JSON."""
+    from app.domains.backtests.export_service import BacktestExportService
+    from fastapi.responses import PlainTextResponse
+
+    job = _jobs.get(job_id)
+    if not job or not job.result:
+        raise APIError(status_code=404, code=ErrorCode.JOB_NOT_FOUND, message="Job not found or no result")
+
+    result_dict = job.result.dict() if hasattr(job.result, "dict") else job.result
+    svc = BacktestExportService()
+
+    if req.format == "csv":
+        content = svc.to_csv(result_dict)
+        return PlainTextResponse(
+            content,
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename=backtest_{job_id}.csv"},
+        )
+    elif req.format == "html":
+        content = svc.to_html(result_dict)
+        return PlainTextResponse(content, media_type="text/html")
+    else:
+        content = svc.to_json(result_dict)
+        return PlainTextResponse(content, media_type="application/json")
+
+
+@router.post("/analysis/walk-forward")
+async def walk_forward_analysis(
+    req: WalkForwardRequest,
+    current_user: TokenData = Depends(get_current_user),
+):
+    """Run Walk-Forward analysis."""
+    from app.domains.backtests.analysis_service import WalkForwardService
+
+    svc = WalkForwardService()
+    return svc.run(
+        total_bars=req.total_bars,
+        in_sample_pct=req.in_sample_pct,
+        num_windows=req.num_windows,
+    )
+
+
+@router.post("/analysis/monte-carlo")
+async def monte_carlo_analysis(
+    req: MonteCarloRequest,
+    current_user: TokenData = Depends(get_current_user),
+):
+    """Run Monte Carlo simulation."""
+    from app.domains.backtests.analysis_service import MonteCarloService
+
+    svc = MonteCarloService()
+    return svc.run(
+        trade_returns=req.trade_returns,
+        num_simulations=req.num_simulations,
+        initial_capital=req.initial_capital,
+    )

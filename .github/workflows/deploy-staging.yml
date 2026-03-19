@@ -1,0 +1,86 @@
+name: Deploy Staging
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  REGISTRY: ghcr.io
+  API_IMAGE: ghcr.io/${{ github.repository }}/api
+  PORTAL_IMAGE: ghcr.io/${{ github.repository }}/portal
+
+jobs:
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set image tags
+        id: tags
+        run: echo "tag=staging-$(echo $GITHUB_SHA | head -c 8)" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            set -e
+            cd /opt/quantmate
+            
+            # Pull latest images
+            docker pull ${{ env.API_IMAGE }}:${{ steps.tags.outputs.tag }}
+            docker pull ${{ env.PORTAL_IMAGE }}:${{ steps.tags.outputs.tag }}
+            
+            # Tag as staging-latest
+            docker tag ${{ env.API_IMAGE }}:${{ steps.tags.outputs.tag }} ${{ env.API_IMAGE }}:staging-latest
+            docker tag ${{ env.PORTAL_IMAGE }}:${{ steps.tags.outputs.tag }} ${{ env.PORTAL_IMAGE }}:staging-latest
+            
+            # Run migrations
+            docker compose -f docker-compose.staging.yml run --rm api python -m app.cli db-status
+            
+            # Rolling restart
+            docker compose -f docker-compose.staging.yml up -d --remove-orphans
+            
+            # Wait for health check
+            sleep 10
+            curl -sf http://localhost:8000/api/v1/system/health || exit 1
+            echo "Staging deploy successful"
+
+      - name: Post deploy health check
+        if: success()
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            curl -sf http://localhost:8000/ | python3 -m json.tool
+            docker compose -f /opt/quantmate/docker-compose.staging.yml ps
+
+      - name: Notify on failure
+        if: failure()
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            echo "Deploy failed, rolling back..."
+            cd /opt/quantmate
+            docker compose -f docker-compose.staging.yml up -d --remove-orphans

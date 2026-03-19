@@ -1,8 +1,7 @@
 """DAO helpers for AkShare DB operations used by datasync services."""
-import os
+
 import json
 import logging
-from typing import Any
 from sqlalchemy import text
 from app.infrastructure.db.connections import get_akshare_engine
 
@@ -13,9 +12,12 @@ engine = get_akshare_engine()
 
 def audit_start(api_name: str, params: dict) -> int:
     with engine.begin() as conn:
-        res = conn.execute(text(
-            "INSERT INTO ingest_audit (api_name, params, status, fetched_rows) VALUES (:api, :params, 'running', 0)"
-        ), {"api": api_name, "params": json.dumps(params)})
+        res = conn.execute(
+            text(
+                "INSERT INTO ingest_audit (api_name, params, status, fetched_rows) VALUES (:api, :params, 'running', 0)"
+            ),
+            {"api": api_name, "params": json.dumps(params)},
+        )
         try:
             return int(res.lastrowid)
         except Exception:
@@ -24,9 +26,10 @@ def audit_start(api_name: str, params: dict) -> int:
 
 def audit_finish(audit_id: int, status: str, rows: int):
     with engine.begin() as conn:
-        conn.execute(text(
-            "UPDATE ingest_audit SET status=:status, fetched_rows=:rows, finished_at=NOW() WHERE id=:id"
-        ), {"status": status, "rows": rows, "id": audit_id})
+        conn.execute(
+            text("UPDATE ingest_audit SET status=:status, fetched_rows=:rows, finished_at=NOW() WHERE id=:id"),
+            {"status": status, "rows": rows, "id": audit_id},
+        )
 
 
 def upsert_index_daily_rows(rows: list) -> int:
@@ -45,16 +48,19 @@ def upsert_index_daily_rows(rows: list) -> int:
     raw = engine.raw_connection()
     try:
         cur = raw.cursor()
-        params = [(
-            r.get('index_code'),
-            str(r.get('trade_date'))[:10],
-            r.get('open'),
-            r.get('high'),
-            r.get('low'),
-            r.get('close'),
-            r.get('volume'),
-            r.get('amount')
-        ) for r in rows]
+        params = [
+            (
+                r.get("index_code"),
+                str(r.get("trade_date"))[:10],
+                r.get("open"),
+                r.get("high"),
+                r.get("low"),
+                r.get("close"),
+                r.get("volume"),
+                r.get("amount"),
+            )
+            for r in rows
+        ]
         cur.executemany(insert_sql, params)
         raw.commit()
         return cur.rowcount

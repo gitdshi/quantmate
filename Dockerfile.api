@@ -22,8 +22,11 @@ RUN pip install --no-cache-dir \
 # Copy application code
 COPY app/ ./app/
 
+# Copy migration scripts
+COPY mysql/migrations/ ./mysql/migrations/
+
 # Expose port
 EXPOSE 8000
 
-# Run the API server
-CMD ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run migrations then start the API server
+CMD ["sh", "-c", "python -m app.infrastructure.db.migrate && uvicorn app.api.main:app --host 0.0.0.0 --port 8000"]

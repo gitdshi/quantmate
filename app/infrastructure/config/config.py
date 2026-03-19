@@ -3,18 +3,15 @@
 This module is a copy of `app.api.config` moved to
 `app.infrastructure.config.config` to centralize runtime configuration.
 """
-import os
-from datetime import timedelta
+
 from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        extra="ignore"
-    )
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     app_name: str = "QuantMate API"
     app_version: str = "1.0.0"
@@ -48,6 +45,7 @@ class Settings(BaseSettings):
     def mysql_url(self) -> str:
         # URL-encode password to handle special characters like '@'
         from urllib.parse import quote_plus
+
         password = quote_plus(self.mysql_password)
         return f"mysql+pymysql://{self.mysql_user}:{password}@{self.mysql_host}:{self.mysql_port}"
 

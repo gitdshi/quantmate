@@ -1,11 +1,17 @@
 """DAO layer for extdata domain: centralized DB operations for sync status and trade calendar."""
+
 from datetime import date, timedelta
 import os
 import logging
 from typing import Dict, List, Tuple, Any
 
 from sqlalchemy import text
-from app.infrastructure.db.connections import get_quantmate_engine, get_tushare_engine, get_vnpy_engine, get_akshare_engine
+from app.infrastructure.db.connections import (
+    get_quantmate_engine,
+    get_tushare_engine,
+    get_vnpy_engine,
+    get_akshare_engine,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +26,7 @@ DATA_SYNC_STATUS_SQL = """
 CREATE TABLE IF NOT EXISTS data_sync_status (
     id INT PRIMARY KEY AUTO_INCREMENT,
     sync_date DATE NOT NULL,
-    step_name ENUM('akshare_index','tushare_stock_basic','tushare_stock_daily','tushare_adj_factor','tushare_dividend','tushare_top10_holders','vnpy_sync') NOT NULL,
+    step_name ENUM('akshare_index','tushare_stock_basic','tushare_stock_daily','tushare_adj_factor','tushare_dividend','tushare_top10_holders','vnpy_sync','tushare_stock_weekly','tushare_stock_monthly','tushare_index_daily','tushare_index_weekly') NOT NULL,
     status ENUM('pending','running','success','partial','error') DEFAULT 'pending',
     rows_synced INT DEFAULT 0,
     error_message TEXT,
@@ -47,11 +53,11 @@ CREATE TABLE IF NOT EXISTS trade_cal (
 
 def ensure_tables():
     """Ensure `data_sync_status` and `trade_cal` exist."""
-    logger.info('Ensuring data_sync_status table in quantmate DB')
+    logger.info("Ensuring data_sync_status table in quantmate DB")
     with engine_tm.begin() as conn:
         conn.execute(text(DATA_SYNC_STATUS_SQL))
 
-    logger.info('Ensuring trade_cal table in akshare DB')
+    logger.info("Ensuring trade_cal table in akshare DB")
     with engine_ak.begin() as conn:
         conn.execute(text(TRADE_CAL_SQL))
 
@@ -60,12 +66,15 @@ def get_stock_daily_counts(start: date, end: date) -> Dict[date, int]:
     """Return mapping trade_date -> count from `stock_daily` between start and end."""
     res_map: Dict[date, int] = {}
     with engine_ts.connect() as conn:
-        res = conn.execute(text("""
+        res = conn.execute(
+            text("""
             SELECT trade_date, COUNT(*) as cnt
             FROM stock_daily
             WHERE trade_date BETWEEN :s AND :e
             GROUP BY trade_date
-        """), {'s': start, 'e': end})
+        """),
+            {"s": start, "e": end},
+        )
         for row in res.fetchall():
             res_map[row[0]] = int(row[1])
     return res_map
@@ -74,12 +83,15 @@ def get_stock_daily_counts(start: date, end: date) -> Dict[date, int]:
 def get_adj_factor_counts(start: date, end: date) -> Dict[date, int]:
     res_map: Dict[date, int] = {}
     with engine_ts.connect() as conn:
-        res = conn.execute(text("""
+        res = conn.execute(
+            text("""
             SELECT trade_date, COUNT(*) as cnt
             FROM adj_factor
             WHERE trade_date BETWEEN :s AND :e
             GROUP BY trade_date
-        """), {'s': start, 'e': end})
+        """),
+            {"s": start, "e": end},
+        )
         for row in res.fetchall():
             res_map[row[0]] = int(row[1])
     return res_map
@@ -88,12 +100,15 @@ def get_adj_factor_counts(start: date, end: date) -> Dict[date, int]:
 def get_vnpy_counts(start: date, end: date) -> Dict[date, int]:
     res_map: Dict[date, int] = {}
     with engine_vn.connect() as conn:
-        res = conn.execute(text("""
+        res = conn.execute(
+            text("""
             SELECT DATE(`datetime`) as dt, COUNT(*) as cnt
             FROM dbbardata
             WHERE DATE(`datetime`) BETWEEN :s AND :e
             GROUP BY dt
-        """), {'s': start, 'e': end})
+        """),
+            {"s": start, "e": end},
+        )
         for row in res.fetchall():
             res_map[row[0]] = int(row[1])
     return res_map
@@ -101,7 +116,7 @@ def get_vnpy_counts(start: date, end: date) -> Dict[date, int]:
 
 def get_index_daily_count_for_date(d: date) -> int:
     with engine_ak.connect() as conn:
-        res = conn.execute(text("SELECT COUNT(1) FROM index_daily WHERE trade_date = :d"), {'d': d})
+        res = conn.execute(text("SELECT COUNT(1) FROM index_daily WHERE trade_date = :d"), {"d": d})
         row = res.fetchone()
         return int(row[0] if row and row[0] is not None else 0)
 
@@ -115,14 +130,16 @@ def get_stock_basic_count() -> int:
 
 def get_adj_factor_count_for_date(d: date) -> int:
     with engine_ts.connect() as conn:
-        res = conn.execute(text("SELECT COUNT(*) FROM adj_factor WHERE trade_date = :d"), {'d': d})
+        res = conn.execute(text("SELECT COUNT(*) FROM adj_factor WHERE trade_date = :d"), {"d": d})
         row = res.fetchone()
         return int(row[0] if row and row[0] is not None else 0)
 
 
 def get_stock_daily_ts_codes_for_date(d: date) -> List[str]:
     with engine_ts.connect() as conn:
-        res = conn.execute(text("SELECT DISTINCT ts_code FROM stock_daily WHERE trade_date = :d ORDER BY ts_code"), {'d': d})
+        res = conn.execute(
+            text("SELECT DISTINCT ts_code FROM stock_daily WHERE trade_date = :d ORDER BY ts_code"), {"d": d}
+        )
         return [r[0] for r in res.fetchall()]
 
 
@@ -143,15 +160,15 @@ def bulk_upsert_status(rows: List[Tuple[Any, ...]], chunk_size: int = 1000) -> i
     try:
         cursor = raw_conn.cursor()
         for i in range(0, len(rows), chunk_size):
-            chunk = rows[i:i+chunk_size]
-            params = [(
-                r[0].strftime('%Y-%m-%d') if hasattr(r[0], 'strftime') else r[0],
-                r[1], r[2], r[3], r[4], r[5], r[6]
-            ) for r in chunk]
+            chunk = rows[i : i + chunk_size]
+            params = [
+                (r[0].strftime("%Y-%m-%d") if hasattr(r[0], "strftime") else r[0], r[1], r[2], r[3], r[4], r[5], r[6])
+                for r in chunk
+            ]
             cursor.executemany(insert_sql, params)
             raw_conn.commit()
             processed += len(chunk)
-            logger.debug('bulk_upsert_status: inserted %d rows', processed)
+            logger.debug("bulk_upsert_status: inserted %d rows", processed)
     finally:
         try:
             cursor.close()
@@ -165,11 +182,11 @@ def bulk_upsert_status(rows: List[Tuple[Any, ...]], chunk_size: int = 1000) -> i
     return processed
 
 
-def write_step_status(sync_date: date, step_name: str, status: str,
-                      rows_synced: int = 0, error_message: Any = None):
+def write_step_status(sync_date: date, step_name: str, status: str, rows_synced: int = 0, error_message: Any = None):
     """Insert or update a single step status row."""
     with engine_tm.begin() as conn:
-        conn.execute(text("""
+        conn.execute(
+            text("""
             INSERT INTO data_sync_status 
                 (sync_date, step_name, status, rows_synced, error_message, started_at, finished_at)
             VALUES (:sd, :step, :status, :rows, :err, NOW(), NOW())
@@ -179,20 +196,17 @@ def write_step_status(sync_date: date, step_name: str, status: str,
                 error_message = VALUES(error_message),
                 finished_at = VALUES(finished_at),
                 updated_at = CURRENT_TIMESTAMP
-        """), {
-            'sd': sync_date,
-            'step': step_name,
-            'status': status,
-            'rows': rows_synced,
-            'err': error_message
-        })
+        """),
+            {"sd": sync_date, "step": step_name, "status": status, "rows": rows_synced, "err": error_message},
+        )
 
 
 def get_step_status(sync_date: date, step_name: str) -> Any:
     with engine_tm.connect() as conn:
-        res = conn.execute(text(
-            "SELECT status FROM data_sync_status WHERE sync_date = :sd AND step_name = :step"
-        ), {'sd': sync_date, 'step': step_name})
+        res = conn.execute(
+            text("SELECT status FROM data_sync_status WHERE sync_date = :sd AND step_name = :step"),
+            {"sd": sync_date, "step": step_name},
+        )
         row = res.fetchone()
         return row[0] if row else None
 
@@ -201,23 +215,29 @@ def get_failed_steps(lookback_days: int = 60) -> List[Tuple[date, str]]:
     end = date.today() - timedelta(days=1)
     start = end - timedelta(days=lookback_days)
     with engine_tm.connect() as conn:
-        res = conn.execute(text("""
+        res = conn.execute(
+            text("""
             SELECT sync_date, step_name FROM data_sync_status
             WHERE sync_date >= :start AND sync_date <= :end
               AND status IN ('error', 'partial', 'pending')
             ORDER BY sync_date ASC, step_name
-        """), {'start': start, 'end': end})
+        """),
+            {"start": start, "end": end},
+        )
         return [(row[0], row[1]) for row in res.fetchall()]
 
 
 def get_cached_trade_dates(start_date: date, end_date: date) -> List[date]:
     """Return cached trade dates from akshare.trade_cal between start and end."""
     with engine_ak.connect() as conn:
-        res = conn.execute(text("""
+        res = conn.execute(
+            text("""
             SELECT trade_date FROM trade_cal
             WHERE trade_date BETWEEN :s AND :e AND is_trade_day = 1
             ORDER BY trade_date ASC
-        """), {'s': start_date, 'e': end_date})
+        """),
+            {"s": start_date, "e": end_date},
+        )
         return [row[0] for row in res.fetchall()]
 
 
@@ -228,7 +248,7 @@ def upsert_trade_dates(dates: List[date]):
     raw = engine_ak.raw_connection()
     try:
         cur = raw.cursor()
-        params = [(d.strftime('%Y-%m-%d'), 1, 'akshare') for d in dates]
+        params = [(d.strftime("%Y-%m-%d"), 1, "akshare") for d in dates]
         cur.executemany("INSERT IGNORE INTO trade_cal (trade_date, is_trade_day, source) VALUES (%s, %s, %s)", params)
         raw.commit()
         return cur.rowcount
@@ -268,44 +288,50 @@ CREATE TABLE IF NOT EXISTS backfill_lock (
 
 def ensure_backfill_lock_table():
     """Ensure backfill_lock table exists."""
-    logger.info('Ensuring backfill_lock table in quantmate DB')
+    logger.info("Ensuring backfill_lock table in quantmate DB")
     with engine_tm.begin() as conn:
         conn.execute(text(BACKFILL_LOCK_SQL))
         # Initialize with unlocked state
-        conn.execute(text("""
+        conn.execute(
+            text("""
             INSERT IGNORE INTO backfill_lock (id, is_locked) VALUES (1, 0)
-        """))
+        """)
+        )
 
 
 def acquire_backfill_lock() -> bool:
     """Acquire backfill lock. Returns True if acquired, False if already locked."""
     ensure_backfill_lock_table()
     import socket
+
     hostname = socket.gethostname()
     # Clear stale locks before attempting to acquire
     try:
-        stale_hours = int(os.getenv('BACKFILL_LOCK_STALE_HOURS', '6'))
+        stale_hours = int(os.getenv("BACKFILL_LOCK_STALE_HOURS", "6"))
     except Exception:
         stale_hours = 6
     try:
         release_stale_backfill_lock(stale_hours)
     except Exception:
-        logger.exception('Failed to release stale backfill lock')
+        logger.exception("Failed to release stale backfill lock")
 
     with engine_tm.begin() as conn:
-        result = conn.execute(text("""
+        result = conn.execute(
+            text("""
             UPDATE backfill_lock 
             SET is_locked = 1, 
                 locked_at = CURRENT_TIMESTAMP, 
                 locked_by = :hostname
             WHERE id = 1 AND is_locked = 0
-        """), {'hostname': hostname})
-        
+        """),
+            {"hostname": hostname},
+        )
+
         if result.rowcount > 0:
-            logger.info('Acquired backfill lock (host: %s)', hostname)
+            logger.info("Acquired backfill lock (host: %s)", hostname)
             return True
         else:
-            logger.warning('Failed to acquire backfill lock (already locked)')
+            logger.warning("Failed to acquire backfill lock (already locked)")
             return False
 
 
@@ -324,7 +350,8 @@ def release_stale_backfill_lock(max_age_hours: int = 6) -> bool:
         if not is_locked or not locked_at:
             return False
         try:
-            from datetime import datetime, timedelta
+            from datetime import datetime
+
             now = datetime.utcnow()
             # locked_at may be timezone-naive; compare in UTC assuming DB stores UTC
             if isinstance(locked_at, str):
@@ -338,15 +365,19 @@ def release_stale_backfill_lock(max_age_hours: int = 6) -> bool:
 
             age = now - locked_dt
             if age.total_seconds() >= max_age_hours * 3600:
-                conn.execute(text("""
+                conn.execute(
+                    text("""
                     UPDATE backfill_lock
                     SET is_locked = 0, locked_at = NULL, locked_by = NULL
                     WHERE id = 1
-                """))
-                logger.info('Released stale backfill lock (age %.1f hours >= %d)', age.total_seconds()/3600.0, max_age_hours)
+                """)
+                )
+                logger.info(
+                    "Released stale backfill lock (age %.1f hours >= %d)", age.total_seconds() / 3600.0, max_age_hours
+                )
                 return True
         except Exception:
-            logger.exception('Error while checking/releasing stale backfill lock')
+            logger.exception("Error while checking/releasing stale backfill lock")
     return False
 
 
@@ -354,14 +385,16 @@ def release_backfill_lock():
     """Release backfill lock."""
     ensure_backfill_lock_table()
     with engine_tm.begin() as conn:
-        conn.execute(text("""
+        conn.execute(
+            text("""
             UPDATE backfill_lock 
             SET is_locked = 0, 
                 locked_at = NULL, 
                 locked_by = NULL
             WHERE id = 1
-        """))
-    logger.info('Released backfill lock')
+        """)
+        )
+    logger.info("Released backfill lock")
 
 
 def acquire_backfill_lock_with_token(token: str) -> bool:
@@ -371,27 +404,30 @@ def acquire_backfill_lock_with_token(token: str) -> bool:
     """
     ensure_backfill_lock_table()
     try:
-        stale_hours = int(os.getenv('BACKFILL_LOCK_STALE_HOURS', '6'))
+        stale_hours = int(os.getenv("BACKFILL_LOCK_STALE_HOURS", "6"))
     except Exception:
         stale_hours = 6
     try:
         release_stale_backfill_lock(stale_hours)
     except Exception:
-        logger.exception('Failed to release stale backfill lock')
+        logger.exception("Failed to release stale backfill lock")
 
     with engine_tm.begin() as conn:
-        result = conn.execute(text("""
+        result = conn.execute(
+            text("""
             UPDATE backfill_lock
             SET is_locked = 1,
                 locked_at = CURRENT_TIMESTAMP,
                 locked_by = :token
             WHERE id = 1 AND is_locked = 0
-        """), {'token': token})
+        """),
+            {"token": token},
+        )
         if result.rowcount > 0:
-            logger.info('Acquired backfill lock (token: %s)', token)
+            logger.info("Acquired backfill lock (token: %s)", token)
             return True
         else:
-            logger.warning('Failed to acquire backfill lock (already locked)')
+            logger.warning("Failed to acquire backfill lock (already locked)")
             return False
 
 
@@ -402,18 +438,21 @@ def refresh_backfill_lock(token: str) -> bool:
     """
     ensure_backfill_lock_table()
     with engine_tm.begin() as conn:
-        result = conn.execute(text(
-            """
+        result = conn.execute(
+            text(
+                """
             UPDATE backfill_lock
             SET locked_at = CURRENT_TIMESTAMP
             WHERE id = 1 AND is_locked = 1 AND locked_by = :token
             """
-        ), {'token': token})
+            ),
+            {"token": token},
+        )
         if result.rowcount > 0:
-            logger.debug('Refreshed backfill lock for token %s', token)
+            logger.debug("Refreshed backfill lock for token %s", token)
             return True
         else:
-            logger.warning('Failed to refresh backfill lock for token %s (owner mismatch)', token)
+            logger.warning("Failed to refresh backfill lock for token %s (owner mismatch)", token)
             return False
 
 
@@ -424,20 +463,23 @@ def release_backfill_lock_token(token: str) -> bool:
     """
     ensure_backfill_lock_table()
     with engine_tm.begin() as conn:
-        result = conn.execute(text(
-            """
+        result = conn.execute(
+            text(
+                """
             UPDATE backfill_lock
             SET is_locked = 0,
                 locked_at = NULL,
                 locked_by = NULL
             WHERE id = 1 AND locked_by = :token
             """
-        ), {'token': token})
+            ),
+            {"token": token},
+        )
         if result.rowcount > 0:
-            logger.info('Released backfill lock for token %s', token)
+            logger.info("Released backfill lock for token %s", token)
             return True
         else:
-            logger.warning('Did not release backfill lock for token %s (owner mismatch or not locked)', token)
+            logger.warning("Did not release backfill lock for token %s (owner mismatch or not locked)", token)
             return False
 
 
@@ -445,9 +487,10 @@ def is_backfill_locked() -> bool:
     """Check if backfill is currently locked."""
     ensure_backfill_lock_table()
     with engine_tm.connect() as conn:
-        result = conn.execute(text("""
+        result = conn.execute(
+            text("""
             SELECT is_locked FROM backfill_lock WHERE id = 1
-        """))
+        """)
+        )
         row = result.fetchone()
         return bool(row[0]) if row else False
-

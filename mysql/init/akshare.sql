@@ -1,5 +1,8 @@
--- AkShare Database Schema
--- Separate database for AkShare data
+-- =============================================================================
+-- QuantMate AkShare Database (Merged Init)
+-- Database: akshare - Separate database for AkShare data
+-- Includes tables from migration 014
+-- =============================================================================
 
 CREATE DATABASE IF NOT EXISTS akshare DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE akshare;
@@ -63,7 +66,41 @@ CREATE TABLE IF NOT EXISTS index_daily (
     INDEX idx_index_date (trade_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- Trade calendar table - persisted from AkShare tool_trade_date_hist_sina
+-- Index spot / real-time quotes (migration 014)
+CREATE TABLE IF NOT EXISTS stock_zh_index_spot (
+    symbol       VARCHAR(20) NOT NULL,
+    name         VARCHAR(50) DEFAULT NULL,
+    latest_price DECIMAL(12,4) DEFAULT NULL,
+    change_pct   DECIMAL(10,4) DEFAULT NULL COMMENT '涨跌幅',
+    change_amount DECIMAL(12,4) DEFAULT NULL COMMENT '涨跌额',
+    volume       BIGINT DEFAULT NULL,
+    amount       DECIMAL(18,4) DEFAULT NULL COMMENT '成交金额',
+    amplitude    DECIMAL(10,4) DEFAULT NULL COMMENT '振幅',
+    high         DECIMAL(12,4) DEFAULT NULL,
+    low          DECIMAL(12,4) DEFAULT NULL,
+    open         DECIMAL(12,4) DEFAULT NULL,
+    prev_close   DECIMAL(12,4) DEFAULT NULL,
+    updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (symbol)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ETF daily K-line (migration 014)
+CREATE TABLE IF NOT EXISTS fund_etf_daily (
+    symbol       VARCHAR(20) NOT NULL,
+    trade_date   DATE NOT NULL,
+    open         DECIMAL(10,4) DEFAULT NULL,
+    high         DECIMAL(10,4) DEFAULT NULL,
+    low          DECIMAL(10,4) DEFAULT NULL,
+    close        DECIMAL(10,4) DEFAULT NULL,
+    volume       BIGINT DEFAULT NULL,
+    amount       DECIMAL(18,4) DEFAULT NULL,
+    outstanding_share DECIMAL(18,4) DEFAULT NULL COMMENT '流通份额',
+    turnover     DECIMAL(10,6) DEFAULT NULL COMMENT '换手率',
+    PRIMARY KEY (symbol, trade_date),
+    INDEX idx_trade_date (trade_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Trade calendar table
 CREATE TABLE IF NOT EXISTS trade_cal (
     trade_date DATE NOT NULL PRIMARY KEY,
     is_trade_day TINYINT NOT NULL DEFAULT 1,

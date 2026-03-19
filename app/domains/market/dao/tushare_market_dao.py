@@ -40,6 +40,7 @@ class TushareMarketDao:
 
         with connection("tushare") as conn:
             from sqlalchemy import text
+
             rows = conn.execute(text(query), params).fetchall()
             return [dict(r._mapping) for r in rows]
 
@@ -52,6 +53,7 @@ class TushareMarketDao:
     ) -> list[dict[str, Any]]:
         with connection("tushare") as conn:
             from sqlalchemy import text
+
             rows = conn.execute(
                 text(
                     """
@@ -74,6 +76,7 @@ class TushareMarketDao:
     def exchange_counts(self) -> dict[str, int]:
         with connection("tushare") as conn:
             from sqlalchemy import text
+
             rows = conn.execute(
                 text(
                     """
@@ -90,6 +93,7 @@ class TushareMarketDao:
     def stock_daily_date_range(self) -> dict[str, Any]:
         with connection("tushare") as conn:
             from sqlalchemy import text
+
             row = conn.execute(
                 text("SELECT MIN(trade_date) as min_date, MAX(trade_date) as max_date FROM stock_daily")
             ).fetchone()
@@ -100,6 +104,7 @@ class TushareMarketDao:
     def sectors(self) -> list[dict[str, Any]]:
         with connection("tushare") as conn:
             from sqlalchemy import text
+
             rows = conn.execute(
                 text(
                     """
@@ -117,6 +122,7 @@ class TushareMarketDao:
     def exchanges(self) -> list[dict[str, Any]]:
         with connection("tushare") as conn:
             from sqlalchemy import text
+
             rows = conn.execute(
                 text(
                     """
@@ -150,5 +156,6 @@ class TushareMarketDao:
 
         with connection("tushare") as conn:
             from sqlalchemy import text
+
             rows = conn.execute(text(query), params).fetchall()
             return [dict(r._mapping) for r in rows]

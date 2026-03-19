@@ -17,6 +17,7 @@ class AkshareBenchmarkDao:
     def get_index_series(self, *, index_code: str, start: date, end: date) -> list[dict[str, Any]]:
         with connection("akshare") as conn:
             from sqlalchemy import text
+
             rows = conn.execute(
                 text(
                     """
@@ -39,10 +40,10 @@ class AkshareBenchmarkDao:
     def get_benchmark_data(self, *, start: date, end: date, benchmark_symbol: str) -> Optional[dict[str, Any]]:
         """Return returns/total_return/prices for a benchmark index."""
         candidates = [benchmark_symbol]
-        if benchmark_symbol and benchmark_symbol.endswith('.SH') and benchmark_symbol.startswith('000'):
-            candidates.append(benchmark_symbol.replace('000', '399').replace('.SH', '.SZ'))
-        if benchmark_symbol and (benchmark_symbol.endswith('.SH') or benchmark_symbol.endswith('.SZ')):
-            alt = benchmark_symbol[:-3] + ('.SZ' if benchmark_symbol.endswith('.SH') else '.SH')
+        if benchmark_symbol and benchmark_symbol.endswith(".SH") and benchmark_symbol.startswith("000"):
+            candidates.append(benchmark_symbol.replace("000", "399").replace(".SH", ".SZ"))
+        if benchmark_symbol and (benchmark_symbol.endswith(".SH") or benchmark_symbol.endswith(".SZ")):
+            alt = benchmark_symbol[:-3] + (".SZ" if benchmark_symbol.endswith(".SH") else ".SH")
             candidates.append(alt)
 
         rows: list[dict[str, Any]] = []
@@ -54,8 +55,8 @@ class AkshareBenchmarkDao:
         if not rows or len(rows) < 2:
             return None
 
-        dates = [r.get('trade_date') for r in rows]
-        closes = np.array([float(r.get('close')) for r in rows], dtype=float)
+        dates = [r.get("trade_date") for r in rows]
+        closes = np.array([float(r.get("close")) for r in rows], dtype=float)
         daily_returns = np.diff(closes) / closes[:-1]
         total_return = (closes[-1] - closes[0]) / closes[0] * 100
 

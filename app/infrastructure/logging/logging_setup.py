@@ -1,15 +1,25 @@
 """Centralized logging configuration moved under infrastructure.
 
-Copied from `app.api.logging_setup` and re-exported via
-`app.infrastructure.logging` to keep imports stable.
+Uses JSON format in production (QUANTMATE_LOG_FORMAT=json) and plain text
+in development.
 """
+
 from typing import Optional
 import logging
+import os
 
 
 def configure_logging(level: int = logging.INFO) -> None:
-    fmt = '%(asctime)s %(levelname)s [%(name)s] %(message)s'
-    datefmt = '%Y-%m-%d %H:%M:%S'
+    log_format = os.getenv("QUANTMATE_LOG_FORMAT", "text")
+
+    if log_format == "json":
+        from app.infrastructure.logging.json_formatter import configure_json_logging
+
+        configure_json_logging(level)
+        return
+
+    fmt = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
+    datefmt = "%Y-%m-%d %H:%M:%S"
     try:
         logging.basicConfig(level=level, format=fmt, datefmt=datefmt, force=True)
     except TypeError:
@@ -18,7 +28,7 @@ def configure_logging(level: int = logging.INFO) -> None:
             root.removeHandler(h)
         logging.basicConfig(level=level, format=fmt, datefmt=datefmt)
 
-    for name in ('uvicorn.error', 'uvicorn.access'):
+    for name in ("uvicorn.error", "uvicorn.access"):
         log = logging.getLogger(name)
         for h in list(log.handlers):
             try:

@@ -5,7 +5,7 @@ All SQL for bulk child pagination/ordering and summary inputs lives here.
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from app.infrastructure.db.connections import connection
 
@@ -14,6 +14,7 @@ class BulkResultsDao:
     def count_children(self, *, bulk_job_id: str, user_id: int) -> int:
         with connection("quantmate") as conn:
             from sqlalchemy import text
+
             row = conn.execute(
                 text("SELECT COUNT(*) as cnt FROM backtest_history WHERE bulk_job_id = :bjid AND user_id = :uid"),
                 {"bjid": bulk_job_id, "uid": user_id},
@@ -34,6 +35,7 @@ class BulkResultsDao:
 
         with connection("quantmate") as conn:
             from sqlalchemy import text
+
             rows = conn.execute(
                 text(
                     f"""
@@ -54,6 +56,7 @@ class BulkResultsDao:
     def list_all_children(self, *, bulk_job_id: str, user_id: int) -> list[dict[str, Any]]:
         with connection("quantmate") as conn:
             from sqlalchemy import text
+
             rows = conn.execute(
                 text(
                     """

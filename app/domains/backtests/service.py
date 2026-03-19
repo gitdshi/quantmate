@@ -5,7 +5,7 @@ Used by queue/backtest routes for bulk result pagination and summary aggregation
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any
 import json
 
 from app.domains.backtests.dao.bulk_backtest_dao import BulkBacktestDao
