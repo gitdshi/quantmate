@@ -60,7 +60,6 @@ async def get_risk_metrics(current_user: TokenData = Depends(get_current_user)):
     dao = PortfolioDao()
     portfolio = dao.get_or_create(current_user.user_id)
     positions = dao.list_positions(portfolio["id"])
-    snapshots = dao.list_snapshots(portfolio["id"], limit=252)  # ~1 year
 
     # Calculate cash ratio from portfolio data
     total_market_value = sum(float(p.get("quantity", 0)) * float(p.get("avg_cost", 0)) for p in positions)

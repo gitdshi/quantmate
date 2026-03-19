@@ -54,7 +54,6 @@ import numpy as _np
 if not hasattr(_np, "NINF"):
     _np.NINF = -_np.inf
 
-from app.utils.ts_utils import moving_average, pct_change
 from app.api.services.strategy_service import compile_strategy
 from app.api.services.job_storage_service import get_job_storage
 
