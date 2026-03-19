@@ -70,6 +70,8 @@ jobs:
         env:
           PYTHONPATH: .
           JWT_SECRET_KEY: ci-test-secret-key
+          SECRET_KEY: ci-test-secret-key
+          MYSQL_PASSWORD: ci-test-mysql-password
           DATABASE_URL: sqlite:///test.db
         run: pytest tests/unit/ -v --tb=short --junitxml=test-results.xml
 
