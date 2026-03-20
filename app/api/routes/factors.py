@@ -197,7 +197,9 @@ async def compute_qlib_factors(
             "date_range": {"start": req.start_date, "end": req.end_date},
             "shape": {"rows": df.shape[0], "columns": df.shape[1]},
             "factor_names": list(df.columns)[:20],
-            "sample_instruments": list(df.index.get_level_values(0).unique()[:10]) if hasattr(df.index, "get_level_values") else [],
+            "sample_instruments": list(df.index.get_level_values(0).unique()[:10])
+            if hasattr(df.index, "get_level_values")
+            else [],
         }
 
     except Exception as e:

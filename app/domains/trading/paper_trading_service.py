@@ -124,15 +124,17 @@ class PaperTradingService:
             avg_cost = float(r.avg_cost) if r.avg_cost else 0
             if qty == 0:
                 continue
-            positions.append({
-                "symbol": r.symbol,
-                "direction": r.direction,
-                "quantity": qty,
-                "avg_cost": round(avg_cost, 4),
-                "current_price": round(avg_cost, 4),  # TODO: integrate real-time quote
-                "pnl": 0.0,
-                "pnl_pct": 0.0,
-            })
+            positions.append(
+                {
+                    "symbol": r.symbol,
+                    "direction": r.direction,
+                    "quantity": qty,
+                    "avg_cost": round(avg_cost, 4),
+                    "current_price": round(avg_cost, 4),  # TODO: integrate real-time quote
+                    "pnl": 0.0,
+                    "pnl_pct": 0.0,
+                }
+            )
         return positions
 
     # ── Performance ─────────────────────────────────────────
@@ -185,10 +187,12 @@ class PaperTradingService:
                 cumulative += trade_value - fee
             else:
                 cumulative -= trade_value + fee
-            equity_curve.append({
-                "date": str(r.created_at)[:10] if r.created_at else "",
-                "value": round(cumulative, 2),
-            })
+            equity_curve.append(
+                {
+                    "date": str(r.created_at)[:10] if r.created_at else "",
+                    "value": round(cumulative, 2),
+                }
+            )
 
         # Max drawdown
         peak = 0.0

@@ -33,7 +33,8 @@ async def create_order(req: OrderCreateRequest, current_user: TokenData = Depend
     """Submit a live order through vnpy gateway. Paper orders should use /paper-trade/orders."""
     if req.mode == "paper":
         raise APIError(
-            status_code=400, code=ErrorCode.VALIDATION_ERROR,
+            status_code=400,
+            code=ErrorCode.VALIDATION_ERROR,
             message="Paper orders have moved to /api/v1/paper-trade/orders",
         )
     if req.direction not in ("buy", "sell"):
@@ -193,7 +194,9 @@ async def connect_gateway(req: GatewayConnectRequest, current_user: TokenData = 
     try:
         gw_type = GatewayType(req.gateway_type)
     except ValueError:
-        raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message=f"Unknown gateway type: {req.gateway_type}")
+        raise APIError(
+            status_code=400, code=ErrorCode.VALIDATION_ERROR, message=f"Unknown gateway type: {req.gateway_type}"
+        )
 
     svc = VnpyTradingService()
     ok = svc.connect_gateway(gw_type, req.config, req.gateway_name)
@@ -278,7 +281,9 @@ async def auto_strategy_start(req: AutoStrategyStartRequest, current_user: Token
         gateway_name=req.gateway_name,
     )
     if not result["success"]:
-        raise APIError(status_code=400, code=ErrorCode.BAD_REQUEST, message=result.get("error", "Failed to start strategy"))
+        raise APIError(
+            status_code=400, code=ErrorCode.BAD_REQUEST, message=result.get("error", "Failed to start strategy")
+        )
     return result
 
 

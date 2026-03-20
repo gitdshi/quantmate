@@ -240,7 +240,6 @@ def run_qlib_backtest_task(
 
 
 def _create_qlib_backtest_record(**kwargs) -> None:
-    import json
     from sqlalchemy import text
     from app.infrastructure.db.connections import connection
 

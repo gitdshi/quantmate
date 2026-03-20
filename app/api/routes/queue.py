@@ -98,11 +98,10 @@ async def submit_backtest_to_queue(request: Dict[str, Any], current_user: TokenD
 
         job_id = str(uuid.uuid4())
         # Submit as background task (or RQ job)
-        from fastapi import BackgroundTasks
 
         # We can't inject BackgroundTasks here easily, so call synchronously
         # In production this should be enqueued to RQ
-        result = run_qlib_backtest_task(
+        run_qlib_backtest_task(
             user_id=current_user.user_id,
             job_id=job_id,
             training_run_id=request.get("training_run_id"),

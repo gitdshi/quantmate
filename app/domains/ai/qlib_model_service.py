@@ -8,7 +8,6 @@ Data source: tushare/akshare via Qlib binary files (NOT vnpy DB).
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text
@@ -17,9 +16,7 @@ from app.infrastructure.db.connections import connection
 from app.infrastructure.qlib.qlib_config import (
     SUPPORTED_MODELS,
     SUPPORTED_DATASETS,
-    SUPPORTED_STRATEGIES,
     ensure_qlib_initialized,
-    is_qlib_available,
 )
 
 logger = logging.getLogger(__name__)
@@ -69,8 +66,6 @@ class QlibModelService:
         try:
             ensure_qlib_initialized()
 
-            from qlib.data.dataset import DatasetH
-            from qlib.data.dataset.handler import DataHandlerLP
             from qlib.utils import init_instance_by_config
 
             # Build dataset handler config
@@ -152,7 +147,9 @@ class QlibModelService:
         """Get model predictions for a training run, optionally filtered by date."""
         with connection("qlib") as conn:
             params: Dict[str, Any] = {"run_id": training_run_id, "limit": top_n}
-            query = "SELECT instrument, trade_date, score, rank_pct FROM model_predictions WHERE training_run_id = :run_id"
+            query = (
+                "SELECT instrument, trade_date, score, rank_pct FROM model_predictions WHERE training_run_id = :run_id"
+            )
             if trade_date:
                 query += " AND trade_date = :td"
                 params["td"] = trade_date
@@ -299,7 +296,13 @@ class QlibModelService:
                             "VALUES (:rid, :inst, :td, :score, :rank)"
                         ),
                         [
-                            {"rid": run_id, "inst": r[0], "td": r[1], "score": float(r[2]), "rank": float(r[3]) if r[3] is not None else None}
+                            {
+                                "rid": run_id,
+                                "inst": r[0],
+                                "td": r[1],
+                                "score": float(r[2]),
+                                "rank": float(r[3]) if r[3] is not None else None,
+                            }
                             for r in batch
                         ],
                     )
@@ -334,14 +337,14 @@ class QlibModelService:
 
             # Calculate Information Coefficient per date
             if isinstance(pred_aligned, pd.Series):
-                pred_df = pred_aligned.reset_index()
+                pred_aligned.reset_index()
             else:
-                pred_df = pred_aligned.reset_index()
+                pred_aligned.reset_index()
 
             if isinstance(label_aligned, pd.Series):
-                label_df = label_aligned.reset_index()
+                label_aligned.reset_index()
             else:
-                label_df = label_aligned.reset_index()
+                label_aligned.reset_index()
 
             # Simple overall IC
             ic, _ = stats.spearmanr(pred_aligned.values.flatten(), label_aligned.values.flatten())

@@ -77,6 +77,7 @@ def is_qlib_available() -> bool:
     """Check if Qlib is installed and can be imported."""
     try:
         import qlib  # noqa: F401
+
         return True
     except ImportError:
         return False

@@ -62,7 +62,7 @@ class CtaStrategyRunner:
 
         try:
             # Compile strategy class
-            strategy_class = self._load_strategy_class(strategy_class_name, strategy_code, strategy_id, user_id)
+            self._load_strategy_class(strategy_class_name, strategy_code, strategy_id, user_id)
 
             # Record running state (actual vnpy CtaEngine integration is gated
             # behind a gateway connection check)
@@ -95,7 +95,11 @@ class CtaStrategyRunner:
     def list_strategies(self) -> List[Dict[str, Any]]:
         """Return status of all running strategies."""
         return [
-            {"strategy_name": name, **{k: v for k, v in info.items() if k != "parameters"}, "parameters": info.get("parameters", {})}
+            {
+                "strategy_name": name,
+                **{k: v for k, v in info.items() if k != "parameters"},
+                "parameters": info.get("parameters", {}),
+            }
             for name, info in self._running_strategies.items()
         ]
 

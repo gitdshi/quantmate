@@ -1,6 +1,6 @@
 """Data service for market data operations."""
 
-from datetime import date
+from datetime import date, datetime
 from typing import List, Optional, Dict, Any
 import pandas as pd
 

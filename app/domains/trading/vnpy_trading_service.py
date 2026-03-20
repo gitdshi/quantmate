@@ -22,15 +22,17 @@ logger = logging.getLogger(__name__)
 # Gateway type enumeration
 # ---------------------------------------------------------------------------
 
+
 class GatewayType(str, Enum):
-    CTP = "ctp"          # Futures (CFFEX / SHFE / DCE / CZCE / INE)
-    XTP = "xtp"          # Equities (SSE / SZSE)
-    SIMULATED = "sim"    # Simulated gateway for testing
+    CTP = "ctp"  # Futures (CFFEX / SHFE / DCE / CZCE / INE)
+    XTP = "xtp"  # Equities (SSE / SZSE)
+    SIMULATED = "sim"  # Simulated gateway for testing
 
 
 # ---------------------------------------------------------------------------
 # Data classes for event payloads
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class OrderEvent:
@@ -79,6 +81,7 @@ class AccountSnapshot:
 # ---------------------------------------------------------------------------
 # VNPy Trading Service (singleton per process)
 # ---------------------------------------------------------------------------
+
 
 class VnpyTradingService:
     """Manage vnpy gateway connections and route live orders."""
@@ -167,7 +170,7 @@ class VnpyTradingService:
             return False
         if info.get("type") != GatewayType.SIMULATED and self._main_engine:
             try:
-                class_name = info.get("gateway_class_name", gateway_name)
+                info.get("gateway_class_name", gateway_name)
                 self._main_engine.close()
             except Exception:
                 logger.exception("[vnpy-trading] Error disconnecting gateway '%s'", gateway_name)
@@ -210,7 +213,15 @@ class VnpyTradingService:
         # Simulated gateway — return synthetic order id
         if gw_info.get("type") == GatewayType.SIMULATED:
             oid = f"SIM-{datetime.utcnow().strftime('%Y%m%d%H%M%S%f')}"
-            logger.info("[vnpy-trading][sim] Order %s: %s %s %s qty=%s px=%s", oid, symbol, direction, order_type, quantity, price)
+            logger.info(
+                "[vnpy-trading][sim] Order %s: %s %s %s qty=%s px=%s",
+                oid,
+                symbol,
+                direction,
+                order_type,
+                quantity,
+                price,
+            )
             return oid
 
         if self._main_engine is None:
@@ -254,6 +265,7 @@ class VnpyTradingService:
             return False
         try:
             from vnpy.trader.object import CancelRequest
+
             req = CancelRequest(orderid=vt_orderid, symbol="", exchange=None)  # type: ignore[arg-type]
             self._main_engine.cancel_order(req, gw_name)
             return True
@@ -327,9 +339,11 @@ class VnpyTradingService:
         """Dynamically import the vnpy gateway class."""
         if gateway_type == GatewayType.CTP:
             from vnpy_ctp import CtpGateway
+
             return CtpGateway
         elif gateway_type == GatewayType.XTP:
             from vnpy_xtp import XtpGateway
+
             return XtpGateway
         else:
             raise ValueError(f"Unsupported gateway type: {gateway_type}")

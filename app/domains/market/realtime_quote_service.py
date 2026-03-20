@@ -10,6 +10,7 @@ import requests
 
 try:
     import akshare as ak
+
     _AKSHARE_IMPORT_ERROR: Exception | None = None
 except Exception as _e:  # pragma: no cover - environment dependent
     ak = None  # type: ignore[assignment]

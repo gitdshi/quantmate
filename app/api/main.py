@@ -158,9 +158,7 @@ async def lifespan(app: FastAPI):
                 user_dao.update_user_password(
                     admin_user["id"], get_password_hash(admin_password), must_change_password=False
                 )
-                logger.info(
-                    "Updated existing admin password from ADMIN_PASSWORD without forcing password change."
-                )
+                logger.info("Updated existing admin password from ADMIN_PASSWORD without forcing password change.")
 
             # Existing admin: upgrade if necessary
             DEFAULT_ADMIN_HASH = "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5GyYqVvmvhxKe"

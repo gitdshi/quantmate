@@ -24,6 +24,7 @@ router = APIRouter(prefix="/paper-trade", tags=["Paper Trading"])
 
 # ── Request Models ──────────────────────────────────────────
 
+
 class DeployRequest(BaseModel):
     strategy_id: int
     vt_symbol: str
@@ -40,6 +41,7 @@ class PaperOrderRequest(BaseModel):
 
 # ── Deploy Endpoints ────────────────────────────────────────
 
+
 @router.post("/deploy", status_code=status.HTTP_201_CREATED)
 async def deploy_strategy(req: DeployRequest, current_user: TokenData = Depends(get_current_user)):
     """Deploy a strategy to paper trading simulation."""
@@ -52,7 +54,8 @@ async def deploy_strategy(req: DeployRequest, current_user: TokenData = Depends(
     )
     if not result.get("success"):
         raise APIError(
-            status_code=400, code=ErrorCode.VALIDATION_ERROR,
+            status_code=400,
+            code=ErrorCode.VALIDATION_ERROR,
             message=result.get("error", "Deploy failed"),
         )
     return result
@@ -73,13 +76,15 @@ async def stop_deployment(deployment_id: int, current_user: TokenData = Depends(
     ok = svc.stop_deployment(deployment_id=deployment_id, user_id=current_user.user_id)
     if not ok:
         raise APIError(
-            status_code=404, code=ErrorCode.NOT_FOUND,
+            status_code=404,
+            code=ErrorCode.NOT_FOUND,
             message="Deployment not found or already stopped",
         )
     return {"message": "Deployment stopped"}
 
 
 # ── Paper Order Endpoints ───────────────────────────────────
+
 
 @router.post("/orders", status_code=status.HTTP_201_CREATED)
 async def create_paper_order(req: PaperOrderRequest, current_user: TokenData = Depends(get_current_user)):
@@ -139,13 +144,15 @@ async def cancel_paper_order(order_id: int, current_user: TokenData = Depends(ge
     ok = dao.cancel(order_id, current_user.user_id)
     if not ok:
         raise APIError(
-            status_code=400, code=ErrorCode.VALIDATION_ERROR,
+            status_code=400,
+            code=ErrorCode.VALIDATION_ERROR,
             message="Order not found or cannot be cancelled",
         )
     return {"message": "Paper order cancelled"}
 
 
 # ── Positions & Performance ─────────────────────────────────
+
 
 @router.get("/positions")
 async def get_paper_positions(current_user: TokenData = Depends(get_current_user)):
