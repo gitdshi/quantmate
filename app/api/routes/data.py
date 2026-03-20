@@ -105,9 +105,17 @@ async def get_indicators(
 
 @router.get("/overview")
 async def get_market_overview(current_user: Optional[TokenData] = Depends(get_current_user_optional)):
-    """Get market overview statistics."""
+    """Get realtime market index overview."""
     service = DataService()
-    return service.get_market_overview()
+    try:
+        return {"indexes": service.get_index_overview(), "stats": service.get_market_overview()}
+    except Exception as e:
+        raise APIError(
+            status_code=500,
+            code=ErrorCode.DATA_FETCH_FAILED,
+            message="Failed to fetch market overview",
+            detail=str(e),
+        )
 
 
 @router.get("/sectors")

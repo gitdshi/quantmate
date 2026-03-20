@@ -122,10 +122,25 @@ class DataService:
         if not self._market_enabled(market):
             raise PermissionError(f"Realtime quotes disabled for market: {market}")
 
-        quote = self._realtime.get_quote(symbol=symbol, market=market)
-        if self._cache_enabled():
-            self._realtime_cache.record(market=market, symbol=symbol, quote=quote)
-        return quote
+        try:
+            quote = self._realtime.get_quote(symbol=symbol, market=market)
+            if self._cache_enabled():
+                self._realtime_cache.record(market=market, symbol=symbol, quote=quote)
+            return quote
+        except Exception as e:
+            if self._cache_enabled():
+                cached = self._realtime_cache.get_latest(market=market, symbol=symbol)
+                if cached:
+                    return {
+                        "symbol": symbol,
+                        "market": market,
+                        "price": cached["price"],
+                        "asof": datetime.fromtimestamp(cached["ts"]).isoformat(),
+                        "source": "cache",
+                        "stale": True,
+                        "error": str(e),
+                    }
+            raise
 
     def get_realtime_series(
         self, symbol: str, market: str = "CN", start_ts: int | None = None, end_ts: int | None = None
@@ -151,6 +166,9 @@ class DataService:
         return str(cfg.get("config_value", "true")).strip().lower() in {"1", "true", "yes", "on"}
 
     def _market_enabled(self, market: str) -> bool:
+        market_key = market.strip().upper()
+        if market_key in {"CN_INDEX", "INDEX_CN", "INDEX"}:
+            market_key = "CN"
         cfg = self._system_config.get("realtime_quote_markets")
         if not cfg:
             return True
@@ -158,4 +176,22 @@ class DataService:
         if not raw:
             return True
         enabled = {m.strip().upper() for m in raw.split(",") if m.strip()}
-        return market.strip().upper() in enabled
+        return market_key in enabled
+
+    def get_index_overview(self) -> Dict[str, Any]:
+        """Fetch realtime index overview (CN indices)."""
+        indexes = {
+            "csi300": {"symbol": "000300.SH", "market": "CN_INDEX", "name": "CSI 300"},
+            "sse": {"symbol": "000001.SH", "market": "CN_INDEX", "name": "SSE Composite"},
+            "szse": {"symbol": "399001.SZ", "market": "CN_INDEX", "name": "SZSE Component"},
+            "chinext": {"symbol": "399006.SZ", "market": "CN_INDEX", "name": "ChiNext"},
+        }
+        result: Dict[str, Any] = {}
+        for key, meta in indexes.items():
+            try:
+                quote = self._realtime.get_quote(symbol=meta["symbol"], market=meta["market"])
+                quote["display_name"] = meta["name"]
+                result[key] = quote
+            except Exception as e:
+                result[key] = {"error": str(e), "display_name": meta["name"], "symbol": meta["symbol"]}
+        return result

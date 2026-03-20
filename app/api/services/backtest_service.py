@@ -33,6 +33,12 @@ from app.worker.service.tasks import (
 )
 from app.api.services.job_storage_service import get_job_storage
 
+from app.datasync.service.vnpy_ingest import (
+    get_symbol as get_ts_symbol,
+    map_exchange as map_ts_exchange,
+    sync_symbol_to_vnpy,
+    update_bar_overview,
+)
 from app.domains.backtests.dao.akshare_benchmark_dao import AkshareBenchmarkDao
 from app.domains.backtests.dao.backtest_history_dao import BacktestHistoryDao
 from app.domains.backtests.dao.bulk_backtest_dao import BulkBacktestDao
@@ -75,6 +81,39 @@ def get_stock_name(ts_code: str) -> Optional[str]:
     except Exception:
         logger.exception("Error fetching stock name for ts_code=%s", ts_code)
         return None
+
+
+def convert_to_tushare_symbol(symbol: str) -> str:
+    """Convert a vn.py symbol into Tushare ts_code format when possible."""
+    if not symbol or "." not in symbol:
+        return symbol
+
+    code, exch = symbol.rsplit(".", 1)
+    exch_upper = exch.upper()
+    suffix_map = {
+        "SZSE": "SZ",
+        "SSE": "SH",
+        "BSE": "BJ",
+        "SZ": "SZ",
+        "SH": "SH",
+        "BJ": "BJ",
+    }
+    return f"{code}.{suffix_map.get(exch_upper, exch_upper)}"
+
+
+def ensure_vnpy_history_data(vt_symbol: str, start_date: date) -> int:
+    """Backfill the requested symbol into vn.py DB from Tushare on demand."""
+    ts_code = convert_to_tushare_symbol(vt_symbol)
+    if not ts_code or "." not in ts_code:
+        return 0
+
+    synced = sync_symbol_to_vnpy(ts_code, start_date=start_date)
+    if synced > 0:
+        update_bar_overview(get_ts_symbol(ts_code), map_ts_exchange(ts_code))
+        logger.info("[BacktestService] Backfilled %s bars for %s into vnpy DB", synced, ts_code)
+    else:
+        logger.warning("[BacktestService] No vnpy bars backfilled for %s from %s", vt_symbol, ts_code)
+    return synced
 
 
 class BacktestServiceV2:
@@ -516,7 +555,11 @@ class BacktestService(BacktestServiceV2):
         engine.add_strategy(strategy_cls, setting)
         engine.load_data()
         if not engine.history_data:
-            return None
+            ensure_vnpy_history_data(vt_symbol, start_date)
+            engine.history_data = []
+            engine.load_data()
+        if not engine.history_data:
+            raise RuntimeError(f"No historical bar data found for {vt_symbol} between {start_date} and {end_date}")
         engine.run_backtesting()
         try:
             df = engine.calculate_result()

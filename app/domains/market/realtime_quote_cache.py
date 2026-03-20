@@ -83,3 +83,22 @@ class RealtimeQuoteCache:
         if limit and len(points) > limit:
             return points[-limit:]
         return points
+
+    def get_latest(self, *, market: str, symbol: str) -> dict[str, Any] | None:
+        r = self._get_redis()
+        if r is None:
+            return None
+        key = self._key(market, symbol)
+        try:
+            values = r.zrevrange(key, 0, 0)
+        except Exception:
+            return None
+        if not values:
+            return None
+        try:
+            data = json.loads(values[0])
+            if "ts" in data and "price" in data:
+                return {"ts": int(data["ts"]), "price": float(data["price"])}
+        except Exception:
+            return None
+        return None

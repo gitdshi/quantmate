@@ -59,6 +59,12 @@ if not hasattr(_np, "NINF"):
 from app.api.services.strategy_service import compile_strategy
 from app.api.services.job_storage_service import get_job_storage
 
+from app.datasync.service.vnpy_ingest import (
+    get_symbol as get_ts_symbol,
+    map_exchange as map_ts_exchange,
+    sync_symbol_to_vnpy,
+    update_bar_overview,
+)
 from app.domains.market.service import MarketService
 from app.domains.backtests.dao.akshare_benchmark_dao import AkshareBenchmarkDao
 from app.domains.backtests.dao.backtest_history_dao import BacktestHistoryDao
@@ -93,6 +99,40 @@ def convert_to_vnpy_symbol(symbol: str) -> str:
     }
     vnpy_exchange = exchange_map.get(exch_upper, exch_upper)
     return f"{code}.{vnpy_exchange}"
+
+
+def convert_to_tushare_symbol(symbol: str) -> str:
+    """Convert a symbol into Tushare ts_code format when possible."""
+    if not symbol or "." not in symbol:
+        return symbol
+
+    code, exch = symbol.rsplit(".", 1)
+    exch_upper = exch.upper()
+    suffix_map = {
+        "SZSE": "SZ",
+        "SSE": "SH",
+        "BSE": "BJ",
+        "SZ": "SZ",
+        "SH": "SH",
+        "BJ": "BJ",
+    }
+    return f"{code}.{suffix_map.get(exch_upper, exch_upper)}"
+
+
+def ensure_vnpy_history_data(symbol: str, start_date: str) -> int:
+    """Backfill the requested symbol into vn.py DB from Tushare on demand."""
+    ts_code = convert_to_tushare_symbol(symbol)
+    if not ts_code or "." not in ts_code:
+        return 0
+
+    start_dt = datetime.strptime(start_date, "%Y-%m-%d").date() if isinstance(start_date, str) else start_date
+    synced = sync_symbol_to_vnpy(ts_code, start_date=start_dt)
+    if synced > 0:
+        update_bar_overview(get_ts_symbol(ts_code), map_ts_exchange(ts_code))
+        logger.info("[worker] Backfilled %s bars for %s into vnpy DB", synced, ts_code)
+    else:
+        logger.warning("[worker] No vnpy bars backfilled for %s from %s", symbol, ts_code)
+    return synced
 
 
 def resolve_symbol_name(input_symbol: str) -> str:
@@ -227,6 +267,8 @@ def run_backtest_task(
     job_id = current_job.id if current_job else None
 
     try:
+        strategy_settings: Dict[str, Any] = {}
+
         # Ensure vn.py reads bars from MySQL(vnpy) instead of default sqlite.
         _configure_vnpy_mysql_from_env()
 
@@ -282,15 +324,27 @@ def run_backtest_task(
         if not strategy_class:
             raise RuntimeError(f"Strategy class '{strategy_class_name}' not loaded or compiled successfully")
 
-        # Add strategy
+        if hasattr(strategy_class, "get_class_parameters"):
+            try:
+                strategy_settings = strategy_class.get_class_parameters() or {}
+            except Exception:
+                logger.exception("[worker] Failed to read default parameters for %s", strategy_class_name)
+                strategy_settings = {}
         if parameters:
-            engine.add_strategy(strategy_class, parameters)
-        else:
-            engine.add_strategy(strategy_class, {})
+            strategy_settings.update(parameters)
+
+        # Add strategy
+        engine.add_strategy(strategy_class, strategy_settings)
 
         # Load data
         logger.info("[worker] Loading data for %s...", symbol)
         engine.load_data()
+        if not engine.history_data:
+            ensure_vnpy_history_data(vnpy_symbol, start_date)
+            engine.history_data = []
+            engine.load_data()
+        if not engine.history_data:
+            raise RuntimeError(f"No historical bar data found for {symbol} between {start_date} and {end_date}")
 
         # Run backtest
         logger.info("[worker] Running backtest...")
@@ -375,7 +429,7 @@ def run_backtest_task(
             "end_date": end_date,
             "initial_capital": initial_capital,
             "benchmark": benchmark,
-            "parameters": parameters or {},
+            "parameters": strategy_settings,
             "statistics": {
                 "total_return": float(statistics.get("total_return", 0)),
                 "annual_return": float(statistics.get("annual_return", 0)),
@@ -421,7 +475,7 @@ def run_backtest_task(
                 symbol=symbol,
                 start_date=start_date,
                 end_date=end_date,
-                parameters=parameters or {},
+                parameters=strategy_settings,
                 status="completed",
                 result=result,
                 strategy_version=_strategy_version,

@@ -6,7 +6,14 @@ import re
 from datetime import datetime
 from typing import Any, Iterable
 
-import akshare as ak
+import requests
+
+try:
+    import akshare as ak
+    _AKSHARE_IMPORT_ERROR: Exception | None = None
+except Exception as _e:  # pragma: no cover - environment dependent
+    ak = None  # type: ignore[assignment]
+    _AKSHARE_IMPORT_ERROR = _e
 import pandas as pd
 
 
@@ -22,6 +29,8 @@ class RealtimeQuoteService:
 
         if market_key in {"CN", "A", "A_SHARE", "SSE", "SZSE", "SH", "SZ"}:
             return self._quote_cn(sym)
+        if market_key in {"CN_INDEX", "INDEX_CN", "INDEX"}:
+            return self._quote_cn_index(sym)
         if market_key in {"HK", "HKEX"}:
             return self._quote_hk(sym)
         if market_key in {"US", "NYSE", "NASDAQ"}:
@@ -86,33 +95,68 @@ class RealtimeQuoteService:
 
     def _quote_cn(self, symbol: str) -> dict[str, Any]:
         code = symbol.split(".")[0].strip()
-        df = ak.stock_zh_a_spot_em()
-        if "代码" not in df.columns:
-            raise ValueError("Unexpected response for CN spot quotes")
-        row = df.loc[df["代码"].astype(str) == code]
-        if row.empty:
-            raise ValueError(f"Symbol not found in CN spot data: {symbol}")
-        r = row.iloc[0]
+        parts = self._fetch_tencent_quote(code)
+        return self._build_tencent_quote(code, parts, market="CN")
+
+    def _quote_cn_index(self, symbol: str) -> dict[str, Any]:
+        code = symbol.split(".")[0].strip()
+        parts = self._fetch_tencent_quote(code)
+        return self._build_tencent_quote(code, parts, market="CN_INDEX")
+
+    def _fetch_tencent_quote(self, code: str) -> list[str]:
+        prefix = "sh" if code.startswith(("6", "9", "5", "68")) else "sz"
+        url = f"https://qt.gtimg.cn/q={prefix}{code}"
+        resp = requests.get(url, timeout=5)
+        resp.raise_for_status()
+        text = resp.text
+        if "=" not in text:
+            raise ValueError(f"Invalid Tencent quote response for {code}")
+        payload = text.split("=", 1)[1].strip().strip('";')
+        parts = payload.replace("\r", "").replace("\n", "").split("~")
+        if len(parts) < 6:
+            raise ValueError(f"Symbol not found in Tencent quote: {code}")
+        return parts
+
+    def _build_tencent_quote(self, code: str, parts: list[str], market: str) -> dict[str, Any]:
+        def to_f(idx: int) -> float | None:
+            if idx >= len(parts):
+                return None
+            return self._to_float(parts[idx])
+
+        price = to_f(3)
+        prev_close = to_f(4)
+        change = price - prev_close if (price is not None and prev_close) else None
+        change_pct = (change / prev_close * 100) if (change is not None and prev_close) else None
+
+        amount = None
+        if len(parts) > 35 and "/" in parts[35]:
+            try:
+                amount = float(parts[35].split("/")[2])
+            except Exception:
+                amount = None
+
         return {
             "symbol": code,
-            "name": self._pick(r, ["名称"]),
-            "price": self._to_float(self._pick(r, ["最新价"])),
-            "change": self._to_float(self._pick(r, ["涨跌额"])),
-            "change_percent": self._to_float(self._pick(r, ["涨跌幅"])),
-            "open": self._to_float(self._pick(r, ["今开"])),
-            "high": self._to_float(self._pick(r, ["最高"])),
-            "low": self._to_float(self._pick(r, ["最低"])),
-            "prev_close": self._to_float(self._pick(r, ["昨收"])),
-            "volume": self._to_int(self._pick(r, ["成交量"])),
-            "amount": self._to_float(self._pick(r, ["成交额"])),
-            "market": "CN",
+            "name": parts[1] if len(parts) > 1 else None,
+            "price": price,
+            "change": change,
+            "change_percent": change_pct,
+            "open": to_f(5),
+            "high": to_f(33),
+            "low": to_f(34),
+            "prev_close": prev_close,
+            "volume": self._to_int(parts[6]) if len(parts) > 6 else None,
+            "amount": amount,
+            "market": market,
             "currency": "CNY",
-            "source": "akshare:stock_zh_a_spot_em",
+            "source": "tencent:qt",
             "asof": self._now_iso(),
             "delayed": False,
         }
 
     def _quote_hk(self, symbol: str) -> dict[str, Any]:
+        if ak is None:
+            raise RuntimeError(f"AkShare not available: {_AKSHARE_IMPORT_ERROR}")
         code = symbol.split(".")[0].strip().zfill(5)
         df = ak.stock_hk_spot()
         if "symbol" not in df.columns:
@@ -141,6 +185,8 @@ class RealtimeQuoteService:
         }
 
     def _quote_us(self, symbol: str) -> dict[str, Any]:
+        if ak is None:
+            raise RuntimeError(f"AkShare not available: {_AKSHARE_IMPORT_ERROR}")
         raw = symbol.split(".")[0].strip()
         sym = raw.upper()
         df = ak.stock_us_spot_em()
@@ -171,6 +217,8 @@ class RealtimeQuoteService:
         }
 
     def _quote_fx(self, symbol: str) -> dict[str, Any]:
+        if ak is None:
+            raise RuntimeError(f"AkShare not available: {_AKSHARE_IMPORT_ERROR}")
         sym = self._normalize_symbol(symbol)
         df = ak.forex_spot_em()
         if "代码" not in df.columns:
@@ -200,6 +248,8 @@ class RealtimeQuoteService:
         }
 
     def _quote_futures(self, symbol: str) -> dict[str, Any]:
+        if ak is None:
+            raise RuntimeError(f"AkShare not available: {_AKSHARE_IMPORT_ERROR}")
         sym = self._normalize_symbol(symbol)
         df = ak.futures_zh_spot()
         if "symbol" not in df.columns:
@@ -229,6 +279,8 @@ class RealtimeQuoteService:
         }
 
     def _quote_crypto(self, symbol: str) -> dict[str, Any]:
+        if ak is None:
+            raise RuntimeError(f"AkShare not available: {_AKSHARE_IMPORT_ERROR}")
         sym = self._normalize_symbol(symbol)
         df = ak.crypto_js_spot()
         if "交易品种" not in df.columns:
