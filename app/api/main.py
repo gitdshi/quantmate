@@ -45,6 +45,7 @@ from app.api.routes import mfa
 from app.api.routes import api_keys
 from app.api.routes import sessions
 from app.api.routes import trading
+from app.api.routes import paper_trading
 from app.api.routes import risk
 from app.api.routes import alerts
 from app.api.routes import reports
@@ -58,6 +59,7 @@ from app.api.routes import factors as factor_routes
 from app.api.routes import templates as template_routes
 from app.api.routes import teams as team_routes
 from app.api.routes import multi_market
+from app.api.routes import ai_model as ai_model_routes
 from app.api.exception_handlers import register_exception_handlers, APIError
 from app.api.errors import ErrorCode
 
@@ -232,6 +234,7 @@ app.include_router(mfa.router, prefix="/api/v1")
 app.include_router(api_keys.router, prefix="/api/v1")
 app.include_router(sessions.router, prefix="/api/v1")
 app.include_router(trading.router, prefix="/api/v1")
+app.include_router(paper_trading.router, prefix="/api/v1")
 app.include_router(risk.router, prefix="/api/v1")
 app.include_router(alerts.router, prefix="/api/v1")
 app.include_router(reports.router, prefix="/api/v1")
@@ -245,6 +248,7 @@ app.include_router(factor_routes.router, prefix="/api/v1")
 app.include_router(template_routes.router, prefix="/api/v1")
 app.include_router(team_routes.router, prefix="/api/v1")
 app.include_router(multi_market.router, prefix="/api/v1")
+app.include_router(ai_model_routes.router, prefix="/api/v1")
 
 
 # Legacy /api/* → /api/v1/* redirect (Issue #13: transition period)

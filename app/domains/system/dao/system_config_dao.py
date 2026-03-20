@@ -75,7 +75,7 @@ class DataSourceConfigDao:
                 d = dict(r)
                 if d.get("token_encrypted"):
                     d["token_encrypted"] = "***"
-                return result
+                result.append(d)
             return result
 
     def get(self, source_name: str) -> dict | None:

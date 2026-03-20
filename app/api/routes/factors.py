@@ -122,3 +122,83 @@ async def delete_evaluation(factor_id: int, eval_id: int, current_user: TokenDat
         service.delete_evaluation(current_user.user_id, factor_id, eval_id)
     except KeyError as e:
         raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message=str(e).strip("'"))
+
+
+# --- Qlib Factor Sets ---
+
+
+class QlibFactorRequest(BaseModel):
+    factor_set: str = "Alpha158"
+    instruments: str = "csi300"
+    start_date: str = "2023-01-01"
+    end_date: str = "2024-12-31"
+
+
+@router.get("/qlib/factor-sets")
+async def list_qlib_factor_sets(current_user: TokenData = Depends(get_current_user)):
+    """List available Qlib factor sets (Alpha158, Alpha360)."""
+    from app.infrastructure.qlib.qlib_config import SUPPORTED_DATASETS
+
+    return [{"name": k, "class": v} for k, v in SUPPORTED_DATASETS.items()]
+
+
+@router.post("/qlib/compute")
+async def compute_qlib_factors(
+    req: QlibFactorRequest,
+    current_user: TokenData = Depends(get_current_user),
+):
+    """Compute Qlib factor set values for given instruments and date range.
+
+    Data source: tushare/akshare via Qlib binary data (NOT vnpy DB).
+    Returns a summary; actual factor values are stored in the qlib database.
+    """
+    from app.infrastructure.qlib.qlib_config import (
+        SUPPORTED_DATASETS,
+        ensure_qlib_initialized,
+        is_qlib_available,
+    )
+
+    if not is_qlib_available():
+        raise APIError(status_code=503, code=ErrorCode.SERVICE_UNAVAILABLE, message="Qlib is not installed")
+
+    if req.factor_set not in SUPPORTED_DATASETS:
+        raise APIError(
+            status_code=400,
+            code=ErrorCode.VALIDATION_ERROR,
+            message=f"Unsupported factor set. Supported: {list(SUPPORTED_DATASETS.keys())}",
+        )
+
+    try:
+        ensure_qlib_initialized()
+
+        from qlib.utils import init_instance_by_config
+
+        handler_class = SUPPORTED_DATASETS[req.factor_set]
+        handler_config = {
+            "class": handler_class,
+            "module_path": handler_class.rsplit(".", 1)[0],
+            "kwargs": {
+                "instruments": req.instruments,
+                "start_time": req.start_date,
+                "end_time": req.end_date,
+            },
+        }
+
+        handler = init_instance_by_config(handler_config)
+        df = handler.fetch()
+
+        if df is None or df.empty:
+            return {"status": "empty", "message": "No factor data computed"}
+
+        return {
+            "status": "completed",
+            "factor_set": req.factor_set,
+            "instruments": req.instruments,
+            "date_range": {"start": req.start_date, "end": req.end_date},
+            "shape": {"rows": df.shape[0], "columns": df.shape[1]},
+            "factor_names": list(df.columns)[:20],
+            "sample_instruments": list(df.index.get_level_values(0).unique()[:10]) if hasattr(df.index, "get_level_values") else [],
+        }
+
+    except Exception as e:
+        raise APIError(status_code=500, code=ErrorCode.INTERNAL_ERROR, message=f"Factor computation failed: {str(e)}")

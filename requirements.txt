@@ -97,6 +97,14 @@ rq>=1.15.0
 schedule>=1.2.0
 akshare>=1.18.0
 
+# Qlib — Microsoft AI quant platform (optional, enables AI model training & factor research)
+pyqlib>=0.9.0
+scipy>=1.10.0
+
+# VNPy gateway packages (optional, for live trading)
+# vnpy_ctp>=6.7.0
+# vnpy_xtp>=2.2.0
+
 # File-sync helper
 watchdog>=2.1.0
 

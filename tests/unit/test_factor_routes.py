@@ -1,6 +1,6 @@
 """Tests for Factor Lab routes."""
 import pytest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -130,4 +130,70 @@ class TestFactorEvaluationRoutes:
         MockEvalDao.return_value.delete.return_value = True
         resp = client.delete("/api/v1/factors/1/evaluations/1")
         assert resp.status_code == 204
+
+
+class TestQlibFactorRoutes:
+    """Tests for Qlib factor set endpoints."""
+
+    @patch("app.infrastructure.qlib.qlib_config.SUPPORTED_DATASETS", {"Alpha158": "qlib.contrib.data.handler.Alpha158", "Alpha360": "qlib.contrib.data.handler.Alpha360"})
+    def test_list_qlib_factor_sets(self, client):
+        resp = client.get("/api/v1/factors/qlib/factor-sets")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 2
+        names = [d["name"] for d in data]
+        assert "Alpha158" in names
+        assert "Alpha360" in names
+
+    @patch("app.infrastructure.qlib.qlib_config.is_qlib_available", return_value=False)
+    def test_compute_qlib_factors_unavailable(self, mock_avail, client):
+        resp = client.post("/api/v1/factors/qlib/compute", json={
+            "factor_set": "Alpha158",
+            "instruments": "csi300",
+            "start_date": "2023-01-01",
+            "end_date": "2024-12-31",
+        })
+        assert resp.status_code == 503
+
+    @patch("app.infrastructure.qlib.qlib_config.is_qlib_available", return_value=True)
+    def test_compute_qlib_factors_unsupported_set(self, mock_avail, client):
+        resp = client.post("/api/v1/factors/qlib/compute", json={
+            "factor_set": "NonExistent",
+            "instruments": "csi300",
+            "start_date": "2023-01-01",
+            "end_date": "2024-12-31",
+        })
+        assert resp.status_code == 400
+
+    @patch("qlib.utils.init_instance_by_config")
+    @patch("app.infrastructure.qlib.qlib_config.ensure_qlib_initialized")
+    @patch("app.infrastructure.qlib.qlib_config.is_qlib_available", return_value=True)
+    def test_compute_qlib_factors_success(self, mock_avail, mock_init, mock_handler_init, client):
+        import pandas as pd
+        import numpy as np
+        # Create a mock handler with a mock DataFrame result
+        mock_handler = MagicMock()
+        idx = pd.MultiIndex.from_tuples(
+            [("SZ000001", "2024-01-02"), ("SZ000001", "2024-01-03")],
+            names=["instrument", "datetime"],
+        )
+        mock_df = pd.DataFrame(
+            np.random.randn(2, 5),
+            index=idx,
+            columns=["KMID", "KLEN", "KMID2", "KLOW", "KHIGH"],
+        )
+        mock_handler.fetch.return_value = mock_df
+        mock_handler_init.return_value = mock_handler
+
+        resp = client.post("/api/v1/factors/qlib/compute", json={
+            "factor_set": "Alpha158",
+            "instruments": "csi300",
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31",
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "completed"
+        assert data["shape"]["rows"] == 2
+        assert data["shape"]["columns"] == 5
 

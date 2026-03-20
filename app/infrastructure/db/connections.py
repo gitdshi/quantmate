@@ -18,13 +18,14 @@ from app.infrastructure.config import get_settings
 
 settings = get_settings()
 
-DatabaseName = Literal["quantmate", "tushare", "akshare"]
+DatabaseName = Literal["quantmate", "tushare", "akshare", "qlib"]
 
 
 # Engine singletons (lazy created)
 _quantmate_engine = None
 _tushare_engine = None
 _akshare_engine = None
+_qlib_engine = None
 _mysql_server_engine = None
 
 
@@ -62,6 +63,14 @@ def get_akshare_engine():
     return _akshare_engine
 
 
+def get_qlib_engine():
+    global _qlib_engine
+    if _qlib_engine is None:
+        qlib_url = f"{settings.mysql_url}/qlib?charset=utf8mb4"
+        _qlib_engine = create_engine(qlib_url, pool_pre_ping=True)
+    return _qlib_engine
+
+
 def get_mysql_server_engine():
     """Return an engine without a default database (for admin tasks)."""
     global _mysql_server_engine
@@ -90,6 +99,11 @@ def get_akshare_connection() -> Connection:
     return engine.connect()
 
 
+def get_qlib_connection() -> Connection:
+    engine = get_qlib_engine()
+    return engine.connect()
+
+
 @contextmanager
 def connection(db: DatabaseName) -> Iterator[Connection]:
     """Yield a SQLAlchemy connection and always close it."""
@@ -101,6 +115,8 @@ def connection(db: DatabaseName) -> Iterator[Connection]:
             conn = get_tushare_connection()
         elif db == "akshare":
             conn = get_akshare_connection()
+        elif db == "qlib":
+            conn = get_qlib_connection()
         else:
             raise ValueError(f"Unknown db: {db}")
         yield conn

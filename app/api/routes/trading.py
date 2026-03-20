@@ -1,4 +1,4 @@
-"""Trading routes (P2 Issue: Order Management, Paper Trading)."""
+"""Trading routes — Live trading via VNPy gateways (paper trading moved to /paper-trade/*)."""
 
 from datetime import datetime
 from typing import Optional
@@ -25,11 +25,17 @@ class OrderCreateRequest(BaseModel):
     strategy_id: Optional[int] = None
     portfolio_id: Optional[int] = None
     mode: str = "paper"
+    gateway_name: Optional[str] = None  # for live mode: which gateway to use
 
 
 @router.post("/orders", status_code=status.HTTP_201_CREATED)
 async def create_order(req: OrderCreateRequest, current_user: TokenData = Depends(get_current_user)):
-    """Submit a new order."""
+    """Submit a live order through vnpy gateway. Paper orders should use /paper-trade/orders."""
+    if req.mode == "paper":
+        raise APIError(
+            status_code=400, code=ErrorCode.VALIDATION_ERROR,
+            message="Paper orders have moved to /api/v1/paper-trade/orders",
+        )
     if req.direction not in ("buy", "sell"):
         raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message="Invalid direction")
     if req.order_type not in ("market", "limit", "stop", "stop_limit"):
@@ -48,15 +54,29 @@ async def create_order(req: OrderCreateRequest, current_user: TokenData = Depend
         stop_price=req.stop_price,
         strategy_id=req.strategy_id,
         portfolio_id=req.portfolio_id,
-        mode=req.mode,
+        mode="live",
     )
 
-    # For paper trading market orders, simulate immediate fill
-    if req.mode == "paper" and req.order_type == "market":
-        fill_price = req.price or 0
-        fee = round(fill_price * req.quantity * 0.0003, 4)
-        dao.update_status(order_id, "filled", filled_quantity=req.quantity, avg_fill_price=fill_price, fee=fee)
-        dao.insert_trade(order_id, req.quantity, fill_price, fee)
+    # Route through vnpy gateway
+    from app.domains.trading.vnpy_trading_service import VnpyTradingService
+
+    svc = VnpyTradingService()
+    vt_orderid = svc.send_order(
+        symbol=req.symbol,
+        direction=req.direction,
+        order_type=req.order_type,
+        quantity=req.quantity,
+        price=req.price or 0,
+        gateway_name=req.gateway_name,
+    )
+    if vt_orderid is None:
+        dao.update_status(order_id, "rejected")
+        raise APIError(
+            status_code=502,
+            code=ErrorCode.BAD_REQUEST,
+            message="Failed to submit order to gateway — check gateway connection",
+        )
+    dao.update_status(order_id, "submitted")
 
     order = dao.get_by_id(order_id, current_user.user_id)
     return order
@@ -154,3 +174,130 @@ async def algo_iceberg(req: IcebergRequest, current_user: TokenData = Depends(ge
 
     svc = AlgoExecutionService()
     return {"slices": svc.iceberg(req.total_quantity, req.display_quantity, req.price_limit)}
+
+
+# ── VNPy gateway management ──────────────────────────────────────────
+
+
+class GatewayConnectRequest(BaseModel):
+    gateway_type: str  # ctp / xtp / sim
+    config: dict
+    gateway_name: Optional[str] = None
+
+
+@router.post("/gateway/connect")
+async def connect_gateway(req: GatewayConnectRequest, current_user: TokenData = Depends(get_current_user)):
+    """Connect to a vnpy broker gateway for live trading."""
+    from app.domains.trading.vnpy_trading_service import VnpyTradingService, GatewayType
+
+    try:
+        gw_type = GatewayType(req.gateway_type)
+    except ValueError:
+        raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message=f"Unknown gateway type: {req.gateway_type}")
+
+    svc = VnpyTradingService()
+    ok = svc.connect_gateway(gw_type, req.config, req.gateway_name)
+    if not ok:
+        raise APIError(status_code=502, code=ErrorCode.BAD_REQUEST, message="Failed to connect gateway")
+    return {"message": f"Gateway '{req.gateway_name or req.gateway_type}' connected"}
+
+
+@router.post("/gateway/disconnect")
+async def disconnect_gateway(gateway_name: str = Query(...), current_user: TokenData = Depends(get_current_user)):
+    """Disconnect a vnpy gateway."""
+    from app.domains.trading.vnpy_trading_service import VnpyTradingService
+
+    svc = VnpyTradingService()
+    if not svc.disconnect_gateway(gateway_name):
+        raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Gateway not found")
+    return {"message": f"Gateway '{gateway_name}' disconnected"}
+
+
+@router.get("/gateways")
+async def list_gateways(current_user: TokenData = Depends(get_current_user)):
+    """List connected vnpy gateways."""
+    from app.domains.trading.vnpy_trading_service import VnpyTradingService
+
+    svc = VnpyTradingService()
+    return {"gateways": svc.list_gateways()}
+
+
+@router.get("/gateway/positions")
+async def gateway_positions(gateway_name: Optional[str] = None, current_user: TokenData = Depends(get_current_user)):
+    """Query live positions from vnpy gateway."""
+    from app.domains.trading.vnpy_trading_service import VnpyTradingService
+    import dataclasses
+
+    svc = VnpyTradingService()
+    positions = svc.query_positions(gateway_name)
+    return {"positions": [dataclasses.asdict(p) for p in positions]}
+
+
+@router.get("/gateway/account")
+async def gateway_account(gateway_name: Optional[str] = None, current_user: TokenData = Depends(get_current_user)):
+    """Query account info from vnpy gateway."""
+    from app.domains.trading.vnpy_trading_service import VnpyTradingService
+    import dataclasses
+
+    svc = VnpyTradingService()
+    account = svc.query_account(gateway_name)
+    if account is None:
+        return {"account": None}
+    return {"account": dataclasses.asdict(account)}
+
+
+# ── Automated CTA strategy execution ─────────────────────────────────
+
+
+class AutoStrategyStartRequest(BaseModel):
+    strategy_class_name: str
+    strategy_code: Optional[str] = None
+    strategy_id: Optional[int] = None
+    vt_symbol: str
+    parameters: Optional[dict] = None
+    gateway_name: Optional[str] = None
+
+
+class AutoStrategyStopRequest(BaseModel):
+    strategy_name: str
+
+
+@router.post("/auto-strategy/start")
+async def auto_strategy_start(req: AutoStrategyStartRequest, current_user: TokenData = Depends(get_current_user)):
+    """Start an automated CTA strategy on a live vnpy gateway."""
+    from app.domains.trading.cta_strategy_runner import CtaStrategyRunner
+
+    runner = CtaStrategyRunner()
+    result = runner.start_strategy(
+        strategy_class_name=req.strategy_class_name,
+        strategy_code=req.strategy_code,
+        strategy_id=req.strategy_id,
+        user_id=current_user.user_id,
+        vt_symbol=req.vt_symbol,
+        parameters=req.parameters or {},
+        gateway_name=req.gateway_name,
+    )
+    if not result["success"]:
+        raise APIError(status_code=400, code=ErrorCode.BAD_REQUEST, message=result.get("error", "Failed to start strategy"))
+    return result
+
+
+@router.post("/auto-strategy/stop")
+async def auto_strategy_stop(req: AutoStrategyStopRequest, current_user: TokenData = Depends(get_current_user)):
+    """Stop a running CTA strategy."""
+    from app.domains.trading.cta_strategy_runner import CtaStrategyRunner
+
+    runner = CtaStrategyRunner()
+    ok = runner.stop_strategy(req.strategy_name)
+    if not ok:
+        raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Strategy not running")
+    return {"message": f"Strategy '{req.strategy_name}' stopped"}
+
+
+@router.get("/auto-strategy/status")
+async def auto_strategy_status(current_user: TokenData = Depends(get_current_user)):
+    """List all running CTA strategies and their status."""
+    from app.domains.trading.cta_strategy_runner import CtaStrategyRunner
+
+    runner = CtaStrategyRunner()
+    return {"strategies": runner.list_strategies()}

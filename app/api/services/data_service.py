@@ -8,6 +8,9 @@ from app.infrastructure.config import get_settings
 from app.utils.ts_utils import moving_average, pct_change
 
 from app.domains.market.service import MarketService
+from app.domains.market.realtime_quote_service import RealtimeQuoteService
+from app.domains.market.realtime_quote_cache import RealtimeQuoteCache
+from app.domains.system.dao.system_config_dao import SystemConfigDao
 
 settings = get_settings()
 
@@ -17,6 +20,9 @@ class DataService:
 
     def __init__(self) -> None:
         self._market = MarketService()
+        self._realtime = RealtimeQuoteService()
+        self._realtime_cache = RealtimeQuoteCache()
+        self._system_config = SystemConfigDao()
 
     def get_symbols(
         self, exchange: Optional[str] = None, keyword: Optional[str] = None, limit: int = 100, offset: int = 0
@@ -108,3 +114,48 @@ class DataService:
     def get_indexes(self) -> List[Dict[str, str]]:
         """Return available index codes from akshare.index_daily with friendly labels."""
         return MarketService().list_benchmark_indexes()
+
+    def get_realtime_quote(self, symbol: str, market: str = "CN") -> Dict[str, Any]:
+        """Fetch a realtime spot quote for a single symbol."""
+        if not self._realtime_enabled():
+            raise PermissionError("Realtime quotes are disabled by system settings")
+        if not self._market_enabled(market):
+            raise PermissionError(f"Realtime quotes disabled for market: {market}")
+
+        quote = self._realtime.get_quote(symbol=symbol, market=market)
+        if self._cache_enabled():
+            self._realtime_cache.record(market=market, symbol=symbol, quote=quote)
+        return quote
+
+    def get_realtime_series(
+        self, symbol: str, market: str = "CN", start_ts: int | None = None, end_ts: int | None = None
+    ) -> Dict[str, Any]:
+        """Return cached realtime quote series (intraday)."""
+        if not self._realtime_enabled() or not self._market_enabled(market):
+            return {"symbol": symbol, "market": market, "cached": False, "points": []}
+        if not self._cache_enabled():
+            return {"symbol": symbol, "market": market, "cached": False, "points": []}
+        points = self._realtime_cache.get_series(market=market, symbol=symbol, start_ts=start_ts, end_ts=end_ts)
+        return {"symbol": symbol, "market": market, "cached": True, "points": points}
+
+    def _realtime_enabled(self) -> bool:
+        cfg = self._system_config.get("realtime_quote_enabled")
+        if not cfg:
+            return True
+        return str(cfg.get("config_value", "true")).strip().lower() in {"1", "true", "yes", "on"}
+
+    def _cache_enabled(self) -> bool:
+        cfg = self._system_config.get("realtime_quote_cache_enabled")
+        if not cfg:
+            return True
+        return str(cfg.get("config_value", "true")).strip().lower() in {"1", "true", "yes", "on"}
+
+    def _market_enabled(self, market: str) -> bool:
+        cfg = self._system_config.get("realtime_quote_markets")
+        if not cfg:
+            return True
+        raw = str(cfg.get("config_value", "")).strip()
+        if not raw:
+            return True
+        enabled = {m.strip().upper() for m in raw.split(",") if m.strip()}
+        return market.strip().upper() in enabled

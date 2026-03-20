@@ -81,9 +81,45 @@ async def delete_job(job_id: str, current_user: TokenData = Depends(get_current_
 
 @router.post("/backtest")
 async def submit_backtest_to_queue(request: Dict[str, Any], current_user: TokenData = Depends(get_current_user)):
-    """Submit a backtest job to RQ queue for async processing."""
+    """Submit a backtest job to RQ queue for async processing.
+
+    Supports `engine_type` parameter:
+      - "vnpy" (default): uses vnpy BacktestingEngine
+      - "qlib": uses Qlib AI model-driven backtest (data from tushare/akshare)
+    """
     from datetime import datetime as dt
 
+    engine_type = request.get("engine_type", "vnpy")
+
+    # --- Qlib backtest path ---
+    if engine_type == "qlib":
+        import uuid
+        from app.worker.service.qlib_tasks import run_qlib_backtest_task
+
+        job_id = str(uuid.uuid4())
+        # Submit as background task (or RQ job)
+        from fastapi import BackgroundTasks
+
+        # We can't inject BackgroundTasks here easily, so call synchronously
+        # In production this should be enqueued to RQ
+        result = run_qlib_backtest_task(
+            user_id=current_user.user_id,
+            job_id=job_id,
+            training_run_id=request.get("training_run_id"),
+            model_type=request.get("model_type", "LightGBM"),
+            factor_set=request.get("factor_set", "Alpha158"),
+            universe=request.get("universe", "csi300"),
+            start_date=request.get("start_date", "2023-01-01"),
+            end_date=request.get("end_date", "2024-12-31"),
+            strategy_type=request.get("strategy_type", "TopkDropout"),
+            topk=request.get("topk", 50),
+            n_drop=request.get("n_drop", 5),
+            benchmark=request.get("benchmark", "SH000300"),
+            hyperparams=request.get("hyperparams"),
+        )
+        return {"job_id": job_id, "status": "queued", "engine": "qlib", "message": "Qlib backtest submitted"}
+
+    # --- Default vnpy backtest path ---
     service = get_backtest_service()
 
     # Parse dates

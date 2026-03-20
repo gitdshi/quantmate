@@ -131,6 +131,50 @@ async def get_indexes(current_user: Optional[TokenData] = Depends(get_current_us
     return service.get_indexes()
 
 
+@router.get("/quote")
+async def get_realtime_quote(
+    symbol: str = Query(..., description="Symbol code, e.g. 000001, AAPL, BTCUSD"),
+    market: str = Query("CN", description="Market: CN, HK, US, FX, FUTURES, CRYPTO"),
+    current_user: Optional[TokenData] = Depends(get_current_user_optional),
+):
+    """Get realtime spot quote for a symbol."""
+    service = DataService()
+    try:
+        return service.get_realtime_quote(symbol=symbol, market=market)
+    except PermissionError as e:
+        raise APIError(status_code=403, code=ErrorCode.DATA_SOURCE_UNAVAILABLE, message=str(e))
+    except ValueError as e:
+        raise APIError(status_code=400, code=ErrorCode.DATA_INVALID_SYMBOL, message=str(e))
+    except Exception as e:
+        raise APIError(
+            status_code=500,
+            code=ErrorCode.DATA_FETCH_FAILED,
+            message="Failed to fetch realtime quote",
+            detail=str(e),
+        )
+
+
+@router.get("/quote/series")
+async def get_realtime_quote_series(
+    symbol: str = Query(..., description="Symbol code, e.g. 000001, AAPL, BTCUSD"),
+    market: str = Query("CN", description="Market: CN, HK, US, FX, FUTURES, CRYPTO"),
+    start_ts: Optional[int] = Query(None, description="Epoch seconds start"),
+    end_ts: Optional[int] = Query(None, description="Epoch seconds end"),
+    current_user: Optional[TokenData] = Depends(get_current_user_optional),
+):
+    """Get cached intraday realtime quote series."""
+    service = DataService()
+    try:
+        return service.get_realtime_series(symbol=symbol, market=market, start_ts=start_ts, end_ts=end_ts)
+    except Exception as e:
+        raise APIError(
+            status_code=500,
+            code=ErrorCode.DATA_FETCH_FAILED,
+            message="Failed to fetch realtime series",
+            detail=str(e),
+        )
+
+
 @router.get("/symbols-by-filter")
 async def get_symbols_by_filter(
     industry: Optional[str] = Query(None, description="Filter by industry name"),
