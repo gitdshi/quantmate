@@ -154,10 +154,10 @@ async def lifespan(app: FastAPI):
             # Existing admin: if ADMIN_PASSWORD is explicitly provided, enforce it.
             if admin_password:
                 user_dao.update_user_password(
-                    admin_user["id"], get_password_hash(admin_password), must_change_password=True
+                    admin_user["id"], get_password_hash(admin_password), must_change_password=False
                 )
                 logger.info(
-                    "Updated existing admin password from ADMIN_PASSWORD and marked as requiring password change."
+                    "Updated existing admin password from ADMIN_PASSWORD without forcing password change."
                 )
 
             # Existing admin: upgrade if necessary
@@ -165,9 +165,9 @@ async def lifespan(app: FastAPI):
             if admin_user["hashed_password"] == DEFAULT_ADMIN_HASH:
                 if admin_user.get("must_change_password") is False:
                     user_dao.update_user_password(
-                        admin_user["id"], admin_user["hashed_password"], must_change_password=True
+                        admin_user["id"], admin_user["hashed_password"], must_change_password=False
                     )
-                    logger.info("Marked existing default admin user as requiring password change.")
+                    logger.info("Kept existing default admin user without forcing password change.")
             # Ensure column exists: could attempt to ALTER TABLE if needed, but skip for now
     except Exception as e:
         logger.error(f"Admin initialization failed: {e}")
