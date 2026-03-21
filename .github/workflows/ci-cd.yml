@@ -158,7 +158,8 @@ jobs:
           target: /opt/quantmate
           strip_components: 0
 
-      # Pull new image and rolling-restart all services
+      # Pull new image and rolling-restart backend services only.
+      # The portal image is published by the portal repo and may not share this commit SHA.
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         env:
@@ -179,7 +180,7 @@ jobs:
 
             echo "==> Rolling restart"
             GITHUB_OWNER=$GITHUB_OWNER IMAGE_TAG=$IMAGE_TAG \
-              docker compose -f docker-compose.staging.yml up -d --remove-orphans
+              docker compose -f docker-compose.staging.yml up -d api worker datasync
 
             echo "==> Waiting for API to become healthy"
             sleep 20
