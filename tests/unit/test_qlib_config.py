@@ -4,8 +4,10 @@ import sys
 from unittest.mock import patch, MagicMock
 
 
-# Pre-mock qlib
-if "qlib" not in sys.modules:
+# Pre-mock qlib only when the dependency is unavailable.
+try:
+    import qlib  # noqa: F401
+except ImportError:
     sys.modules["qlib"] = MagicMock()
     sys.modules["qlib.config"] = MagicMock()
     sys.modules["qlib.data"] = MagicMock()

@@ -13,6 +13,7 @@ Data source hierarchy:
 from __future__ import annotations
 
 import logging
+from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
 from typing import Optional
@@ -21,7 +22,7 @@ import numpy as np
 import pandas as pd
 from sqlalchemy import text
 
-from app.infrastructure.db.connections import get_tushare_engine, get_akshare_engine, get_qlib_engine
+from app.infrastructure.db.connections import connection as db_connection, get_qlib_engine
 from app.infrastructure.qlib.qlib_config import QLIB_DATA_DIR
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,50 @@ def _ensure_dir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
 
 
+@contextmanager
+def connection(source: str):
+    """Yield a DB connection for the requested source.
+
+    This wrapper keeps the module easy to patch in unit tests.
+    """
+    with db_connection(source) as conn:
+        yield conn
+
+
+def _normalize_daily_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize raw SQL results into the standard Qlib input shape."""
+    if df.empty:
+        return df
+
+    normalized = df.copy()
+    if "instrument" not in normalized.columns:
+        code_col = (
+            "ts_code" if "ts_code" in normalized.columns else "symbol" if "symbol" in normalized.columns else None
+        )
+        if code_col is None:
+            raise KeyError("instrument")
+        normalized["instrument"] = normalized[code_col].apply(_ts_code_to_qlib_instrument)
+
+    if "date" not in normalized.columns:
+        date_col = "trade_date" if "trade_date" in normalized.columns else None
+        if date_col is None:
+            raise KeyError("date")
+        normalized = normalized.rename(columns={date_col: "date"})
+
+    if "volume" not in normalized.columns and "vol" in normalized.columns:
+        normalized = normalized.rename(columns={"vol": "volume"})
+    if "factor" not in normalized.columns:
+        if "adj_factor" in normalized.columns:
+            normalized = normalized.rename(columns={"adj_factor": "factor"})
+        else:
+            normalized["factor"] = 1.0
+    if "amount" not in normalized.columns:
+        normalized["amount"] = 0.0
+
+    normalized["date"] = pd.to_datetime(normalized["date"])
+    return normalized[["instrument", "date", "open", "high", "low", "close", "volume", "amount", "factor"]]
+
+
 def fetch_tushare_daily(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
@@ -50,7 +95,6 @@ def fetch_tushare_daily(
     Returns DataFrame with columns:
         instrument, date, open, high, low, close, volume, factor
     """
-    engine = get_tushare_engine()
     params = {}
     where_clauses = []
 
@@ -80,17 +124,10 @@ def fetch_tushare_daily(
         ORDER BY d.ts_code, d.trade_date
     """
 
-    with engine.connect() as conn:
+    with connection("tushare") as conn:
         df = pd.read_sql(text(query), conn, params=params)
 
-    if df.empty:
-        return df
-
-    df["instrument"] = df["ts_code"].apply(_ts_code_to_qlib_instrument)
-    df = df.rename(columns={"trade_date": "date"})
-    df["date"] = pd.to_datetime(df["date"])
-
-    return df[["instrument", "date", "open", "high", "low", "close", "volume", "amount", "factor"]]
+    return _normalize_daily_dataframe(df)
 
 
 def fetch_akshare_daily(
@@ -98,7 +135,6 @@ def fetch_akshare_daily(
     end_date: Optional[date] = None,
 ) -> pd.DataFrame:
     """Fetch daily OHLCV from akshare MySQL as supplement."""
-    engine = get_akshare_engine()
     params = {}
     where_clauses = []
 
@@ -126,18 +162,10 @@ def fetch_akshare_daily(
         ORDER BY d.ts_code, d.trade_date
     """
 
-    with engine.connect() as conn:
+    with connection("akshare") as conn:
         df = pd.read_sql(text(query), conn, params=params)
 
-    if df.empty:
-        return df
-
-    df["instrument"] = df["ts_code"].apply(_ts_code_to_qlib_instrument)
-    df = df.rename(columns={"trade_date": "date"})
-    df["date"] = pd.to_datetime(df["date"])
-    df["factor"] = 1.0  # akshare has no adj_factor column by default
-
-    return df[["instrument", "date", "open", "high", "low", "close", "volume", "amount", "factor"]]
+    return _normalize_daily_dataframe(df)
 
 
 def convert_to_qlib_format(
@@ -161,12 +189,13 @@ def convert_to_qlib_format(
     _ensure_dir(target_dir)
 
     logger.info("[qlib-converter] Fetching tushare daily data...")
-    df = fetch_tushare_daily(start_date, end_date)
+    df = _normalize_daily_dataframe(fetch_tushare_daily(start_date, end_date))
 
     if use_akshare_supplement and not df.empty:
         logger.info("[qlib-converter] Fetching akshare supplement data...")
         ak_df = fetch_akshare_daily(start_date, end_date)
         if not ak_df.empty:
+            ak_df = _normalize_daily_dataframe(ak_df)
             # Only add instruments not already in tushare
             existing = set(df["instrument"].unique())
             ak_df = ak_df[~ak_df["instrument"].isin(existing)]

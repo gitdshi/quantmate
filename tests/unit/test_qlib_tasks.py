@@ -1,10 +1,13 @@
 """Tests for Qlib background worker tasks."""
 import sys
+from datetime import date
 import pytest
 from unittest.mock import patch, MagicMock
 
-# Pre-mock qlib
-if "qlib" not in sys.modules:
+# Pre-mock qlib only when the dependency is unavailable.
+try:
+    import qlib  # noqa: F401
+except ImportError:
     sys.modules["qlib"] = MagicMock()
     sys.modules["qlib.config"] = MagicMock()
     sys.modules["qlib.data"] = MagicMock()
@@ -59,8 +62,8 @@ class TestRunDataConversionTask:
             end_date="2024-12-31",
         )
         mock_convert.assert_called_once_with(
-            start_date="2023-01-01",
-            end_date="2024-12-31",
+            start_date=date(2023, 1, 1),
+            end_date=date(2024, 12, 31),
             use_akshare_supplement=False,
         )
         assert result["status"] == "completed"

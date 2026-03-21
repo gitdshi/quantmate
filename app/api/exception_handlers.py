@@ -59,9 +59,17 @@ _STATUS_TO_CODE: dict[int, str] = {
 
 
 def _error_json(status_code: int, code: str, message: str, detail: str | None = None) -> JSONResponse:
-    """Build a standardised error JSONResponse."""
-    body = ErrorEnvelope(error=ErrorResponse(code=code, message=message, detail=detail))
-    return JSONResponse(status_code=status_code, content=body.model_dump(exclude_none=True))
+    """Build a standardised error JSONResponse.
+
+    Keep top-level ``code/message/detail`` fields for older clients that
+    still read the legacy error shape directly.
+    """
+    error = ErrorResponse(code=code, message=message, detail=detail)
+    body = ErrorEnvelope(error=error).model_dump(exclude_none=True)
+    legacy_error = error.model_dump(exclude_none=True)
+    legacy_error.setdefault("detail", detail or message)
+    body.update(legacy_error)
+    return JSONResponse(status_code=status_code, content=body)
 
 
 # ── Handler functions ────────────────────────────────────────────────────

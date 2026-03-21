@@ -67,6 +67,7 @@ class ErrorCode(str, Enum):
     INTERNAL_ERROR = "INTERNAL_ERROR"
     BAD_REQUEST = "BAD_REQUEST"
     FORBIDDEN = "FORBIDDEN"
+    SERVICE_UNAVAILABLE = "SERVICE_UNAVAILABLE"
 
 
 class ErrorResponse(BaseModel):

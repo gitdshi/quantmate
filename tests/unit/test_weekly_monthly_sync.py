@@ -355,4 +355,4 @@ class TestMigrationSQL:
         assert 'stock_weekly' in sql
         assert 'stock_monthly' in sql
         assert 'index_weekly' in sql
-        assert 'ALTER TABLE data_sync_status' in sql
+        assert 'ALTER TABLE quantmate.data_sync_status' in sql

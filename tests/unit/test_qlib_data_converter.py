@@ -10,9 +10,11 @@ import pandas as pd
 import numpy as np
 
 
-# Pre-mock qlib before import
+# Pre-mock qlib before import only when pyqlib is unavailable.
 import sys
-if "qlib" not in sys.modules:
+try:
+    import qlib  # noqa: F401
+except ImportError:
     sys.modules["qlib"] = MagicMock()
     sys.modules["qlib.config"] = MagicMock()
     sys.modules["qlib.data"] = MagicMock()

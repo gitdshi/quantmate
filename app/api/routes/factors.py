@@ -175,7 +175,7 @@ async def compute_qlib_factors(
 
         handler_class = SUPPORTED_DATASETS[req.factor_set]
         handler_config = {
-            "class": handler_class,
+            "class": handler_class.split(".")[-1],
             "module_path": handler_class.rsplit(".", 1)[0],
             "kwargs": {
                 "instruments": req.instruments,

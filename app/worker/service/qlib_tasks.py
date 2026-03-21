@@ -13,6 +13,27 @@ from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
+QlibModelService = None
+convert_to_qlib_format = None
+
+
+def _get_qlib_model_service():
+    global QlibModelService
+    if QlibModelService is None:
+        from app.domains.ai.qlib_model_service import QlibModelService as service_cls
+
+        QlibModelService = service_cls
+    return QlibModelService
+
+
+def _get_data_converter():
+    global convert_to_qlib_format
+    if convert_to_qlib_format is None:
+        from app.infrastructure.qlib.data_converter import convert_to_qlib_format as converter
+
+        convert_to_qlib_format = converter
+    return convert_to_qlib_format
+
 
 def run_qlib_training_task(
     user_id: int,
@@ -29,11 +50,9 @@ def run_qlib_training_task(
 ) -> Dict[str, Any]:
     """Train a Qlib ML model in a background worker."""
     try:
-        from app.domains.ai.qlib_model_service import QlibModelService
-
         logger.info("[qlib-worker] Starting %s training for user %d", model_type, user_id)
 
-        service = QlibModelService()
+        service = _get_qlib_model_service()()
         result = service.train_model(
             user_id=user_id,
             model_type=model_type,
@@ -69,14 +88,12 @@ def run_data_conversion_task(
     try:
         from datetime import date as date_cls
 
-        from app.infrastructure.qlib.data_converter import convert_to_qlib_format
-
         logger.info("[qlib-worker] Starting data conversion...")
 
         sd = date_cls.fromisoformat(start_date) if start_date else None
         ed = date_cls.fromisoformat(end_date) if end_date else None
 
-        result = convert_to_qlib_format(
+        result = _get_data_converter()(
             start_date=sd,
             end_date=ed,
             use_akshare_supplement=use_akshare_supplement,
