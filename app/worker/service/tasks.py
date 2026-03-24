@@ -3,7 +3,7 @@
 import sys
 import os
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 import traceback
 import numpy as np
@@ -18,6 +18,7 @@ if str(ROOT) not in sys.path:
 
 from rq import get_current_job
 from vnpy.trader.constant import Interval
+from vnpy.trader.optimize import OptimizationSetting
 from vnpy.trader.setting import SETTINGS as VNPY_SETTINGS
 
 # Configure vn.py DB backend before any code path can initialize the global database singleton.
@@ -47,7 +48,7 @@ def _configure_vnpy_mysql_from_env() -> None:
 
 _configure_vnpy_mysql_from_env()
 
-from vnpy_ctastrategy.backtesting import BacktestingEngine
+from vnpy_ctastrategy.backtesting import BacktestingEngine, BacktestingMode, evaluate
 
 # empyrical (used by vnpy_ctastrategy) still references np.NINF, removed in NumPy 2.0.
 # Patch for runtime compatibility while keeping vn.py's numpy>=2 requirement.
@@ -70,6 +71,7 @@ from app.domains.backtests.dao.akshare_benchmark_dao import AkshareBenchmarkDao
 from app.domains.backtests.dao.backtest_history_dao import BacktestHistoryDao
 from app.domains.backtests.dao.bulk_backtest_dao import BulkBacktestDao
 from app.domains.backtests.dao.strategy_source_dao import StrategySourceDao
+from app.domains.system.dao.optimization_dao import OptimizationTaskDao
 
 
 def convert_to_vnpy_symbol(symbol: str) -> str:
@@ -307,12 +309,14 @@ def run_backtest_task(
                 )
 
         # Initialize backtest engine
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d")
         engine = BacktestingEngine()
         engine.set_parameters(
             vt_symbol=vnpy_symbol,
             interval=Interval.DAILY,
-            start=datetime.strptime(start_date, "%Y-%m-%d"),
-            end=datetime.strptime(end_date, "%Y-%m-%d"),
+            start=start_dt,
+            end=end_dt,
             rate=rate,
             slippage=slippage,
             size=size,
@@ -776,6 +780,168 @@ def _finish_bulk_row(job_id, status, best_return, best_symbol, best_symbol_name,
         logger.exception("[worker] Error finishing bulk row: %s", e)
 
 
+def _build_optimization_setting(
+    param_space: Dict[str, Any], objective_metric: str = "sharpe_ratio"
+) -> OptimizationSetting:
+    """Convert param range payload to vn.py OptimizationSetting."""
+    setting = OptimizationSetting()
+    setting.set_target(objective_metric or "sharpe_ratio")
+
+    for name, config in (param_space or {}).items():
+        if not isinstance(name, str) or not name:
+            continue
+
+        if isinstance(config, (int, float)):
+            setting.add_parameter(name, float(config))
+            continue
+
+        if not isinstance(config, dict):
+            continue
+
+        min_value = config.get("min")
+        max_value = config.get("max")
+        step_value = config.get("step")
+
+        try:
+            start = float(min_value)
+            end = float(max_value)
+            step = float(step_value)
+        except (TypeError, ValueError):
+            continue
+
+        if not np.isfinite(start) or not np.isfinite(end) or not np.isfinite(step):
+            continue
+        if step <= 0:
+            continue
+
+        if end <= start:
+            setting.add_parameter(name, start)
+        else:
+            setting.add_parameter(name, start, end, step)
+
+    return setting
+
+
+def _resolve_optimization_context(user_id: int, strategy_id: int) -> tuple[str, str, str]:
+    """Resolve symbol/date context from latest backtest, with sensible fallback."""
+    latest = BacktestHistoryDao().get_latest_strategy_run(user_id=user_id, strategy_id=strategy_id)
+    if latest and latest.get("vt_symbol") and latest.get("start_date") and latest.get("end_date"):
+        start_value = latest.get("start_date")
+        end_value = latest.get("end_date")
+        start_text = start_value.isoformat() if hasattr(start_value, "isoformat") else str(start_value)
+        end_text = end_value.isoformat() if hasattr(end_value, "isoformat") else str(end_value)
+        return str(latest["vt_symbol"]), start_text, end_text
+
+    end_date = datetime.utcnow().date()
+    start_date = end_date - timedelta(days=365)
+    return "000001.SZ", start_date.isoformat(), end_date.isoformat()
+
+
+def _normalize_optimization_results(raw_results: list[tuple], objective_metric: str) -> list[dict[str, Any]]:
+    """Normalize vn.py optimization tuples into API-friendly rows."""
+    rows: list[dict[str, Any]] = []
+    for index, row in enumerate(raw_results, start=1):
+        if not isinstance(row, (list, tuple)) or len(row) < 3:
+            continue
+        params, target_value, statistics = row[0], row[1], row[2]
+        if not isinstance(params, dict):
+            params = {}
+        if not isinstance(statistics, dict):
+            statistics = {}
+
+        metrics: dict[str, float] = {
+            "target_value": float(statistics.get(objective_metric, target_value) or 0.0),
+            "total_return": float(statistics.get("total_return", 0.0) or 0.0),
+            "annual_return": float(statistics.get("annual_return", 0.0) or 0.0),
+            "max_drawdown": float(statistics.get("max_drawdown", statistics.get("max_ddpercent", 0.0)) or 0.0),
+            "max_drawdown_percent": float(
+                statistics.get("max_ddpercent", statistics.get("max_drawdown", 0.0)) or 0.0
+            ),
+            "sharpe_ratio": float(statistics.get("sharpe_ratio", 0.0) or 0.0),
+            "calmar_ratio": float(statistics.get("calmar_ratio", 0.0) or 0.0),
+        }
+
+        if objective_metric not in metrics:
+            metrics[objective_metric] = float(statistics.get(objective_metric, target_value) or 0.0)
+
+        rows.append(
+            {
+                "rank_order": index,
+                "parameters": params,
+                "statistics": metrics,
+            }
+        )
+    return rows
+
+
+def _run_sequential_optimization(
+    *,
+    strategy_class: type,
+    symbol: str,
+    start: datetime,
+    end: datetime,
+    rate: float,
+    slippage: float,
+    size: int,
+    pricetick: float,
+    capital: float,
+    optimization_setting: OptimizationSetting,
+    search_method: str,
+) -> list[tuple]:
+    """Run optimization in-process (fallback for dynamically compiled strategies)."""
+    all_settings = optimization_setting.generate_settings()
+    if not all_settings:
+        return []
+
+    sampled_settings = all_settings
+    max_budget = 400
+    if search_method == "random":
+        sample_size = min(len(all_settings), 100)
+        indices = np.random.default_rng(42).choice(len(all_settings), size=sample_size, replace=False)
+        sampled_settings = [all_settings[int(i)] for i in indices]
+    elif search_method == "bayesian":
+        # Bayesian approximation fallback: evaluate a smaller adaptive-like sample budget.
+        sample_size = min(len(all_settings), 50)
+        indices = np.random.default_rng(7).choice(len(all_settings), size=sample_size, replace=False)
+        sampled_settings = [all_settings[int(i)] for i in indices]
+    elif len(all_settings) > max_budget:
+        # Grid fallback budget: evaluate representative evenly-distributed points.
+        indices = np.linspace(0, len(all_settings) - 1, num=max_budget, dtype=int)
+        sampled_settings = [all_settings[int(i)] for i in indices]
+        logger.info(
+            "[worker] Grid space too large (%s), evaluating sampled subset %s",
+            len(all_settings),
+            max_budget,
+        )
+
+    results: list[tuple] = []
+    for index, setting in enumerate(sampled_settings, start=1):
+        if index == 1 or index % 20 == 0:
+            logger.info("[worker] Sequential optimization progress %s/%s", index, len(sampled_settings))
+        try:
+            result = evaluate(
+                optimization_setting.target_name,
+                strategy_class,
+                symbol,
+                Interval.DAILY,
+                start,
+                rate,
+                slippage,
+                size,
+                pricetick,
+                capital,
+                end,
+                BacktestingMode.BAR,
+                setting,
+            )
+            results.append(result)
+        except Exception:
+            logger.exception("[worker] Optimization evaluation failed for setting %s", setting)
+
+    results.sort(reverse=True, key=lambda row: float(row[1] or 0.0))
+    return results
+
+
 def run_optimization_task(
     strategy_code: Optional[str],
     strategy_class_name: str,
@@ -787,8 +953,10 @@ def run_optimization_task(
     slippage: float,
     size: int,
     pricetick: float,
-    optimization_settings: Dict[str, Any],
+    optimization_settings: Dict[str, Any] | OptimizationSetting,
     job_id: str = None,
+    search_method: str = "grid",
+    objective_metric: str = "sharpe_ratio",
 ) -> Dict[str, Any]:
     """
     Run parameter optimization task in background worker.
@@ -811,8 +979,11 @@ def run_optimization_task(
         Dict with optimization results
     """
     try:
+        _configure_vnpy_mysql_from_env()
+        vnpy_symbol = convert_to_vnpy_symbol(symbol)
+
         logger.info("[worker] Starting optimization job %s", job_id)
-        logger.info("[worker] Strategy=%s Symbol=%s", strategy_class_name, symbol)
+        logger.info("[worker] Strategy=%s Symbol=%s -> %s", strategy_class_name, symbol, vnpy_symbol)
 
         # Load strategy class
         if strategy_code:
@@ -830,13 +1001,16 @@ def run_optimization_task(
             if not strategy_class:
                 raise ValueError(f"Unknown builtin strategy: {strategy_class_name}")
 
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+
         # Initialize backtest engine
         engine = BacktestingEngine()
         engine.set_parameters(
-            vt_symbol=symbol,
+            vt_symbol=vnpy_symbol,
             interval=Interval.DAILY,
-            start=datetime.strptime(start_date, "%Y-%m-%d"),
-            end=datetime.strptime(end_date, "%Y-%m-%d"),
+            start=start_dt,
+            end=end_dt,
             rate=rate,
             slippage=slippage,
             size=size,
@@ -850,31 +1024,53 @@ def run_optimization_task(
         # Load data
         logger.info("[worker] Loading data for %s...", symbol)
         engine.load_data()
+        if not engine.history_data:
+            ensure_vnpy_history_data(vnpy_symbol, start_date)
+            engine.history_data = []
+            engine.load_data()
+        if not engine.history_data:
+            raise RuntimeError(f"No historical bar data found for {symbol} between {start_date} and {end_date}")
 
-        # Run optimization
-        logger.info("[worker] Running optimization...")
-        optimization_result = engine.run_ga_optimization(
-            optimization_setting=optimization_settings,
-            max_workers=4,  # Use 4 worker processes
+        setting = (
+            optimization_settings
+            if isinstance(optimization_settings, OptimizationSetting)
+            else _build_optimization_setting(optimization_settings, objective_metric)
         )
 
-        # Format results
-        results = []
-        for params, stats in optimization_result:
-            results.append(
-                {
-                    "parameters": params,
-                    "statistics": {
-                        "total_return": float(stats.get("total_return", 0)),
-                        "annual_return": float(stats.get("annual_return", 0)),
-                        "max_drawdown": float(stats.get("max_drawdown", 0)),
-                        "sharpe_ratio": float(stats.get("sharpe_ratio", 0)),
-                    },
-                }
+        # Run optimization
+        logger.info("[worker] Running optimization with method=%s target=%s...", search_method, setting.target_name)
+        needs_sequential = getattr(strategy_class, "__module__", "") == "builtins"
+        if needs_sequential:
+            logger.info("[worker] Using sequential optimization path for dynamic strategy class")
+            optimization_result = _run_sequential_optimization(
+                strategy_class=strategy_class,
+                symbol=vnpy_symbol,
+                start=start_dt,
+                end=end_dt,
+                rate=rate,
+                slippage=slippage,
+                size=size,
+                pricetick=pricetick,
+                capital=initial_capital,
+                optimization_setting=setting,
+                search_method=search_method,
+            )
+        elif search_method == "grid":
+            optimization_result = engine.run_bf_optimization(
+                optimization_setting=setting,
+                output=False,
+                max_workers=4,
+            )
+        else:
+            optimization_result = engine.run_ga_optimization(
+                optimization_setting=setting,
+                output=False,
+                max_workers=4,
+                ngen=18 if search_method == "bayesian" else 12,
             )
 
-        # Sort by sharpe ratio
-        results.sort(key=lambda x: x["statistics"]["sharpe_ratio"], reverse=True)
+        # Format results
+        results = _normalize_optimization_results(optimization_result, setting.target_name or objective_metric)
 
         return {
             "job_id": job_id,
@@ -884,6 +1080,7 @@ def run_optimization_task(
             "best_parameters": results[0]["parameters"] if results else {},
             "best_statistics": results[0]["statistics"] if results else {},
             "top_10_results": results[:10],
+            "all_results": results,
             "completed_at": datetime.now().isoformat(),
         }
 
@@ -898,3 +1095,71 @@ def run_optimization_task(
             "traceback": traceback.format_exc(),
             "failed_at": datetime.now().isoformat(),
         }
+
+
+def run_optimization_record_task(task_id: int) -> Dict[str, Any]:
+    """
+    Execute one optimization_tasks row and persist results back to DB.
+    """
+    dao = OptimizationTaskDao()
+    task = dao.get_task_for_worker(task_id)
+    if not task:
+        logger.error("[worker] Optimization task %s not found", task_id)
+        return {"status": "failed", "error": "Task not found", "task_id": task_id}
+
+    user_id = int(task.get("user_id") or 0)
+    strategy_id = int(task.get("strategy_id") or 0)
+    search_method = str(task.get("search_method") or "grid")
+    objective_metric = str(task.get("objective_metric") or "sharpe_ratio")
+    param_space = task.get("param_space") or {}
+
+    dao.update_status(task_id, "running")
+
+    try:
+        strategy_code, strategy_class_name, _ = StrategySourceDao().get_strategy_source_for_user(strategy_id, user_id)
+        symbol, start_date, end_date = _resolve_optimization_context(user_id, strategy_id)
+
+        result = run_optimization_task(
+            strategy_code=strategy_code,
+            strategy_class_name=strategy_class_name,
+            symbol=symbol,
+            start_date=start_date,
+            end_date=end_date,
+            initial_capital=100000.0,
+            rate=0.0003,
+            slippage=0.0001,
+            size=1,
+            pricetick=0.01,
+            optimization_settings=param_space,
+            job_id=f"opt_task_{task_id}",
+            search_method=search_method,
+            objective_metric=objective_metric,
+        )
+
+        if result.get("status") != "completed":
+            dao.update_status(task_id, "failed")
+            return {"task_id": task_id, **result}
+
+        all_results = list(result.get("all_results") or [])
+        rows_for_db = [
+            {
+                "rank_order": index,
+                "params": row.get("parameters") or {},
+                "metrics": row.get("statistics") or {},
+            }
+            for index, row in enumerate(all_results[:200], start=1)
+        ]
+        dao.replace_results(task_id, rows_for_db)
+        dao.update_status(
+            task_id=task_id,
+            status="completed",
+            best_params=result.get("best_parameters") or {},
+            best_metrics=result.get("best_statistics") or {},
+            total_iterations=int(result.get("total_combinations") or len(all_results)),
+        )
+        return {"task_id": task_id, **result}
+
+    except Exception as exc:
+        logger.exception("[worker] Optimization task %s failed", task_id)
+        dao.update_status(task_id, "failed")
+        return {"status": "failed", "error": str(exc), "task_id": task_id}

@@ -125,6 +125,27 @@ class BacktestHistoryDao:
             ).fetchone()
             return dict(row._mapping) if row else None
 
+    def get_latest_strategy_run(self, *, user_id: int, strategy_id: int) -> Optional[dict[str, Any]]:
+        """Fetch the most recent completed backtest row for a strategy."""
+        with connection("quantmate") as conn:
+            from sqlalchemy import text
+
+            row = conn.execute(
+                text(
+                    """
+                    SELECT vt_symbol, start_date, end_date
+                    FROM backtest_history
+                    WHERE user_id = :user_id
+                      AND strategy_id = :strategy_id
+                      AND status IN ('completed', 'finished')
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """
+                ),
+                {"user_id": user_id, "strategy_id": strategy_id},
+            ).fetchone()
+            return dict(row._mapping) if row else None
+
     def delete_single(self, job_id: str, user_id: int) -> None:
         with connection("quantmate") as conn:
             from sqlalchemy import text

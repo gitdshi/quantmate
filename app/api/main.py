@@ -60,6 +60,7 @@ from app.api.routes import templates as template_routes
 from app.api.routes import teams as team_routes
 from app.api.routes import multi_market
 from app.api.routes import ai_model as ai_model_routes
+from app.api.routes import datasync as datasync_routes
 from app.api.exception_handlers import register_exception_handlers, APIError
 from app.api.errors import ErrorCode
 
@@ -247,6 +248,7 @@ app.include_router(template_routes.router, prefix="/api/v1")
 app.include_router(team_routes.router, prefix="/api/v1")
 app.include_router(multi_market.router, prefix="/api/v1")
 app.include_router(ai_model_routes.router, prefix="/api/v1")
+app.include_router(datasync_routes.router, prefix="/api/v1")
 
 
 # Legacy /api/* → /api/v1/* redirect (Issue #13: transition period)

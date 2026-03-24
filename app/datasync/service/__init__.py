@@ -1,11 +1,14 @@
 """Datasync service subpackage.
 
-This package contains the implementation modules for the datasync service.
-Only `app.datasync.main` should remain at the package root; other modules
-live under `app.datasync.service`.
+Contains both the new plugin-based sync engine and legacy modules.
 """
 
 __all__ = [
+    # New sync engine
+    "sync_engine",
+    "vnpy_sync",
+    "init_service",
+    # Legacy modules (backward compatibility)
     "akshare_ingest",
     "tushare_ingest",
     "data_sync_daemon",

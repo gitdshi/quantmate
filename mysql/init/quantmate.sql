@@ -178,36 +178,26 @@ CREATE TABLE IF NOT EXISTS strategy_history (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='History snapshots for DB strategy code';
 
 -- -----------------------------------------------------------------------------
--- Data sync status table (includes extended steps from migration 008)
+-- Data sync status table (refactored: dynamic multi-source, migration 018)
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS data_sync_status (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     sync_date DATE NOT NULL,
-    step_name ENUM(
-        'akshare_index',
-        'tushare_stock_basic',
-        'tushare_stock_daily',
-        'tushare_adj_factor',
-        'tushare_dividend',
-        'tushare_top10_holders',
-        'vnpy_sync',
-        'tushare_stock_weekly',
-        'tushare_stock_monthly',
-        'tushare_index_daily',
-        'tushare_index_weekly'
-    ) NOT NULL,
-    status ENUM('pending', 'running', 'success', 'partial', 'error') NOT NULL DEFAULT 'pending',
+    source VARCHAR(50) NOT NULL,
+    interface_key VARCHAR(100) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
     rows_synced INT DEFAULT 0,
     error_message TEXT,
+    retry_count INT DEFAULT 0,
     started_at TIMESTAMP NULL,
     finished_at TIMESTAMP NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uq_sync_date_step (sync_date, step_name),
-    INDEX idx_status_date (status, sync_date),
+    UNIQUE KEY uq_date_source_interface (sync_date, source, interface_key),
+    INDEX idx_status (status),
     INDEX idx_sync_date (sync_date),
-    INDEX idx_step_name (step_name)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Granular data sync step tracking for daily ingest and backfill';
+    INDEX idx_source_interface (source, interface_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Per-interface per-trading-day sync status tracking';
 
 -- =============================================================================
 -- SECTION 2: Migration Tables (000-016)
@@ -239,7 +229,9 @@ INSERT IGNORE INTO schema_migrations (version, name) VALUES
     ('013', '013_create_tushare_extended_tables.sql'),
     ('014', '014_create_akshare_minute_preset_tables.sql'),
     ('015', '015_create_p3_feature_tables.sql'),
-    ('016', '016_create_multi_market_tables.sql');
+    ('016', '016_create_multi_market_tables.sql'),
+    ('017', '017_create_paper_deployments.sql'),
+    ('018', '018_datasync_multi_source_refactor.sql');
 
 -- Migration 001: Audit logs
 CREATE TABLE IF NOT EXISTS audit_logs (
@@ -297,47 +289,58 @@ CREATE TABLE IF NOT EXISTS kyc_submissions (
     CONSTRAINT fk_kyc_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Migration 004: Data source items configuration
+-- Migration 004+018: Data source items configuration (with multi-source columns)
 CREATE TABLE IF NOT EXISTS data_source_items (
     id                  INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    source              VARCHAR(20)  NOT NULL COMMENT 'tushare or akshare',
+    source              VARCHAR(50)  NOT NULL COMMENT 'tushare, akshare, etc.',
     item_key            VARCHAR(100) NOT NULL,
     item_name           VARCHAR(200) NOT NULL,
     enabled             TINYINT(1)   NOT NULL DEFAULT 1,
     description         TEXT         DEFAULT NULL,
     requires_permission VARCHAR(50)  DEFAULT NULL COMMENT 'Permission level required',
+    target_database     VARCHAR(50)  NOT NULL DEFAULT '' COMMENT 'Target DB: tushare, akshare',
+    target_table        VARCHAR(100) NOT NULL DEFAULT '' COMMENT 'Target table name',
+    table_created       TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '1 if table has been created',
+    sync_priority       INT          NOT NULL DEFAULT 100 COMMENT 'Lower = higher priority',
     updated_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uq_source_item (source, item_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Consolidated seed data for data_source_items (from migrations 004, 008, 013, 014)
-INSERT INTO data_source_items (source, item_key, item_name, enabled, description, requires_permission) VALUES
--- Core tushare items (004)
-('tushare', 'stock_basic',     '股票基本信息',  1, 'A股基本资料',                   NULL),
-('tushare', 'stock_daily',     '日线行情',      1, 'A股日K线',                      NULL),
-('tushare', 'adj_factor',      '复权因子',      1, '前复权因子',                     NULL),
-('tushare', 'trade_cal',       '交易日历',      1, '交易所交易日历',                  NULL),
-('tushare', 'stock_dividend',  '分红送股',      0, '分红送转信息',                   'premium'),
--- Weekly/Monthly/Index items (008)
-('tushare', 'stock_weekly',    '周线行情',      1, 'A股周K线',                      NULL),
-('tushare', 'stock_monthly',   '月线行情',      1, 'A股月K线',                      NULL),
-('tushare', 'index_weekly',    '指数周线',      1, '指数周K线',                      NULL),
-('tushare', 'index_daily',     '指数日线',      1, '指数日K线',                      NULL),
--- Extended tushare items (013)
-('tushare', 'money_flow',      '资金流向',      1, '个股资金流向数据(大中小单)',       '0'),
-('tushare', 'stk_limit',       '涨跌停统计',    1, '涨跌停数据(封单/强度)',           '0'),
-('tushare', 'margin_detail',   '融资融券',      1, '融资融券余额明细',                '0'),
-('tushare', 'block_trade',     '大宗交易',      1, '大宗交易数据',                   '0'),
-('tushare', 'stock_company',   '公司基本面',    1, '上市公司基本信息',                '0'),
-('tushare', 'fina_indicator',  '财务指标',      1, '主要财务指标数据',                '0'),
-('tushare', 'dividend',        '分红送股',      0, '分红送股数据(需高级权限)',         '1'),
-('tushare', 'income',          '利润表',        0, '利润表数据(需高级权限)',           '1'),
-('tushare', 'top10_holders',   '十大股东',      0, '十大股东数据(需高级权限)',         '1'),
--- AkShare items (004 + 014)
-('akshare', 'stock_zh_index',  '指数行情',      0, 'A股指数实时行情',                NULL),
-('akshare', 'stock_zh_index_spot', '指数实时行情', 1, 'A股指数实时报价',              '0'),
-('akshare', 'fund_etf_daily',  'ETF日线',       1, 'ETF基金日K线数据',               '0')
-ON DUPLICATE KEY UPDATE item_name = VALUES(item_name);
+-- Consolidated seed data for data_source_items (from migrations 004, 008, 013, 014, 018)
+INSERT INTO data_source_items (source, item_key, item_name, enabled, description, requires_permission, target_database, target_table, table_created, sync_priority) VALUES
+-- Core tushare items
+('tushare', 'stock_basic',     '股票基本信息',  1, 'A股基本资料',                   NULL,      'tushare', 'stock_basic',     1, 10),
+('tushare', 'stock_daily',     '日线行情',      1, 'A股日K线',                      NULL,      'tushare', 'stock_daily',     1, 20),
+('tushare', 'adj_factor',      '复权因子',      1, '前复权因子',                     NULL,      'tushare', 'adj_factor',      1, 30),
+('tushare', 'trade_cal',       '交易日历',      1, '交易所交易日历',                  NULL,      'akshare', 'trade_cal',       1, 5),
+('tushare', 'stock_dividend',  '分红送股',      0, '分红送转信息',                   'premium', 'tushare', 'stock_dividend',  1, 50),
+-- Weekly/Monthly/Index items
+('tushare', 'stock_weekly',    '周线行情',      1, 'A股周K线',                      NULL,      'tushare', 'stock_weekly',    1, 25),
+('tushare', 'stock_monthly',   '月线行情',      1, 'A股月K线',                      NULL,      'tushare', 'stock_monthly',   1, 26),
+('tushare', 'index_weekly',    '指数周线',      1, '指数周K线',                      NULL,      'tushare', 'index_weekly',    1, 28),
+('tushare', 'index_daily',     '指数日线',      1, '指数日K线',                      NULL,      'tushare', 'index_daily',     1, 27),
+-- Extended tushare items
+('tushare', 'money_flow',      '资金流向',      1, '个股资金流向数据(大中小单)',       '0',       'tushare', 'moneyflow',       1, 60),
+('tushare', 'stk_limit',       '涨跌停统计',    1, '涨跌停数据(封单/强度)',           '0',       'tushare', 'stk_limit',       1, 70),
+('tushare', 'margin_detail',   '融资融券',      1, '融资融券余额明细',                '0',       'tushare', 'margin',          1, 80),
+('tushare', 'block_trade',     '大宗交易',      1, '大宗交易数据',                   '0',       'tushare', 'block_trade',     1, 90),
+('tushare', 'stock_company',   '公司基本面',    1, '上市公司基本信息',                '0',       'tushare', 'stock_company',   1, 15),
+('tushare', 'fina_indicator',  '财务指标',      1, '主要财务指标数据',                '0',       'tushare', 'fina_indicator',  1, 55),
+('tushare', 'dividend',        '分红送股',      0, '分红送股数据(需高级权限)',         '1',       'tushare', 'stock_dividend',  1, 50),
+('tushare', 'income',          '利润表',        0, '利润表数据(需高级权限)',           '1',       'tushare', 'income',          1, 56),
+('tushare', 'top10_holders',   '十大股东',      0, '十大股东数据(需高级权限)',         '1',       'tushare', 'top10_holders',   1, 57),
+-- AkShare items
+('akshare', 'stock_zh_index',  '指数行情',      0, 'A股指数实时行情',                NULL,      'akshare', 'stock_zh_index_spot', 1, 40),
+('akshare', 'stock_zh_index_spot', '指数实时行情', 1, 'A股指数实时报价',              '0',       'akshare', 'stock_zh_index_spot', 1, 40),
+('akshare', 'fund_etf_daily',  'ETF日线',       1, 'ETF基金日K线数据',               '0',       'akshare', 'fund_etf_daily',  1, 45),
+-- AkShare index_daily (for index OHLCV)
+('akshare', 'index_daily',     '指数日线',      1, 'AkShare指数日K线(沪深300等)',     NULL,      'akshare', 'index_daily',     1, 41)
+ON DUPLICATE KEY UPDATE
+    item_name = VALUES(item_name),
+    target_database = VALUES(target_database),
+    target_table = VALUES(target_table),
+    table_created = VALUES(table_created),
+    sync_priority = VALUES(sync_priority);
 
 -- Migration 006: Portfolio tables
 CREATE TABLE IF NOT EXISTS portfolios (
@@ -594,13 +597,22 @@ CREATE TABLE IF NOT EXISTS system_configs (
 
 CREATE TABLE IF NOT EXISTS data_source_configs (
     id                INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    source_type       VARCHAR(50)  NOT NULL,
+    source_key        VARCHAR(50)  NOT NULL,
+    display_name      VARCHAR(100) NOT NULL DEFAULT '',
     api_token_encrypted TEXT       DEFAULT NULL,
+    config_json       JSON         DEFAULT NULL,
     rate_limit        INT          NOT NULL DEFAULT 60,
-    is_enabled        TINYINT(1)   NOT NULL DEFAULT 1,
+    enabled           TINYINT(1)   NOT NULL DEFAULT 1,
+    requires_token    TINYINT(1)   DEFAULT 0,
     updated_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uq_ds_type (source_type)
+    UNIQUE KEY uq_source_key (source_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Seed data source configs
+INSERT INTO data_source_configs (source_key, display_name, enabled, rate_limit, requires_token) VALUES
+('tushare', 'Tushare Pro', 1, 50, 1),
+('akshare', 'AkShare', 1, 30, 0)
+ON DUPLICATE KEY UPDATE display_name = VALUES(display_name);
 
 CREATE TABLE IF NOT EXISTS optimization_tasks (
     id             INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,

@@ -55,10 +55,13 @@ class TestOptimizationTasks:
         resp = client.get("/api/v1/optimization/tasks/999")
         assert resp.status_code == 404
 
+    @patch("app.api.routes.optimization.get_queue")
     @patch("app.api.routes.optimization.OptimizationTaskDao")
-    def test_create_task(self, MockDao, client):
+    def test_create_task(self, MockDao, mock_get_queue, client):
         instance = MockDao.return_value
         instance.create.return_value = 1
+        queue = mock_get_queue.return_value
+        queue.enqueue.return_value = None
         resp = client.post("/api/v1/optimization/tasks", json={
             "strategy_id": 1, "search_method": "grid",
             "param_space": {"sma_period": [10, 20, 30]},
@@ -66,6 +69,21 @@ class TestOptimizationTasks:
         })
         assert resp.status_code == 201
         assert resp.json()["id"] == 1
+        queue.enqueue.assert_called_once()
+
+    @patch("app.api.routes.optimization.get_queue")
+    @patch("app.api.routes.optimization.OptimizationTaskDao")
+    def test_create_task_enqueue_failed(self, MockDao, mock_get_queue, client):
+        instance = MockDao.return_value
+        instance.create.return_value = 1
+        mock_get_queue.side_effect = RuntimeError("redis unavailable")
+        resp = client.post("/api/v1/optimization/tasks", json={
+            "strategy_id": 1, "search_method": "grid",
+            "param_space": {"sma_period": [10, 20, 30]},
+            "objective_metric": "sharpe_ratio"
+        })
+        assert resp.status_code == 500
+        instance.update_status.assert_called_once_with(1, "failed")
 
     @patch("app.api.routes.optimization.OptimizationTaskDao")
     def test_create_task_invalid_method(self, MockDao, client):
@@ -84,4 +102,18 @@ class TestOptimizationTasks:
         resp = client.get("/api/v1/optimization/tasks/1/results")
         assert resp.status_code == 200
         assert len(resp.json()["results"]) == 1
+
+    @patch("app.api.routes.optimization.OptimizationTaskDao")
+    def test_delete_task(self, MockDao, client):
+        instance = MockDao.return_value
+        instance.delete_by_id.return_value = True
+        resp = client.delete("/api/v1/optimization/tasks/1")
+        assert resp.status_code == 204
+
+    @patch("app.api.routes.optimization.OptimizationTaskDao")
+    def test_delete_task_not_found(self, MockDao, client):
+        instance = MockDao.return_value
+        instance.delete_by_id.return_value = False
+        resp = client.delete("/api/v1/optimization/tasks/999")
+        assert resp.status_code == 404
 

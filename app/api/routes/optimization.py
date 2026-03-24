@@ -1,5 +1,7 @@
 """Optimization task routes (P2 Issue: Parameter Optimization Enhancement)."""
 
+import logging
+
 from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel
 
@@ -8,8 +10,10 @@ from app.api.models.user import TokenData
 from app.api.errors import ErrorCode
 from app.api.exception_handlers import APIError
 from app.domains.system.dao.optimization_dao import OptimizationTaskDao
+from app.worker.service.config import get_queue
 
 router = APIRouter(prefix="/optimization", tags=["Optimization"])
+logger = logging.getLogger(__name__)
 
 
 class OptimizationCreateRequest(BaseModel):
@@ -58,7 +62,36 @@ async def create_optimization_task(req: OptimizationCreateRequest, current_user:
         param_space=req.param_space,
         objective_metric=req.objective_metric,
     )
+
+    try:
+        queue = get_queue("optimization")
+        queue.enqueue(
+            "app.worker.service.tasks.run_optimization_record_task",
+            kwargs={"task_id": task_id},
+            job_id=f"opt_task_{task_id}",
+            job_timeout=14400,
+            result_ttl=86400 * 3,
+        )
+    except Exception:
+        logger.exception("Failed to enqueue optimization task %s", task_id)
+        dao.update_status(task_id, "failed")
+        raise APIError(
+            status_code=500,
+            code=ErrorCode.INTERNAL_ERROR,
+            message="Failed to enqueue optimization task",
+        )
+
     return {"id": task_id, "message": "Optimization task created"}
+
+
+@router.delete("/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_optimization_task(task_id: int, current_user: TokenData = Depends(get_current_user)):
+    """Delete an optimization task and its result rows for the current user."""
+    dao = OptimizationTaskDao()
+    deleted = dao.delete_by_id(task_id, current_user.user_id)
+    if not deleted:
+        raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Task not found")
+    return None
 
 
 @router.get("/tasks/{task_id}/results")

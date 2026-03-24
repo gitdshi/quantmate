@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+import os
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, Optional
 
-from app.domains.extdata.dao.sync_log_dao import SyncLogDao
-from app.datasync.service.data_sync_daemon import (
-    DataSyncDaemon,
-    BACKFILL_DAYS,
-    REQUIRED_ENDPOINTS,
-    SYNC_HOUR,
-    SYNC_MINUTE,
-)
+from sqlalchemy import text
+
+from app.infrastructure.db.connections import get_quantmate_engine
+
+SYNC_HOUR = int(os.getenv("SYNC_HOUR", "2"))
+SYNC_MINUTE = int(os.getenv("SYNC_MINUTE", "0"))
+LOOKBACK_DAYS = int(os.getenv("LOOKBACK_DAYS", "60"))
 
 
 def _status_from_last_run(last_run_at: Optional[datetime], running_count: int) -> str:
@@ -26,17 +26,50 @@ def _status_from_last_run(last_run_at: Optional[datetime], running_count: int) -
 
 
 class SyncStatusService:
-    def __init__(self) -> None:
-        self._dao = SyncLogDao()
+    """Aggregates sync status from the new data_sync_status table."""
 
     def get_sync_status(self) -> Dict[str, Any]:
-        latest = self._dao.get_latest_per_endpoint(list(REQUIRED_ENDPOINTS))
-        last_finished = self._dao.last_finished_at()
-        running_count = self._dao.running_count_last_day()
+        engine = get_quantmate_engine()
 
-        daemon = DataSyncDaemon()
-        missing_dates = daemon.find_missing_trade_dates(lookback_days=BACKFILL_DAYS)
-        missing_date_strings = [d.isoformat() for d in missing_dates]
+        with engine.connect() as conn:
+            # Latest finished record
+            row = conn.execute(
+                text("SELECT MAX(finished_at) FROM data_sync_status WHERE status = 'success'")
+            ).fetchone()
+            last_finished = row[0] if row else None
+
+            # Running count
+            row = conn.execute(
+                text("SELECT COUNT(*) FROM data_sync_status WHERE status = 'running'")
+            ).fetchone()
+            running_count = row[0] if row else 0
+
+            # Failed / pending counts in lookback window
+            cutoff = (date.today() - timedelta(days=LOOKBACK_DAYS)).isoformat()
+            row = conn.execute(
+                text(
+                    "SELECT COUNT(*) FROM data_sync_status "
+                    "WHERE sync_date >= :cutoff AND status IN ('error', 'partial', 'pending')"
+                ),
+                {"cutoff": cutoff},
+            ).fetchone()
+            missing_count = row[0] if row else 0
+
+            # Per-source summary for last 7 days
+            cutoff7 = (date.today() - timedelta(days=7)).isoformat()
+            rows = conn.execute(
+                text(
+                    "SELECT source, status, COUNT(*) FROM data_sync_status "
+                    "WHERE sync_date >= :cutoff GROUP BY source, status"
+                ),
+                {"cutoff": cutoff7},
+            ).fetchall()
+            source_summary: dict = {}
+            for r in rows:
+                src = r[0]
+                if src not in source_summary:
+                    source_summary[src] = {}
+                source_summary[src][r[1]] = r[2]
 
         daemon_status = _status_from_last_run(last_finished, running_count)
 
@@ -48,12 +81,11 @@ class SyncStatusService:
                 "next_run_local": f"{SYNC_HOUR:02d}:{SYNC_MINUTE:02d}",
             },
             "sync": {
-                "latest": latest,
-                "missing_dates": missing_date_strings,
-                "lookback_days": BACKFILL_DAYS,
+                "source_summary": source_summary,
+                "lookback_days": LOOKBACK_DAYS,
             },
             "consistency": {
-                "missing_count": len(missing_date_strings),
-                "is_consistent": len(missing_date_strings) == 0,
+                "missing_count": missing_count,
+                "is_consistent": missing_count == 0,
             },
         }
