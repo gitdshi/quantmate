@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 import os
-import time
 from datetime import date, timedelta
 from typing import Optional
 
@@ -294,4 +293,3 @@ def backfill_retry(
             logger.exception("Failed to release backfill lock")
 
     return results
-results
