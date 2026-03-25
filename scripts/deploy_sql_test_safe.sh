@@ -130,7 +130,7 @@ if ! MYSQL_PWD="$MYSQL_PASSWORD" "${MYSQL_BASE_CMD[@]}" -Nse "SELECT 1" >/dev/nu
 fi
 
 if [ "$DRY_RUN" -eq 0 ] && [ "$OFFLINE_DRY_RUN" -eq 0 ]; then
-  mysql_exec_db "information_schema" "CREATE DATABASE IF NOT EXISTS \\`$DB_NAME\\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" >/dev/null || true
+  mysql_exec_db "information_schema" "CREATE DATABASE IF NOT EXISTS $DB_NAME CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" >/dev/null || true
 fi
 
 HAS_MIGRATION_TABLE="1"
@@ -145,6 +145,35 @@ if [ "$HAS_MIGRATION_TABLE" = "0" ]; then
     mysql_exec_db "$DB_NAME" "INSERT IGNORE INTO schema_migrations (version, name) VALUES ('000', '000_create_migration_table.sql');" >/dev/null
   fi
 fi
+
+# Self-heal for schema drift: a version may be marked as applied while the
+# corresponding table is missing (common when importing historical init SQL).
+heal_missing_table_from_migration() {
+  local version="$1"
+  local table_name="$2"
+  local migration_file="$3"
+
+  if [ "$OFFLINE_DRY_RUN" -eq 1 ]; then
+    return 0
+  fi
+
+  local applied_count
+  local table_exists
+  applied_count="$(mysql_exec_db "$DB_NAME" "SELECT COUNT(*) FROM schema_migrations WHERE version='$version';")"
+  table_exists="$(mysql_exec_db "information_schema" "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$DB_NAME' AND table_name='$table_name';")"
+
+  if [ "$applied_count" != "0" ] && [ "$table_exists" = "0" ]; then
+    if [ "$DRY_RUN" -eq 1 ]; then
+      echo "[PLAN][HEAL] $table_name missing while migration $version is marked applied -> would run $migration_file"
+      return 0
+    fi
+    echo "[HEAL] $table_name missing while migration $version is marked applied -> running $migration_file"
+    mysql_run_file "$DB_NAME" "$MIGRATIONS_DIR/$migration_file"
+  fi
+}
+
+heal_missing_table_from_migration "004" "data_source_items" "004_create_data_source_items.sql"
+heal_missing_table_from_migration "012" "data_source_configs" "012_create_system_config_optimization_indicator.sql"
 
 echo "Scanning migration files..."
 mapfile -t FILES < <(find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '*.sql' | sort)

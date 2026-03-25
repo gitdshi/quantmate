@@ -6,11 +6,23 @@
 -- -----------------------------------------------------------------------------
 -- 1. Alter data_source_items: add target_database, target_table, table_created, sync_priority
 -- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS data_source_items (
+    id                  INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    source              VARCHAR(20)  NOT NULL COMMENT 'tushare or akshare',
+    item_key            VARCHAR(100) NOT NULL,
+    item_name           VARCHAR(200) NOT NULL,
+    enabled             TINYINT(1)   NOT NULL DEFAULT 1,
+    description         TEXT         DEFAULT NULL,
+    requires_permission VARCHAR(50)  DEFAULT NULL COMMENT 'Permission level required',
+    updated_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_source_item (source, item_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 ALTER TABLE data_source_items
-    ADD COLUMN target_database VARCHAR(50) NOT NULL DEFAULT '' AFTER requires_permission,
-    ADD COLUMN target_table VARCHAR(100) NOT NULL DEFAULT '' AFTER target_database,
-    ADD COLUMN table_created TINYINT(1) NOT NULL DEFAULT 0 AFTER target_table,
-    ADD COLUMN sync_priority INT NOT NULL DEFAULT 100 AFTER table_created;
+    ADD COLUMN IF NOT EXISTS target_database VARCHAR(50) NOT NULL DEFAULT '' AFTER requires_permission,
+    ADD COLUMN IF NOT EXISTS target_table VARCHAR(100) NOT NULL DEFAULT '' AFTER target_database,
+    ADD COLUMN IF NOT EXISTS table_created TINYINT(1) NOT NULL DEFAULT 0 AFTER target_table,
+    ADD COLUMN IF NOT EXISTS sync_priority INT NOT NULL DEFAULT 100 AFTER table_created;
 
 -- Backfill target_database and target_table for existing rows
 UPDATE data_source_items SET target_database = 'tushare', target_table = 'stock_basic',     sync_priority = 10  WHERE source = 'tushare' AND item_key = 'stock_basic';
@@ -42,11 +54,36 @@ UPDATE data_source_items SET table_created = 1 WHERE target_table != '';
 -- -----------------------------------------------------------------------------
 -- 2. Recreate data_sync_status with VARCHAR instead of ENUM
 -- -----------------------------------------------------------------------------
--- Rename old table
-RENAME TABLE data_sync_status TO data_sync_status_old;
+-- Rename old table only when it exists.
+SET @has_data_sync_status := (
+    SELECT COUNT(*)
+    FROM information_schema.tables
+    WHERE table_schema = DATABASE() AND table_name = 'data_sync_status'
+);
+SET @rename_data_sync_status_sql := IF(
+    @has_data_sync_status > 0,
+    'RENAME TABLE data_sync_status TO data_sync_status_old',
+    'SELECT 1'
+);
+PREPARE stmt_rename_data_sync_status FROM @rename_data_sync_status_sql;
+EXECUTE stmt_rename_data_sync_status;
+DEALLOCATE PREPARE stmt_rename_data_sync_status;
+
+-- In case there was no legacy table, create an empty source table so the INSERT ... SELECT remains valid.
+CREATE TABLE IF NOT EXISTS data_sync_status_old (
+    sync_date DATE NOT NULL,
+    step_name VARCHAR(100) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    rows_synced INT DEFAULT 0,
+    error_message TEXT,
+    started_at TIMESTAMP NULL,
+    finished_at TIMESTAMP NULL,
+    created_at TIMESTAMP NULL,
+    updated_at TIMESTAMP NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Create new table with dynamic columns
-CREATE TABLE data_sync_status (
+CREATE TABLE IF NOT EXISTS data_sync_status (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     sync_date DATE NOT NULL,
     source VARCHAR(50) NOT NULL,
@@ -104,26 +141,43 @@ DROP TABLE data_sync_status_old;
 -- -----------------------------------------------------------------------------
 -- 3. Enhance data_source_configs
 -- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS data_source_configs (
+    id                  INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    source_type         VARCHAR(50)  NOT NULL,
+    api_token_encrypted TEXT         DEFAULT NULL,
+    rate_limit          INT          NOT NULL DEFAULT 60,
+    is_enabled          TINYINT(1)   NOT NULL DEFAULT 1,
+    updated_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_ds_type (source_type)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Add missing columns if they don't exist
 ALTER TABLE data_source_configs
-    ADD COLUMN display_name VARCHAR(100) NOT NULL DEFAULT '' AFTER source_type,
-    ADD COLUMN config_json JSON DEFAULT NULL AFTER api_token_encrypted,
-    ADD COLUMN requires_token TINYINT(1) DEFAULT 0 AFTER is_enabled;
+    ADD COLUMN IF NOT EXISTS display_name VARCHAR(100) NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS config_json JSON DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS requires_token TINYINT(1) DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS source_type VARCHAR(50) DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS is_enabled TINYINT(1) DEFAULT 1,
+    ADD COLUMN IF NOT EXISTS source_key VARCHAR(50) DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS enabled TINYINT(1) NOT NULL DEFAULT 1;
 
--- Rename source_type to source_key for consistency
-ALTER TABLE data_source_configs CHANGE COLUMN source_type source_key VARCHAR(50) NOT NULL;
-ALTER TABLE data_source_configs CHANGE COLUMN is_enabled enabled TINYINT(1) NOT NULL DEFAULT 1;
+-- Backfill new canonical columns from legacy columns.
+UPDATE data_source_configs SET source_key = source_type WHERE source_key IS NULL OR source_key = '';
+UPDATE data_source_configs SET enabled = is_enabled WHERE enabled IS NULL;
+UPDATE data_source_configs SET source_type = source_key WHERE source_type IS NULL OR source_type = '';
+UPDATE data_source_configs SET is_enabled = enabled WHERE is_enabled IS NULL;
 
--- Update unique key
-ALTER TABLE data_source_configs DROP INDEX uq_ds_type;
-ALTER TABLE data_source_configs ADD UNIQUE KEY uq_source_key (source_key);
+-- Ensure source_key is non-null after backfill.
+UPDATE data_source_configs SET source_key = 'unknown' WHERE source_key IS NULL OR source_key = '';
 
 -- Seed/update config data
-INSERT INTO data_source_configs (source_key, display_name, enabled, rate_limit, requires_token) VALUES
-('tushare', 'Tushare Pro', 1, 50, 1),
-('akshare', 'AkShare', 1, 30, 0)
+INSERT INTO data_source_configs (source_key, source_type, display_name, enabled, is_enabled, rate_limit, requires_token) VALUES
+('tushare', 'tushare', 'Tushare Pro', 1, 1, 50, 1),
+('akshare', 'akshare', 'AkShare', 1, 1, 30, 0)
 ON DUPLICATE KEY UPDATE
     display_name = VALUES(display_name),
+    enabled = VALUES(enabled),
+    is_enabled = VALUES(is_enabled),
     requires_token = VALUES(requires_token);
 
 -- -----------------------------------------------------------------------------
