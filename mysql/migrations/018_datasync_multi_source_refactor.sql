@@ -18,11 +18,61 @@ CREATE TABLE IF NOT EXISTS data_source_items (
     UNIQUE KEY uq_source_item (source, item_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-ALTER TABLE data_source_items
-    ADD COLUMN IF NOT EXISTS target_database VARCHAR(50) NOT NULL DEFAULT '' AFTER requires_permission,
-    ADD COLUMN IF NOT EXISTS target_table VARCHAR(100) NOT NULL DEFAULT '' AFTER target_database,
-    ADD COLUMN IF NOT EXISTS table_created TINYINT(1) NOT NULL DEFAULT 0 AFTER target_table,
-    ADD COLUMN IF NOT EXISTS sync_priority INT NOT NULL DEFAULT 100 AFTER table_created;
+SET @has_col_target_database := (
+    SELECT COUNT(*)
+    FROM information_schema.columns
+    WHERE table_schema = DATABASE() AND table_name = 'data_source_items' AND column_name = 'target_database'
+);
+SET @sql_add_target_database := IF(
+    @has_col_target_database = 0,
+    'ALTER TABLE data_source_items ADD COLUMN target_database VARCHAR(50) NOT NULL DEFAULT '''' AFTER requires_permission',
+    'SELECT 1'
+);
+PREPARE stmt_add_target_database FROM @sql_add_target_database;
+EXECUTE stmt_add_target_database;
+DEALLOCATE PREPARE stmt_add_target_database;
+
+SET @has_col_target_table := (
+    SELECT COUNT(*)
+    FROM information_schema.columns
+    WHERE table_schema = DATABASE() AND table_name = 'data_source_items' AND column_name = 'target_table'
+);
+SET @sql_add_target_table := IF(
+    @has_col_target_table = 0,
+    'ALTER TABLE data_source_items ADD COLUMN target_table VARCHAR(100) NOT NULL DEFAULT '''' AFTER target_database',
+    'SELECT 1'
+);
+PREPARE stmt_add_target_table FROM @sql_add_target_table;
+EXECUTE stmt_add_target_table;
+DEALLOCATE PREPARE stmt_add_target_table;
+
+SET @has_col_table_created := (
+    SELECT COUNT(*)
+    FROM information_schema.columns
+    WHERE table_schema = DATABASE() AND table_name = 'data_source_items' AND column_name = 'table_created'
+);
+SET @sql_add_table_created := IF(
+    @has_col_table_created = 0,
+    'ALTER TABLE data_source_items ADD COLUMN table_created TINYINT(1) NOT NULL DEFAULT 0 AFTER target_table',
+    'SELECT 1'
+);
+PREPARE stmt_add_table_created FROM @sql_add_table_created;
+EXECUTE stmt_add_table_created;
+DEALLOCATE PREPARE stmt_add_table_created;
+
+SET @has_col_sync_priority := (
+    SELECT COUNT(*)
+    FROM information_schema.columns
+    WHERE table_schema = DATABASE() AND table_name = 'data_source_items' AND column_name = 'sync_priority'
+);
+SET @sql_add_sync_priority := IF(
+    @has_col_sync_priority = 0,
+    'ALTER TABLE data_source_items ADD COLUMN sync_priority INT NOT NULL DEFAULT 100 AFTER table_created',
+    'SELECT 1'
+);
+PREPARE stmt_add_sync_priority FROM @sql_add_sync_priority;
+EXECUTE stmt_add_sync_priority;
+DEALLOCATE PREPARE stmt_add_sync_priority;
 
 -- Backfill target_database and target_table for existing rows
 UPDATE data_source_items SET target_database = 'tushare', target_table = 'stock_basic',     sync_priority = 10  WHERE source = 'tushare' AND item_key = 'stock_basic';
@@ -151,15 +201,105 @@ CREATE TABLE IF NOT EXISTS data_source_configs (
     UNIQUE KEY uq_ds_type (source_type)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Add missing columns if they don't exist
-ALTER TABLE data_source_configs
-    ADD COLUMN IF NOT EXISTS display_name VARCHAR(100) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS config_json JSON DEFAULT NULL,
-    ADD COLUMN IF NOT EXISTS requires_token TINYINT(1) DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS source_type VARCHAR(50) DEFAULT NULL,
-    ADD COLUMN IF NOT EXISTS is_enabled TINYINT(1) DEFAULT 1,
-    ADD COLUMN IF NOT EXISTS source_key VARCHAR(50) DEFAULT NULL,
-    ADD COLUMN IF NOT EXISTS enabled TINYINT(1) NOT NULL DEFAULT 1;
+-- Add missing columns if they don't exist (compatible with MySQL versions
+-- that do not support ADD COLUMN IF NOT EXISTS).
+SET @has_col_display_name := (
+    SELECT COUNT(*)
+    FROM information_schema.columns
+    WHERE table_schema = DATABASE() AND table_name = 'data_source_configs' AND column_name = 'display_name'
+);
+SET @sql_add_display_name := IF(
+    @has_col_display_name = 0,
+    'ALTER TABLE data_source_configs ADD COLUMN display_name VARCHAR(100) NOT NULL DEFAULT ''''',
+    'SELECT 1'
+);
+PREPARE stmt_add_display_name FROM @sql_add_display_name;
+EXECUTE stmt_add_display_name;
+DEALLOCATE PREPARE stmt_add_display_name;
+
+SET @has_col_config_json := (
+    SELECT COUNT(*)
+    FROM information_schema.columns
+    WHERE table_schema = DATABASE() AND table_name = 'data_source_configs' AND column_name = 'config_json'
+);
+SET @sql_add_config_json := IF(
+    @has_col_config_json = 0,
+    'ALTER TABLE data_source_configs ADD COLUMN config_json JSON DEFAULT NULL',
+    'SELECT 1'
+);
+PREPARE stmt_add_config_json FROM @sql_add_config_json;
+EXECUTE stmt_add_config_json;
+DEALLOCATE PREPARE stmt_add_config_json;
+
+SET @has_col_requires_token := (
+    SELECT COUNT(*)
+    FROM information_schema.columns
+    WHERE table_schema = DATABASE() AND table_name = 'data_source_configs' AND column_name = 'requires_token'
+);
+SET @sql_add_requires_token := IF(
+    @has_col_requires_token = 0,
+    'ALTER TABLE data_source_configs ADD COLUMN requires_token TINYINT(1) DEFAULT 0',
+    'SELECT 1'
+);
+PREPARE stmt_add_requires_token FROM @sql_add_requires_token;
+EXECUTE stmt_add_requires_token;
+DEALLOCATE PREPARE stmt_add_requires_token;
+
+SET @has_col_source_type := (
+    SELECT COUNT(*)
+    FROM information_schema.columns
+    WHERE table_schema = DATABASE() AND table_name = 'data_source_configs' AND column_name = 'source_type'
+);
+SET @sql_add_source_type := IF(
+    @has_col_source_type = 0,
+    'ALTER TABLE data_source_configs ADD COLUMN source_type VARCHAR(50) DEFAULT NULL',
+    'SELECT 1'
+);
+PREPARE stmt_add_source_type FROM @sql_add_source_type;
+EXECUTE stmt_add_source_type;
+DEALLOCATE PREPARE stmt_add_source_type;
+
+SET @has_col_is_enabled := (
+    SELECT COUNT(*)
+    FROM information_schema.columns
+    WHERE table_schema = DATABASE() AND table_name = 'data_source_configs' AND column_name = 'is_enabled'
+);
+SET @sql_add_is_enabled := IF(
+    @has_col_is_enabled = 0,
+    'ALTER TABLE data_source_configs ADD COLUMN is_enabled TINYINT(1) DEFAULT 1',
+    'SELECT 1'
+);
+PREPARE stmt_add_is_enabled FROM @sql_add_is_enabled;
+EXECUTE stmt_add_is_enabled;
+DEALLOCATE PREPARE stmt_add_is_enabled;
+
+SET @has_col_source_key := (
+    SELECT COUNT(*)
+    FROM information_schema.columns
+    WHERE table_schema = DATABASE() AND table_name = 'data_source_configs' AND column_name = 'source_key'
+);
+SET @sql_add_source_key := IF(
+    @has_col_source_key = 0,
+    'ALTER TABLE data_source_configs ADD COLUMN source_key VARCHAR(50) DEFAULT NULL',
+    'SELECT 1'
+);
+PREPARE stmt_add_source_key FROM @sql_add_source_key;
+EXECUTE stmt_add_source_key;
+DEALLOCATE PREPARE stmt_add_source_key;
+
+SET @has_col_enabled := (
+    SELECT COUNT(*)
+    FROM information_schema.columns
+    WHERE table_schema = DATABASE() AND table_name = 'data_source_configs' AND column_name = 'enabled'
+);
+SET @sql_add_enabled := IF(
+    @has_col_enabled = 0,
+    'ALTER TABLE data_source_configs ADD COLUMN enabled TINYINT(1) NOT NULL DEFAULT 1',
+    'SELECT 1'
+);
+PREPARE stmt_add_enabled FROM @sql_add_enabled;
+EXECUTE stmt_add_enabled;
+DEALLOCATE PREPARE stmt_add_enabled;
 
 -- Backfill new canonical columns from legacy columns.
 UPDATE data_source_configs SET source_key = source_type WHERE source_key IS NULL OR source_key = '';
