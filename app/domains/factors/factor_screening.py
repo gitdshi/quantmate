@@ -13,9 +13,7 @@ import logging
 from datetime import date
 from typing import Any, Optional
 
-import numpy as np
 import pandas as pd
-from scipy import stats
 
 from app.domains.factors.expression_engine import (
     compute_custom_factor,
