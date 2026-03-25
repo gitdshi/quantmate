@@ -872,6 +872,212 @@ def _normalize_optimization_results(raw_results: list[tuple], objective_metric: 
     return rows
 
 
+def _evaluate_single(
+    target_name: str,
+    strategy_class: type,
+    symbol: str,
+    start: datetime,
+    end: datetime,
+    rate: float,
+    slippage: float,
+    size: int,
+    pricetick: float,
+    capital: float,
+    setting: dict,
+) -> tuple | None:
+    """Evaluate one parameter combination and return the vnpy result tuple, or *None* on error."""
+    try:
+        return evaluate(
+            target_name,
+            strategy_class,
+            symbol,
+            Interval.DAILY,
+            start,
+            rate,
+            slippage,
+            size,
+            pricetick,
+            capital,
+            end,
+            BacktestingMode.BAR,
+            setting,
+        )
+    except Exception:
+        logger.exception("[worker] Optimization evaluation failed for setting %s", setting)
+        return None
+
+
+def _run_grid_sequential(
+    *,
+    strategy_class: type,
+    symbol: str,
+    start: datetime,
+    end: datetime,
+    rate: float,
+    slippage: float,
+    size: int,
+    pricetick: float,
+    capital: float,
+    optimization_setting: OptimizationSetting,
+) -> list[tuple]:
+    """Grid (brute-force) search: evaluate every combination, with a budget cap."""
+    all_settings = optimization_setting.generate_settings()
+    if not all_settings:
+        return []
+
+    max_budget = 800
+    sampled = all_settings
+    if len(all_settings) > max_budget:
+        indices = np.linspace(0, len(all_settings) - 1, num=max_budget, dtype=int)
+        sampled = [all_settings[int(i)] for i in indices]
+        logger.info("[worker] Grid space too large (%s), sampling %s evenly-spaced points", len(all_settings), max_budget)
+
+    results: list[tuple] = []
+    for idx, setting in enumerate(sampled, 1):
+        if idx == 1 or idx % 20 == 0:
+            logger.info("[worker] Grid sequential progress %s/%s", idx, len(sampled))
+        res = _evaluate_single(
+            optimization_setting.target_name, strategy_class, symbol,
+            start, end, rate, slippage, size, pricetick, capital, setting,
+        )
+        if res is not None:
+            results.append(res)
+
+    results.sort(reverse=True, key=lambda r: float(r[1] or 0.0))
+    return results
+
+
+def _run_random_sequential(
+    *,
+    strategy_class: type,
+    symbol: str,
+    start: datetime,
+    end: datetime,
+    rate: float,
+    slippage: float,
+    size: int,
+    pricetick: float,
+    capital: float,
+    optimization_setting: OptimizationSetting,
+    n_samples: int = 200,
+) -> list[tuple]:
+    """Random search: uniformly sample *n_samples* parameter combos from the full grid."""
+    all_settings = optimization_setting.generate_settings()
+    if not all_settings:
+        return []
+
+    rng = np.random.default_rng(42)
+    sample_size = min(len(all_settings), n_samples)
+    indices = rng.choice(len(all_settings), size=sample_size, replace=False)
+    sampled = [all_settings[int(i)] for i in indices]
+    logger.info("[worker] Random search: evaluating %s / %s combinations", sample_size, len(all_settings))
+
+    results: list[tuple] = []
+    for idx, setting in enumerate(sampled, 1):
+        if idx == 1 or idx % 20 == 0:
+            logger.info("[worker] Random sequential progress %s/%s", idx, len(sampled))
+        res = _evaluate_single(
+            optimization_setting.target_name, strategy_class, symbol,
+            start, end, rate, slippage, size, pricetick, capital, setting,
+        )
+        if res is not None:
+            results.append(res)
+
+    results.sort(reverse=True, key=lambda r: float(r[1] or 0.0))
+    return results
+
+
+def _run_bayesian_sequential(
+    *,
+    strategy_class: type,
+    symbol: str,
+    start: datetime,
+    end: datetime,
+    rate: float,
+    slippage: float,
+    size: int,
+    pricetick: float,
+    capital: float,
+    optimization_setting: OptimizationSetting,
+    param_space: Dict[str, Any] | None = None,
+    n_trials: int = 120,
+) -> list[tuple]:
+    """
+    Bayesian optimization using Optuna TPE (Tree-structured Parzen Estimator).
+
+    Falls back to random search if optuna is unavailable.
+    """
+    try:
+        import optuna
+        from optuna.samplers import TPESampler
+    except ImportError:
+        logger.warning("[worker] optuna not installed, falling back to random search")
+        return _run_random_sequential(
+            strategy_class=strategy_class, symbol=symbol, start=start, end=end,
+            rate=rate, slippage=slippage, size=size, pricetick=pricetick,
+            capital=capital, optimization_setting=optimization_setting, n_samples=n_trials,
+        )
+
+    # Build parameter definitions from param_space (min/max/step) so optuna can
+    # suggest values directly instead of using the pre-discretised grid.
+    param_defs: list[tuple[str, float, float, float]] = []  # (name, lo, hi, step)
+    if param_space:
+        for name, cfg in param_space.items():
+            if not isinstance(cfg, dict):
+                continue
+            try:
+                lo, hi, step = float(cfg["min"]), float(cfg["max"]), float(cfg["step"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if hi > lo and step > 0:
+                param_defs.append((name, lo, hi, step))
+
+    # If we couldn't extract continuous ranges, fall back to grid-based suggestions.
+    all_settings = optimization_setting.generate_settings()
+    if not param_defs and not all_settings:
+        return []
+
+    collected: list[tuple] = []
+
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+
+    def objective(trial: "optuna.Trial") -> float:
+        if param_defs:
+            setting: dict = {}
+            for name, lo, hi, step in param_defs:
+                # Use suggest_float with step to stay on the user-defined grid
+                val = trial.suggest_float(name, lo, hi, step=step)
+                # Snap to int when step is an integer and boundaries are integers
+                if step == int(step) and lo == int(lo) and hi == int(hi):
+                    val = int(val)
+                setting[name] = val
+        else:
+            idx = trial.suggest_int("_grid_idx", 0, len(all_settings) - 1)
+            setting = all_settings[idx]
+
+        res = _evaluate_single(
+            optimization_setting.target_name, strategy_class, symbol,
+            start, end, rate, slippage, size, pricetick, capital, setting,
+        )
+        if res is None:
+            return float("-inf")
+        collected.append(res)
+        return float(res[1] or 0.0)
+
+    study = optuna.create_study(
+        direction="maximize",
+        sampler=TPESampler(seed=42, n_startup_trials=min(10, n_trials // 4)),
+    )
+    study.optimize(objective, n_trials=n_trials, show_progress_bar=False)
+    logger.info(
+        "[worker] Bayesian optimisation done: %s trials, best=%.4f",
+        len(study.trials), study.best_value if study.best_trial else 0.0,
+    )
+
+    collected.sort(reverse=True, key=lambda r: float(r[1] or 0.0))
+    return collected
+
+
 def _run_sequential_optimization(
     *,
     strategy_class: type,
@@ -885,59 +1091,19 @@ def _run_sequential_optimization(
     capital: float,
     optimization_setting: OptimizationSetting,
     search_method: str,
+    param_space: Dict[str, Any] | None = None,
 ) -> list[tuple]:
-    """Run optimization in-process (fallback for dynamically compiled strategies)."""
-    all_settings = optimization_setting.generate_settings()
-    if not all_settings:
-        return []
-
-    sampled_settings = all_settings
-    max_budget = 400
+    """Dispatch to the correct sequential optimization implementation."""
+    common = dict(
+        strategy_class=strategy_class, symbol=symbol, start=start, end=end,
+        rate=rate, slippage=slippage, size=size, pricetick=pricetick,
+        capital=capital, optimization_setting=optimization_setting,
+    )
+    if search_method == "bayesian":
+        return _run_bayesian_sequential(**common, param_space=param_space)
     if search_method == "random":
-        sample_size = min(len(all_settings), 100)
-        indices = np.random.default_rng(42).choice(len(all_settings), size=sample_size, replace=False)
-        sampled_settings = [all_settings[int(i)] for i in indices]
-    elif search_method == "bayesian":
-        # Bayesian approximation fallback: evaluate a smaller adaptive-like sample budget.
-        sample_size = min(len(all_settings), 50)
-        indices = np.random.default_rng(7).choice(len(all_settings), size=sample_size, replace=False)
-        sampled_settings = [all_settings[int(i)] for i in indices]
-    elif len(all_settings) > max_budget:
-        # Grid fallback budget: evaluate representative evenly-distributed points.
-        indices = np.linspace(0, len(all_settings) - 1, num=max_budget, dtype=int)
-        sampled_settings = [all_settings[int(i)] for i in indices]
-        logger.info(
-            "[worker] Grid space too large (%s), evaluating sampled subset %s",
-            len(all_settings),
-            max_budget,
-        )
-
-    results: list[tuple] = []
-    for index, setting in enumerate(sampled_settings, start=1):
-        if index == 1 or index % 20 == 0:
-            logger.info("[worker] Sequential optimization progress %s/%s", index, len(sampled_settings))
-        try:
-            result = evaluate(
-                optimization_setting.target_name,
-                strategy_class,
-                symbol,
-                Interval.DAILY,
-                start,
-                rate,
-                slippage,
-                size,
-                pricetick,
-                capital,
-                end,
-                BacktestingMode.BAR,
-                setting,
-            )
-            results.append(result)
-        except Exception:
-            logger.exception("[worker] Optimization evaluation failed for setting %s", setting)
-
-    results.sort(reverse=True, key=lambda row: float(row[1] or 0.0))
-    return results
+        return _run_random_sequential(**common)
+    return _run_grid_sequential(**common)
 
 
 def run_optimization_task(
@@ -1038,8 +1204,12 @@ def run_optimization_task(
         # Run optimization
         logger.info("[worker] Running optimization with method=%s target=%s...", search_method, setting.target_name)
         needs_sequential = getattr(strategy_class, "__module__", "") == "builtins"
-        if needs_sequential:
-            logger.info("[worker] Using sequential optimization path for dynamic strategy class")
+
+        # Bayesian search always uses the sequential path so optuna can drive
+        # the parameter suggestions adaptively.
+        if needs_sequential or search_method == "bayesian":
+            if needs_sequential:
+                logger.info("[worker] Using sequential optimization path for dynamic strategy class")
             optimization_result = _run_sequential_optimization(
                 strategy_class=strategy_class,
                 symbol=vnpy_symbol,
@@ -1052,19 +1222,27 @@ def run_optimization_task(
                 capital=initial_capital,
                 optimization_setting=setting,
                 search_method=search_method,
+                param_space=(
+                    optimization_settings
+                    if isinstance(optimization_settings, dict)
+                    else None
+                ),
             )
-        elif search_method == "grid":
-            optimization_result = engine.run_bf_optimization(
-                optimization_setting=setting,
-                output=False,
-                max_workers=4,
-            )
-        else:
+        elif search_method == "random":
+            # Random search: use vnpy's GA with a single generation so it
+            # behaves mostly as a randomised sampler over the parameter space.
             optimization_result = engine.run_ga_optimization(
                 optimization_setting=setting,
                 output=False,
                 max_workers=4,
-                ngen=18 if search_method == "bayesian" else 12,
+                ngen_size=1,
+            )
+        else:
+            # Grid (brute-force) search
+            optimization_result = engine.run_bf_optimization(
+                optimization_setting=setting,
+                output=False,
+                max_workers=4,
             )
 
         # Format results

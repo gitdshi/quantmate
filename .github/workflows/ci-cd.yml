@@ -123,6 +123,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Compute image build metadata
+        id: build_meta
+        run: echo "image_build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
@@ -130,6 +134,8 @@ jobs:
           file: ./Dockerfile.api
           push: true
           platforms: linux/arm64
+          build-args: |
+            IMAGE_BUILD_TIME=${{ steps.build_meta.outputs.image_build_time }}
           tags: |
             ${{ env.IMAGE }}:latest
             ${{ env.IMAGE }}:sha-${{ github.sha }}

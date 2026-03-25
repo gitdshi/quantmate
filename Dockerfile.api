@@ -3,6 +3,8 @@ FROM python:3.11
 
 WORKDIR /app
 
+ARG IMAGE_BUILD_TIME=unknown
+
 # Install system dependencies including curl for healthcheck
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
@@ -31,8 +33,16 @@ COPY app/ ./app/
 # Copy migration scripts
 COPY mysql/migrations/ ./mysql/migrations/
 
+# Persist image build metadata for runtime env injection
+RUN mkdir -p /opt/quantmate-build \
+    && if [ "$IMAGE_BUILD_TIME" = "unknown" ]; then \
+      date -u +"%Y-%m-%dT%H:%M:%SZ" > /opt/quantmate-build/build_time; \
+    else \
+      echo "$IMAGE_BUILD_TIME" > /opt/quantmate-build/build_time; \
+    fi
+
 # Expose port
 EXPOSE 8000
 
 # Run migrations then start the API server
-CMD ["sh", "-c", "python -m app.infrastructure.db.migrate && uvicorn app.api.main:app --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "export APP_BUILD_TIME=\"${APP_BUILD_TIME:-$(cat /opt/quantmate-build/build_time 2>/dev/null || echo unknown)}\"; python -m app.infrastructure.db.migrate && uvicorn app.api.main:app --host 0.0.0.0 --port 8000"]
