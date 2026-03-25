@@ -330,3 +330,39 @@ def _complete_qlib_backtest(job_id: str, statistics: dict, portfolio_analysis: O
             conn.commit()
     except Exception as exc:
         logger.warning("[qlib-worker] Failed to complete backtest record: %s", exc)
+
+
+# ── Factor evaluation task ───────────────────────────────────────────
+
+
+def run_factor_evaluation_task(
+    user_id: int,
+    factor_id: int,
+    start_date: str,
+    end_date: str,
+) -> Dict[str, Any]:
+    """Evaluate a factor in a background worker — compute IC / ICIR / returns.
+
+    This delegates to FactorService.run_evaluation() which uses the expression engine.
+    Suitable for long-running evaluations that shouldn't block the API request.
+    """
+    try:
+        logger.info("[qlib-worker] Starting factor evaluation: factor=%d, user=%d, %s–%s",
+                     factor_id, user_id, start_date, end_date)
+
+        from app.domains.factors.service import FactorService
+
+        svc = FactorService()
+        result = svc.run_evaluation(user_id, factor_id, start_date, end_date)
+
+        logger.info("[qlib-worker] Factor evaluation completed: factor=%d, eval_id=%s", factor_id, result.get("id"))
+        return {"status": "completed", "evaluation": result}
+
+    except Exception as e:
+        logger.exception("[qlib-worker] Factor evaluation failed: %s", e)
+        return {
+            "status": "failed",
+            "factor_id": factor_id,
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+        }

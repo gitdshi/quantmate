@@ -1,8 +1,9 @@
 """Strategy CRUD routes."""
 
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, status
+from pydantic import BaseModel
 
 from app.api.models.user import TokenData
 from app.api.models.strategy import (
@@ -253,3 +254,199 @@ async def list_builtin_strategies():
             continue
 
     return builtins
+
+
+# --- Multi-Factor Strategy Generation ---
+
+
+class FactorInput(BaseModel):
+    factor_id: Optional[int] = None
+    factor_name: str
+    expression: str = ""
+    weight: float = 1.0
+    direction: int = 1
+    factor_set: str = "custom"
+
+
+class MultiFactorCreateRequest(BaseModel):
+    name: str
+    class_name: str
+    description: Optional[str] = None
+    factors: list[FactorInput]
+    lookback_window: int = 20
+    rebalance_interval: int = 5
+    fixed_size: int = 1
+    signal_threshold: float = 0.0
+
+
+class QlibConfigRequest(BaseModel):
+    factors: list[FactorInput]
+    universe: str = "csi300"
+    start_date: str = "2023-01-01"
+    end_date: str = "2024-12-31"
+    strategy_type: str = "TopkDropout"
+    topk: int = 50
+    n_drop: int = 5
+    benchmark: str = "SH000300"
+
+
+@router.post("/multi-factor/generate-code")
+async def generate_multi_factor_code(
+    req: MultiFactorCreateRequest,
+    current_user: TokenData = Depends(get_current_user),
+):
+    """Generate vnpy CtaTemplate code from selected factors (preview, does NOT save)."""
+    from app.domains.strategies.multi_factor_engine import (
+        FactorSpec,
+        generate_cta_code,
+    )
+
+    specs = [
+        FactorSpec(
+            factor_name=f.factor_name,
+            expression=f.expression,
+            weight=f.weight,
+            direction=f.direction,
+            factor_id=f.factor_id,
+            factor_set=f.factor_set,
+        )
+        for f in req.factors
+    ]
+
+    code = generate_cta_code(
+        class_name=req.class_name,
+        factors=specs,
+        lookback_window=req.lookback_window,
+        rebalance_interval=req.rebalance_interval,
+        fixed_size=req.fixed_size,
+        signal_threshold=req.signal_threshold,
+    )
+
+    return {"class_name": req.class_name, "code": code, "factor_count": len(specs)}
+
+
+@router.post("/multi-factor/create", response_model=Strategy, status_code=status.HTTP_201_CREATED)
+async def create_multi_factor_strategy(
+    req: MultiFactorCreateRequest,
+    current_user: TokenData = Depends(get_current_user),
+):
+    """Create a strategy from selected factors — generates code, saves strategy + factor links."""
+    from app.domains.strategies.multi_factor_engine import (
+        FactorSpec,
+        generate_cta_code,
+        save_strategy_factors,
+    )
+
+    specs = [
+        FactorSpec(
+            factor_name=f.factor_name,
+            expression=f.expression,
+            weight=f.weight,
+            direction=f.direction,
+            factor_id=f.factor_id,
+            factor_set=f.factor_set,
+        )
+        for f in req.factors
+    ]
+
+    code = generate_cta_code(
+        class_name=req.class_name,
+        factors=specs,
+        lookback_window=req.lookback_window,
+        rebalance_interval=req.rebalance_interval,
+        fixed_size=req.fixed_size,
+        signal_threshold=req.signal_threshold,
+    )
+
+    service = StrategiesService()
+    try:
+        row = service.create_strategy(
+            user_id=current_user.user_id,
+            name=req.name,
+            class_name=req.class_name,
+            description=req.description or f"Multi-factor strategy with {len(specs)} factors",
+            parameters={
+                "lookback_window": req.lookback_window,
+                "rebalance_interval": req.rebalance_interval,
+                "fixed_size": req.fixed_size,
+                "signal_threshold": req.signal_threshold,
+            },
+            code=code,
+        )
+    except ValueError as e:
+        raise APIError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code=ErrorCode.STRATEGY_VALIDATION_FAILED,
+            message=str(e),
+        )
+
+    # Save factor-strategy linkages
+    save_strategy_factors(row["id"], specs)
+
+    return Strategy(
+        id=row["id"],
+        user_id=row["user_id"],
+        name=row["name"],
+        class_name=row.get("class_name"),
+        description=row.get("description"),
+        parameters=row.get("parameters") or {},
+        code=row.get("code") or "",
+        version=row.get("version") or 1,
+        is_active=bool(row.get("is_active")),
+        created_at=row.get("created_at") or datetime.utcnow(),
+        updated_at=row.get("updated_at") or datetime.utcnow(),
+    )
+
+
+@router.get("/{strategy_id}/factors")
+async def get_strategy_factors(strategy_id: int, current_user: TokenData = Depends(get_current_user)):
+    """Get linked factors for a strategy."""
+    from app.domains.strategies.multi_factor_engine import get_strategy_factors
+
+    # Verify ownership
+    service = StrategiesService()
+    try:
+        service.get_strategy(current_user.user_id, strategy_id)
+    except KeyError:
+        raise APIError(
+            status_code=status.HTTP_404_NOT_FOUND, code=ErrorCode.STRATEGY_NOT_FOUND, message="Strategy not found"
+        )
+
+    return get_strategy_factors(strategy_id)
+
+
+@router.post("/multi-factor/qlib-config")
+async def generate_qlib_backtest_config(
+    req: QlibConfigRequest,
+    current_user: TokenData = Depends(get_current_user),
+):
+    """Generate a Qlib backtest config from selected factors."""
+    from app.domains.strategies.multi_factor_engine import (
+        FactorSpec,
+        generate_qlib_config,
+    )
+
+    specs = [
+        FactorSpec(
+            factor_name=f.factor_name,
+            expression=f.expression,
+            weight=f.weight,
+            direction=f.direction,
+            factor_id=f.factor_id,
+            factor_set=f.factor_set,
+        )
+        for f in req.factors
+    ]
+
+    config = generate_qlib_config(
+        factors=specs,
+        universe=req.universe,
+        start_date=req.start_date,
+        end_date=req.end_date,
+        strategy_type=req.strategy_type,
+        topk=req.topk,
+        n_drop=req.n_drop,
+        benchmark=req.benchmark,
+    )
+
+    return config

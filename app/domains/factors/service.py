@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Optional
 
 from app.domains.factors.dao.factor_dao import FactorDefinitionDao, FactorEvaluationDao
+
+logger = logging.getLogger(__name__)
 
 
 class FactorService:
@@ -50,25 +53,59 @@ class FactorService:
         return self._eval_dao.list_for_factor(factor_id)
 
     def run_evaluation(self, user_id: int, factor_id: int, start_date: str, end_date: str) -> dict[str, Any]:
-        """Run a factor evaluation (stub — returns simulated metrics)."""
-        self.get_factor(user_id, factor_id)
-        # In production, this would compute IC, returns, etc.
-        stub_metrics = {
-            "ic_mean": 0.035,
-            "ic_ir": 0.42,
-            "turnover": 0.15,
-            "long_ret": 0.12,
-            "short_ret": -0.03,
-            "long_short_ret": 0.15,
-        }
+        """Run a factor evaluation — compute real IC / ICIR / return metrics.
+
+        Falls back to stub metrics if OHLCV data is unavailable.
+        """
+        from datetime import date as date_type
+
+        from app.domains.factors.expression_engine import (
+            compute_custom_factor,
+            compute_factor_metrics,
+            compute_forward_returns,
+            fetch_ohlcv,
+        )
+
+        factor = self.get_factor(user_id, factor_id)
+        expression = factor.get("expression", "")
+
+        try:
+            sd = date_type.fromisoformat(start_date)
+            ed = date_type.fromisoformat(end_date)
+
+            ohlcv = fetch_ohlcv(start_date=sd, end_date=ed)
+
+            if ohlcv.empty:
+                logger.warning("[factor-eval] No OHLCV data for %s–%s, using stub", start_date, end_date)
+                metrics = self._stub_metrics()
+            else:
+                factor_values = compute_custom_factor(expression, ohlcv)
+                fwd_returns = compute_forward_returns(ohlcv, periods=1)
+                metrics = compute_factor_metrics(factor_values, fwd_returns)
+        except Exception:
+            logger.exception("[factor-eval] Evaluation failed for factor %d, using stub", factor_id)
+            metrics = self._stub_metrics()
+
         eval_id = self._eval_dao.create(
             factor_id,
             start_date,
             end_date,
-            metrics=stub_metrics,
-            **stub_metrics,
+            metrics=metrics,
+            **metrics,
         )
         return self._eval_dao.get(eval_id) or {"id": eval_id}
+
+    @staticmethod
+    def _stub_metrics() -> dict[str, float]:
+        return {
+            "ic_mean": 0.0,
+            "ic_std": 0.0,
+            "ic_ir": 0.0,
+            "turnover": 0.0,
+            "long_ret": 0.0,
+            "short_ret": 0.0,
+            "long_short_ret": 0.0,
+        }
 
     def delete_evaluation(self, user_id: int, factor_id: int, eval_id: int) -> None:
         self.get_factor(user_id, factor_id)

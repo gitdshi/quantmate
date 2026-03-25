@@ -204,3 +204,169 @@ async def compute_qlib_factors(
 
     except Exception as e:
         raise APIError(status_code=500, code=ErrorCode.INTERNAL_ERROR, message=f"Factor computation failed: {str(e)}")
+
+
+# --- Factor Screening / Mining ---
+
+
+class ScreeningRequest(BaseModel):
+    expressions: list[str]
+    start_date: str
+    end_date: str
+    instruments: Optional[list[str]] = None
+    ic_threshold: float = 0.02
+    corr_threshold: float = 0.7
+    forward_periods: int = 1
+    save_label: Optional[str] = None
+
+
+class MiningRequest(BaseModel):
+    factor_set: str = "Alpha158"
+    instruments: str = "csi300"
+    start_date: str = "2023-01-01"
+    end_date: str = "2024-12-31"
+    ic_threshold: float = 0.02
+    corr_threshold: float = 0.7
+    top_n: int = 30
+    save_label: Optional[str] = None
+
+
+@router.post("/screening/run")
+async def run_factor_screening(
+    req: ScreeningRequest,
+    current_user: TokenData = Depends(get_current_user),
+):
+    """Batch-screen custom factor expressions and return ranked results."""
+    from datetime import date as date_type
+
+    from app.domains.factors.factor_screening import (
+        save_screening_results,
+        screen_factor_pool,
+    )
+
+    try:
+        sd = date_type.fromisoformat(req.start_date)
+        ed = date_type.fromisoformat(req.end_date)
+    except ValueError as e:
+        raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message=f"Invalid date: {e}")
+
+    results = screen_factor_pool(
+        expressions=req.expressions,
+        start_date=sd,
+        end_date=ed,
+        instruments=req.instruments,
+        ic_threshold=req.ic_threshold,
+        corr_threshold=req.corr_threshold,
+        forward_periods=req.forward_periods,
+    )
+
+    run_id = None
+    if req.save_label and results:
+        run_id = save_screening_results(
+            user_id=current_user.user_id,
+            run_label=req.save_label,
+            results=results,
+            config=req.model_dump(exclude={"expressions"}),
+        )
+
+    return {
+        "status": "completed",
+        "result_count": len(results),
+        "run_id": run_id,
+        "results": results,
+    }
+
+
+@router.post("/mining/run")
+async def run_factor_mining(
+    req: MiningRequest,
+    current_user: TokenData = Depends(get_current_user),
+):
+    """Mine Qlib factor set (Alpha158/Alpha360), rank by IC, and deduplicate."""
+    from app.domains.factors.factor_screening import (
+        mine_alpha158_factors,
+        save_screening_results,
+    )
+    from app.infrastructure.qlib.qlib_config import is_qlib_available
+
+    if not is_qlib_available():
+        raise APIError(status_code=503, code=ErrorCode.SERVICE_UNAVAILABLE, message="Qlib is not installed")
+
+    results = mine_alpha158_factors(
+        start_date=req.start_date,
+        end_date=req.end_date,
+        instruments=req.instruments,
+        ic_threshold=req.ic_threshold,
+        corr_threshold=req.corr_threshold,
+        top_n=req.top_n,
+    )
+
+    run_id = None
+    if req.save_label and results:
+        run_id = save_screening_results(
+            user_id=current_user.user_id,
+            run_label=req.save_label,
+            results=results,
+            config=req.model_dump(),
+        )
+
+    return {
+        "status": "completed",
+        "factor_set": req.factor_set,
+        "result_count": len(results),
+        "run_id": run_id,
+        "results": results,
+    }
+
+
+@router.get("/screening/history")
+async def list_screening_runs(
+    current_user: TokenData = Depends(get_current_user),
+):
+    """List past screening/mining runs for current user."""
+    from sqlalchemy import text
+
+    from app.infrastructure.db.connections import connection
+
+    with connection("quantmate") as conn:
+        rows = conn.execute(
+            text(
+                "SELECT id, run_label, config, result_count, status, created_at "
+                "FROM factor_screening_results WHERE user_id = :uid ORDER BY created_at DESC LIMIT 50"
+            ),
+            {"uid": current_user.user_id},
+        ).fetchall()
+    return [dict(r._mapping) for r in rows]
+
+
+@router.get("/screening/{run_id}")
+async def get_screening_details(
+    run_id: int,
+    current_user: TokenData = Depends(get_current_user),
+):
+    """Get details of a screening run including ranked factor results."""
+    from sqlalchemy import text
+
+    from app.infrastructure.db.connections import connection
+
+    with connection("quantmate") as conn:
+        run_row = conn.execute(
+            text(
+                "SELECT * FROM factor_screening_results WHERE id = :rid AND user_id = :uid"
+            ),
+            {"rid": run_id, "uid": current_user.user_id},
+        ).fetchone()
+        if not run_row:
+            raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Screening run not found")
+
+        details = conn.execute(
+            text(
+                "SELECT * FROM factor_screening_details WHERE run_id = :rid ORDER BY rank_order"
+            ),
+            {"rid": run_id},
+        ).fetchall()
+
+    return {
+        "run": dict(run_row._mapping),
+        "factors": [dict(r._mapping) for r in details],
+    }
