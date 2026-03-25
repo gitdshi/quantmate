@@ -179,8 +179,13 @@ jobs:
               docker compose -f docker-compose.staging.yml pull api worker datasync
 
             echo "==> Rolling restart"
-            GITHUB_OWNER=$GITHUB_OWNER IMAGE_TAG=$IMAGE_TAG \
-              docker compose -f docker-compose.staging.yml up -d api worker datasync
+            if ! GITHUB_OWNER=$GITHUB_OWNER IMAGE_TAG=$IMAGE_TAG \
+              docker compose -f docker-compose.staging.yml up -d api worker datasync; then
+              echo "Compose restart hit a stale container reference, cleaning datasync and retrying once"
+              docker rm -f quantmate-datasync-1 >/dev/null 2>&1 || true
+              GITHUB_OWNER=$GITHUB_OWNER IMAGE_TAG=$IMAGE_TAG \
+                docker compose -f docker-compose.staging.yml up -d api worker datasync
+            fi
 
             echo "==> Waiting for API to become healthy"
             ok=0
@@ -210,5 +215,5 @@ jobs:
           username: ${{ secrets.STAGING_USER }}
           key: ${{ secrets.STAGING_SSH_KEY }}
           script: |
-            curl -sf http://localhost:8000/api/v1/system/health | python3 -m json.tool
+            curl -sf http://localhost:8000/health | python3 -m json.tool
             docker compose -f /opt/quantmate/docker-compose.staging.yml ps
