@@ -19,7 +19,6 @@ import os
 import sys
 import time
 from datetime import date
-from zoneinfo import ZoneInfo
 
 import schedule
 

@@ -137,7 +137,6 @@ class AkShareETFDailyInterface(BaseIngestInterface):
             from app.datasync.service.akshare_ingest import call_ak
             from app.infrastructure.db.connections import get_akshare_engine
             from sqlalchemy import text
-            import pandas as pd
 
             engine = get_akshare_engine()
             total_rows = 0

@@ -17,7 +17,7 @@ from sqlalchemy import text
 from app.datasync.base import SyncResult, SyncStatus
 from app.datasync.registry import DataSourceRegistry
 from app.datasync.table_manager import ensure_table
-from app.infrastructure.db.connections import get_quantmate_engine, get_akshare_engine
+from app.infrastructure.db.connections import get_quantmate_engine
 
 logger = logging.getLogger(__name__)
 
@@ -294,3 +294,4 @@ def backfill_retry(
             logger.exception("Failed to release backfill lock")
 
     return results
+results
