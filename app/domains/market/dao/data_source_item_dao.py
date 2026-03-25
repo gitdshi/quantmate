@@ -71,8 +71,7 @@ class DataSourceItemDao:
             if source:
                 rows = conn.execute(
                     text(
-                        "SELECT * FROM data_source_items WHERE enabled = 1 AND source = :src "
-                        "ORDER BY sync_priority, id"
+                        "SELECT * FROM data_source_items WHERE enabled = 1 AND source = :src ORDER BY sync_priority, id"
                     ),
                     {"src": source},
                 ).fetchall()

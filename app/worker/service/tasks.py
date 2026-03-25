@@ -854,9 +854,7 @@ def _normalize_optimization_results(raw_results: list[tuple], objective_metric: 
             "total_return": float(statistics.get("total_return", 0.0) or 0.0),
             "annual_return": float(statistics.get("annual_return", 0.0) or 0.0),
             "max_drawdown": float(statistics.get("max_drawdown", statistics.get("max_ddpercent", 0.0)) or 0.0),
-            "max_drawdown_percent": float(
-                statistics.get("max_ddpercent", statistics.get("max_drawdown", 0.0)) or 0.0
-            ),
+            "max_drawdown_percent": float(statistics.get("max_ddpercent", statistics.get("max_drawdown", 0.0)) or 0.0),
             "sharpe_ratio": float(statistics.get("sharpe_ratio", 0.0) or 0.0),
             "calmar_ratio": float(statistics.get("calmar_ratio", 0.0) or 0.0),
         }

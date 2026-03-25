@@ -51,10 +51,7 @@ def ensure_table(database: str, table: str, ddl: str) -> bool:
     qm_engine = get_quantmate_engine()
     with qm_engine.begin() as conn:
         conn.execute(
-            text(
-                "UPDATE data_source_items SET table_created = 1 "
-                "WHERE target_database = :db AND target_table = :tbl"
-            ),
+            text("UPDATE data_source_items SET table_created = 1 WHERE target_database = :db AND target_table = :tbl"),
             {"db": database, "tbl": table},
         )
 

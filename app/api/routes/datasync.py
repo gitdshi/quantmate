@@ -59,9 +59,7 @@ async def get_sync_status(
 
     with engine.connect() as conn:
         # Total count
-        count_row = conn.execute(
-            text(f"SELECT COUNT(*) FROM data_sync_status {where}"), params
-        ).fetchone()
+        count_row = conn.execute(text(f"SELECT COUNT(*) FROM data_sync_status {where}"), params).fetchone()
         total = count_row[0] if count_row else 0
 
         # Data
@@ -115,10 +113,7 @@ async def get_sync_summary(
 
         # Overall counts
         overall = conn.execute(
-            text(
-                "SELECT status, COUNT(*) FROM data_sync_status "
-                "WHERE sync_date >= :cutoff GROUP BY status"
-            ),
+            text("SELECT status, COUNT(*) FROM data_sync_status WHERE sync_date >= :cutoff GROUP BY status"),
             {"cutoff": cutoff},
         ).fetchall()
         overall_map = {r[0]: r[1] for r in overall}
@@ -141,9 +136,7 @@ async def get_latest_sync_status(
     engine = get_quantmate_engine()
 
     with engine.connect() as conn:
-        row = conn.execute(
-            text("SELECT MAX(sync_date) FROM data_sync_status")
-        ).fetchone()
+        row = conn.execute(text("SELECT MAX(sync_date) FROM data_sync_status")).fetchone()
         if not row or row[0] is None:
             return {"latest_date": None, "items": []}
 

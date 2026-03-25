@@ -28,6 +28,7 @@ LOOKBACK_DAYS = int(os.getenv("LOOKBACK_DAYS", "60"))
 # DAO helpers (operate on the new data_sync_status schema)
 # ---------------------------------------------------------------------------
 
+
 def _write_status(
     sync_date: date,
     source: str,
@@ -64,10 +65,7 @@ def _get_status(sync_date: date, source: str, interface_key: str) -> Optional[st
     engine = get_quantmate_engine()
     with engine.connect() as conn:
         row = conn.execute(
-            text(
-                "SELECT status FROM data_sync_status "
-                "WHERE sync_date = :sd AND source = :src AND interface_key = :ik"
-            ),
+            text("SELECT status FROM data_sync_status WHERE sync_date = :sd AND source = :src AND interface_key = :ik"),
             {"sd": sync_date, "src": source, "ik": interface_key},
         ).fetchone()
         return row[0] if row else None
@@ -122,6 +120,7 @@ def _get_enabled_items() -> list[dict]:
 # Trade calendar
 # ---------------------------------------------------------------------------
 
+
 def get_trade_calendar(start_date: date, end_date: date) -> list[date]:
     """Re-use existing trade calendar logic from the old daemon."""
     from app.datasync.service.data_sync_daemon import get_trade_calendar as _get_cal
@@ -138,6 +137,7 @@ def get_previous_trade_date(offset: int = 1) -> date:
 # ---------------------------------------------------------------------------
 # Core sync functions
 # ---------------------------------------------------------------------------
+
 
 def daily_sync(
     registry: DataSourceRegistry,
@@ -203,15 +203,21 @@ def daily_sync(
         try:
             result: SyncResult = iface.sync_date(target_date)
             _write_status(
-                target_date, source, item_key,
-                result.status.value, result.rows_synced, result.error_message,
+                target_date,
+                source,
+                item_key,
+                result.status.value,
+                result.rows_synced,
+                result.error_message,
             )
             results[label] = {
                 "status": result.status.value,
                 "rows": result.rows_synced,
                 "error": result.error_message,
             }
-            logger.info("[%d/%d] %s: %s (%d rows)", idx, len(enabled_items), label, result.status.value, result.rows_synced)
+            logger.info(
+                "[%d/%d] %s: %s (%d rows)", idx, len(enabled_items), label, result.status.value, result.rows_synced
+            )
         except Exception as e:
             logger.exception("[%d/%d] %s failed: %s", idx, len(enabled_items), label, e)
             _write_status(target_date, source, item_key, SyncStatus.ERROR.value, 0, str(e))
@@ -273,16 +279,24 @@ def backfill_retry(
             try:
                 result = iface.sync_date(sync_date)
                 _write_status(
-                    sync_date, source, iface_key,
-                    result.status.value, result.rows_synced, result.error_message,
+                    sync_date,
+                    source,
+                    iface_key,
+                    result.status.value,
+                    result.rows_synced,
+                    result.error_message,
                     retry_count=retry_count + 1,
                 )
                 results[label] = {"status": result.status.value, "rows": result.rows_synced}
             except Exception as e:
                 logger.exception("Backfill %s failed: %s", label, e)
                 _write_status(
-                    sync_date, source, iface_key,
-                    SyncStatus.ERROR.value, 0, str(e),
+                    sync_date,
+                    source,
+                    iface_key,
+                    SyncStatus.ERROR.value,
+                    0,
+                    str(e),
                     retry_count=retry_count + 1,
                 )
                 results[label] = {"status": "error", "error": str(e)}

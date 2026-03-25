@@ -111,7 +111,12 @@ def _scheduled_backfill():
 
 def daemon_loop():
     """Run the scheduler daemon."""
-    logger.info("DataSync scheduler starting (daily at %02d:%02d, backfill every %dh)", SYNC_HOUR, SYNC_MINUTE, BACKFILL_INTERVAL_HOURS)
+    logger.info(
+        "DataSync scheduler starting (daily at %02d:%02d, backfill every %dh)",
+        SYNC_HOUR,
+        SYNC_MINUTE,
+        BACKFILL_INTERVAL_HOURS,
+    )
 
     # Init metrics
     try:

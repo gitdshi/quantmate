@@ -39,9 +39,7 @@ class SyncStatusService:
             last_finished = row[0] if row else None
 
             # Running count
-            row = conn.execute(
-                text("SELECT COUNT(*) FROM data_sync_status WHERE status = 'running'")
-            ).fetchone()
+            row = conn.execute(text("SELECT COUNT(*) FROM data_sync_status WHERE status = 'running'")).fetchone()
             running_count = row[0] if row else 0
 
             # Failed / pending counts in lookback window

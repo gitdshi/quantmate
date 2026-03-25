@@ -78,6 +78,7 @@ def initialize(registry: DataSourceRegistry, run_backfill: bool = False) -> dict
     # Step 5: Optional backfill
     if run_backfill:
         from app.datasync.service.sync_engine import backfill_retry
+
         backfill_result = backfill_retry(registry, lookback_days=_lookback_days())
         result["backfill"] = backfill_result
 
@@ -157,6 +158,7 @@ def _generate_pending_records(engine, registry: DataSourceRegistry) -> int:
     # Get trade dates
     try:
         from app.datasync.service.sync_engine import get_trade_calendar
+
         trade_dates = get_trade_calendar(start_date, end_date)
     except Exception:
         logger.warning("Could not get trade calendar, using weekdays")
@@ -169,9 +171,7 @@ def _generate_pending_records(engine, registry: DataSourceRegistry) -> int:
 
     # Get enabled items
     with engine.connect() as conn:
-        items = conn.execute(
-            text("SELECT source, item_key FROM data_source_items WHERE enabled = 1")
-        ).fetchall()
+        items = conn.execute(text("SELECT source, item_key FROM data_source_items WHERE enabled = 1")).fetchall()
 
     if not items or not trade_dates:
         return 0
@@ -181,10 +181,7 @@ def _generate_pending_records(engine, registry: DataSourceRegistry) -> int:
     raw_conn = engine.raw_connection()
     try:
         cursor = raw_conn.cursor()
-        sql = (
-            "INSERT IGNORE INTO data_sync_status (sync_date, source, interface_key, status) "
-            "VALUES (%s, %s, %s, %s)"
-        )
+        sql = "INSERT IGNORE INTO data_sync_status (sync_date, source, interface_key, status) VALUES (%s, %s, %s, %s)"
         batch = []
         for td in trade_dates:
             for source, item_key in items:

@@ -56,8 +56,12 @@ def run_vnpy_sync_job(sync_date: Optional[date] = None) -> SyncResult:
 
     result = sync_vnpy_for_date(sync_date)
     _write_status(
-        sync_date, source, iface_key,
-        result.status.value, result.rows_synced, result.error_message,
+        sync_date,
+        source,
+        iface_key,
+        result.status.value,
+        result.rows_synced,
+        result.error_message,
     )
 
     logger.info("VNPy sync for %s: %s (%d rows)", sync_date, result.status.value, result.rows_synced)
