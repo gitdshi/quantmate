@@ -183,8 +183,23 @@ jobs:
               docker compose -f docker-compose.staging.yml up -d api worker datasync
 
             echo "==> Waiting for API to become healthy"
-            sleep 20
-            curl -sf http://localhost:8000/health || exit 1
+            ok=0
+            for i in $(seq 1 24); do
+              if curl -sf http://localhost:8000/health >/dev/null; then
+                ok=1
+                break
+              fi
+              echo "Health check retry $i/24..."
+              sleep 5
+            done
+
+            if [ "$ok" -ne 1 ]; then
+              echo "API did not become healthy in time, printing container status and logs"
+              docker compose -f docker-compose.staging.yml ps
+              docker compose -f docker-compose.staging.yml logs --tail=200 api
+              exit 1
+            fi
+
             echo "Staging deploy successful: $IMAGE_TAG"
 
       # Post-deploy status check
