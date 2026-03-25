@@ -92,34 +92,49 @@ fi
 : "${MYSQL_USER:?MYSQL_USER is required}"
 : "${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}"
 
-MYSQL_BASE_CMD=(mysql --protocol TCP -h "$MYSQL_HOST" -P "$MYSQL_PORT" -u "$MYSQL_USER")
+# Resolve mysql executable: fall back to docker exec when mysql is not in PATH
+MYSQL_CONTAINER=""
+if ! command -v mysql >/dev/null 2>&1; then
+  MYSQL_CONTAINER="$(docker ps --format '{{.Names}}' 2>/dev/null | grep -iE 'mysql' | head -1)"
+  if [ -z "$MYSQL_CONTAINER" ]; then
+    echo "Error: 'mysql' client not found in PATH and no running MySQL container detected." >&2
+    echo "  Install with: brew install mysql-client" >&2
+    echo "  Or start the dev stack: docker compose -f docker-compose.dev.yml up -d" >&2
+    exit 1
+  fi
+  echo "mysql not in PATH — routing through container: $MYSQL_CONTAINER"
+fi
 
-refresh_mysql_cmd() {
-  MYSQL_BASE_CMD=(mysql --protocol TCP -h "$MYSQL_HOST" -P "$MYSQL_PORT" -u "$MYSQL_USER")
+_mysql() {
+  if [ -n "$MYSQL_CONTAINER" ]; then
+    docker exec -i "$MYSQL_CONTAINER" \
+      mysql --protocol TCP -h "$MYSQL_HOST" -P "$MYSQL_PORT" -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$@"
+  else
+    MYSQL_PWD="$MYSQL_PASSWORD" mysql --protocol TCP -h "$MYSQL_HOST" -P "$MYSQL_PORT" -u "$MYSQL_USER" "$@"
+  fi
 }
 
 mysql_exec_db() {
   local db="$1"
   local sql="$2"
-  MYSQL_PWD="$MYSQL_PASSWORD" "${MYSQL_BASE_CMD[@]}" "$db" -Nse "$sql"
+  _mysql "$db" -Nse "$sql"
 }
 
 mysql_run_file() {
   local db="$1"
   local file="$2"
-  MYSQL_PWD="$MYSQL_PASSWORD" "${MYSQL_BASE_CMD[@]}" "$db" < "$file"
+  _mysql "$db" < "$file"
 }
 
 echo "Checking MySQL connectivity..."
-if ! MYSQL_PWD="$MYSQL_PASSWORD" "${MYSQL_BASE_CMD[@]}" -Nse "SELECT 1" >/dev/null 2>&1; then
+if ! _mysql -Nse "SELECT 1" >/dev/null 2>&1; then
   if [ "$MYSQL_HOST" = "mysql" ]; then
     echo "MYSQL_HOST=mysql is not reachable from current shell, falling back to 127.0.0.1"
     MYSQL_HOST="127.0.0.1"
-    refresh_mysql_cmd
   fi
 fi
 
-if ! MYSQL_PWD="$MYSQL_PASSWORD" "${MYSQL_BASE_CMD[@]}" -Nse "SELECT 1" >/dev/null 2>&1; then
+if ! _mysql -Nse "SELECT 1" >/dev/null 2>&1; then
   if [ "$DRY_RUN" -eq 1 ]; then
     OFFLINE_DRY_RUN=1
     echo "Warning: MySQL unreachable. Continuing in offline dry-run mode."
@@ -176,7 +191,11 @@ heal_missing_table_from_migration "004" "data_source_items" "004_create_data_sou
 heal_missing_table_from_migration "012" "data_source_configs" "012_create_system_config_optimization_indicator.sql"
 
 echo "Scanning migration files..."
-mapfile -t FILES < <(find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '*.sql' | sort)
+# bash 3.2 compat (macOS): mapfile is bash 4.x only
+FILES=()
+while IFS= read -r _f; do
+  FILES+=("$_f")
+done < <(find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '*.sql' | sort)
 
 if [ "${#FILES[@]}" -eq 0 ]; then
   echo "No migration files found in: $MIGRATIONS_DIR"
