@@ -1095,9 +1095,16 @@ def _run_sequential_optimization(
 ) -> list[tuple]:
     """Dispatch to the correct sequential optimization implementation."""
     common = dict(
-        strategy_class=strategy_class, symbol=symbol, start=start, end=end,
-        rate=rate, slippage=slippage, size=size, pricetick=pricetick,
-        capital=capital, optimization_setting=optimization_setting,
+        strategy_class=strategy_class,
+        symbol=symbol,
+        start=start,
+        end=end,
+        rate=rate,
+        slippage=slippage,
+        size=size,
+        pricetick=pricetick,
+        capital=capital,
+        optimization_setting=optimization_setting,
     )
     if search_method == "bayesian":
         return _run_bayesian_sequential(**common, param_space=param_space)
