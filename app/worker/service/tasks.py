@@ -950,15 +950,26 @@ def _run_grid_sequential(
     if len(all_settings) > max_budget:
         indices = np.linspace(0, len(all_settings) - 1, num=max_budget, dtype=int)
         sampled = [all_settings[int(i)] for i in indices]
-        logger.info("[worker] Grid space too large (%s), sampling %s evenly-spaced points", len(all_settings), max_budget)
+        logger.info(
+            "[worker] Grid space too large (%s), sampling %s evenly-spaced points", len(all_settings), max_budget
+        )
 
     results: list[tuple] = []
     for idx, setting in enumerate(sampled, 1):
         if idx == 1 or idx % 20 == 0:
             logger.info("[worker] Grid sequential progress %s/%s", idx, len(sampled))
         res = _evaluate_single(
-            optimization_setting.target_name, strategy_class, symbol,
-            start, end, rate, slippage, size, pricetick, capital, setting,
+            optimization_setting.target_name,
+            strategy_class,
+            symbol,
+            start,
+            end,
+            rate,
+            slippage,
+            size,
+            pricetick,
+            capital,
+            setting,
         )
         if res is not None:
             results.append(res)
@@ -997,8 +1008,17 @@ def _run_random_sequential(
         if idx == 1 or idx % 20 == 0:
             logger.info("[worker] Random sequential progress %s/%s", idx, len(sampled))
         res = _evaluate_single(
-            optimization_setting.target_name, strategy_class, symbol,
-            start, end, rate, slippage, size, pricetick, capital, setting,
+            optimization_setting.target_name,
+            strategy_class,
+            symbol,
+            start,
+            end,
+            rate,
+            slippage,
+            size,
+            pricetick,
+            capital,
+            setting,
         )
         if res is not None:
             results.append(res)
@@ -1033,9 +1053,17 @@ def _run_bayesian_sequential(
     except ImportError:
         logger.warning("[worker] optuna not installed, falling back to random search")
         return _run_random_sequential(
-            strategy_class=strategy_class, symbol=symbol, start=start, end=end,
-            rate=rate, slippage=slippage, size=size, pricetick=pricetick,
-            capital=capital, optimization_setting=optimization_setting, n_samples=n_trials,
+            strategy_class=strategy_class,
+            symbol=symbol,
+            start=start,
+            end=end,
+            rate=rate,
+            slippage=slippage,
+            size=size,
+            pricetick=pricetick,
+            capital=capital,
+            optimization_setting=optimization_setting,
+            n_samples=n_trials,
         )
 
     # Build parameter definitions from param_space (min/max/step) so optuna can
@@ -1076,8 +1104,17 @@ def _run_bayesian_sequential(
             setting = all_settings[idx]
 
         res = _evaluate_single(
-            optimization_setting.target_name, strategy_class, symbol,
-            start, end, rate, slippage, size, pricetick, capital, setting,
+            optimization_setting.target_name,
+            strategy_class,
+            symbol,
+            start,
+            end,
+            rate,
+            slippage,
+            size,
+            pricetick,
+            capital,
+            setting,
         )
         if res is None:
             return float("-inf")
@@ -1091,7 +1128,8 @@ def _run_bayesian_sequential(
     study.optimize(objective, n_trials=n_trials, show_progress_bar=False)
     logger.info(
         "[worker] Bayesian optimisation done: %s trials, best=%.4f",
-        len(study.trials), study.best_value if study.best_trial else 0.0,
+        len(study.trials),
+        study.best_value if study.best_trial else 0.0,
     )
 
     collected.sort(reverse=True, key=lambda r: float(r[1] or 0.0))
