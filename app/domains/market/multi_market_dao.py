@@ -22,12 +22,15 @@ class MultiMarketDao:
 
     # ── HK stocks ──────────────────────────────────────────────────────
 
-    def list_hk_stocks(self, status: str = "L", limit: int = 500) -> list[dict[str, Any]]:
+    def list_hk_stocks(self, status: str = "L", limit: int = 500, keyword: str = "") -> list[dict[str, Any]]:
         with connection("tushare") as conn:
-            rows = conn.execute(
-                text("SELECT * FROM hk_stock_basic WHERE list_status = :s ORDER BY ts_code LIMIT :lim"),
-                {"s": status, "lim": limit},
-            ).fetchall()
+            sql = "SELECT * FROM hk_stock_basic WHERE list_status = :s"
+            params: dict[str, Any] = {"s": status, "lim": limit}
+            if keyword:
+                sql += " AND (ts_code LIKE :kw OR name LIKE :kw)"
+                params["kw"] = f"%{keyword}%"
+            sql += " ORDER BY ts_code LIMIT :lim"
+            rows = conn.execute(text(sql), params).fetchall()
             return [dict(r._mapping) for r in rows]
 
     def get_hk_daily(self, ts_code: str, start_date: str, end_date: str) -> list[dict[str, Any]]:
@@ -43,12 +46,15 @@ class MultiMarketDao:
 
     # ── US stocks ──────────────────────────────────────────────────────
 
-    def list_us_stocks(self, status: str = "L", limit: int = 500) -> list[dict[str, Any]]:
+    def list_us_stocks(self, status: str = "L", limit: int = 500, keyword: str = "") -> list[dict[str, Any]]:
         with connection("tushare") as conn:
-            rows = conn.execute(
-                text("SELECT * FROM us_stock_basic WHERE list_status = :s ORDER BY ts_code LIMIT :lim"),
-                {"s": status, "lim": limit},
-            ).fetchall()
+            sql = "SELECT * FROM us_stock_basic WHERE list_status = :s"
+            params: dict[str, Any] = {"s": status, "lim": limit}
+            if keyword:
+                sql += " AND (ts_code LIKE :kw OR name LIKE :kw)"
+                params["kw"] = f"%{keyword}%"
+            sql += " ORDER BY ts_code LIMIT :lim"
+            rows = conn.execute(text(sql), params).fetchall()
             return [dict(r._mapping) for r in rows]
 
     def get_us_daily(self, ts_code: str, start_date: str, end_date: str) -> list[dict[str, Any]]:

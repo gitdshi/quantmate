@@ -255,3 +255,28 @@ async def data_quality_summary(
 
     svc = DataCleaningService()
     return svc.summary(symbol, start_date, end_date)
+
+
+@router.get("/history-external/{market}/{symbol}")
+async def get_external_history(
+    market: str,
+    symbol: str,
+    start_date: date = Query(...),
+    end_date: date = Query(...),
+    current_user: Optional[TokenData] = Depends(get_current_user_optional),
+):
+    """Get historical K-line data for non-CN markets (HK/US from tushare DB, CRYPTO/FUTURES via AkShare)."""
+    from app.domains.market.external_history_service import ExternalHistoryService
+
+    svc = ExternalHistoryService()
+    try:
+        return svc.get_history(market=market, symbol=symbol, start_date=start_date, end_date=end_date)
+    except ValueError as e:
+        raise APIError(status_code=400, code=ErrorCode.DATA_INVALID_SYMBOL, message=str(e))
+    except Exception as e:
+        raise APIError(
+            status_code=500,
+            code=ErrorCode.DATA_FETCH_FAILED,
+            message="Failed to fetch external history",
+            detail=str(e),
+        )

@@ -21,12 +21,13 @@ async def list_exchanges(current_user: TokenData = Depends(get_current_user)):
 @router.get("/hk/stocks")
 async def list_hk_stocks(
     limit: int = Query(500, le=2000),
+    keyword: str = Query("", max_length=50),
     current_user: TokenData = Depends(get_current_user),
 ):
     """List Hong Kong listed stocks."""
     from app.domains.market.multi_market_dao import MultiMarketDao
 
-    return MultiMarketDao().list_hk_stocks(limit=limit)
+    return MultiMarketDao().list_hk_stocks(limit=limit, keyword=keyword)
 
 
 @router.get("/hk/daily")
@@ -45,12 +46,13 @@ async def get_hk_daily(
 @router.get("/us/stocks")
 async def list_us_stocks(
     limit: int = Query(500, le=2000),
+    keyword: str = Query("", max_length=50),
     current_user: TokenData = Depends(get_current_user),
 ):
     """List US listed stocks."""
     from app.domains.market.multi_market_dao import MultiMarketDao
 
-    return MultiMarketDao().list_us_stocks(limit=limit)
+    return MultiMarketDao().list_us_stocks(limit=limit, keyword=keyword)
 
 
 @router.get("/us/daily")

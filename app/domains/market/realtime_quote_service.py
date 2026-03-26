@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import re
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from datetime import datetime
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 import requests
 
@@ -16,6 +20,53 @@ except Exception as _e:  # pragma: no cover - environment dependent
     ak = None  # type: ignore[assignment]
     _AKSHARE_IMPORT_ERROR = _e
 import pandas as pd
+
+logger = logging.getLogger(__name__)
+
+# ── In-memory TTL cache for expensive AkShare bulk calls ──────────────────
+_BULK_CACHE: dict[str, tuple[float, pd.DataFrame]] = {}
+_BULK_CACHE_LOCK = threading.Lock()
+_BULK_CACHE_TTL = 60  # seconds
+_AKSHARE_TIMEOUT = 15  # seconds — max wait per AkShare bulk call
+_TENCENT_TIMEOUT = 8  # seconds
+_TENCENT_RETRIES = 2
+_TENCENT_BACKOFF = 1.0  # seconds
+
+_executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="akshare")
+
+
+def _get_cached_df(key: str) -> pd.DataFrame | None:
+    with _BULK_CACHE_LOCK:
+        entry = _BULK_CACHE.get(key)
+        if entry and (time.monotonic() - entry[0]) < _BULK_CACHE_TTL:
+            return entry[1]
+    return None
+
+
+def _set_cached_df(key: str, df: pd.DataFrame) -> None:
+    with _BULK_CACHE_LOCK:
+        _BULK_CACHE[key] = (time.monotonic(), df)
+
+
+def _fetch_akshare_with_timeout(func: Callable[[], pd.DataFrame], cache_key: str) -> pd.DataFrame:
+    """Execute an AkShare bulk fetch with cache + thread-pool timeout."""
+    cached = _get_cached_df(cache_key)
+    if cached is not None:
+        return cached
+    future = _executor.submit(func)
+    try:
+        df = future.result(timeout=_AKSHARE_TIMEOUT)
+        _set_cached_df(cache_key, df)
+        return df
+    except FuturesTimeoutError:
+        future.cancel()
+        # Return stale cache if available
+        with _BULK_CACHE_LOCK:
+            entry = _BULK_CACHE.get(cache_key)
+            if entry:
+                logger.warning("AkShare timeout for %s, returning stale cache", cache_key)
+                return entry[1]
+        raise TimeoutError(f"AkShare call timed out after {_AKSHARE_TIMEOUT}s: {cache_key}")
 
 
 class RealtimeQuoteService:
@@ -107,16 +158,30 @@ class RealtimeQuoteService:
     def _fetch_tencent_quote(self, code: str) -> list[str]:
         prefix = "sh" if code.startswith(("6", "9", "5", "68")) else "sz"
         url = f"https://qt.gtimg.cn/q={prefix}{code}"
-        resp = requests.get(url, timeout=5)
-        resp.raise_for_status()
-        text = resp.text
-        if "=" not in text:
-            raise ValueError(f"Invalid Tencent quote response for {code}")
-        payload = text.split("=", 1)[1].strip().strip('";')
-        parts = payload.replace("\r", "").replace("\n", "").split("~")
-        if len(parts) < 6:
-            raise ValueError(f"Symbol not found in Tencent quote: {code}")
-        return parts
+        return self._tencent_request_with_retry(url, code)
+
+    @staticmethod
+    def _tencent_request_with_retry(url: str, code: str) -> list[str]:
+        last_exc: Exception | None = None
+        for attempt in range(_TENCENT_RETRIES + 1):
+            try:
+                resp = requests.get(url, timeout=_TENCENT_TIMEOUT)
+                resp.raise_for_status()
+                raw = resp.text
+                if "=" not in raw:
+                    raise ValueError(f"Invalid Tencent quote response for {code}")
+                payload = raw.split("=", 1)[1].strip().strip('";')
+                parts = payload.replace("\r", "").replace("\n", "").split("~")
+                if len(parts) < 6:
+                    raise ValueError(f"Symbol not found in Tencent quote: {code}")
+                return parts
+            except (requests.Timeout, requests.ConnectionError) as exc:
+                last_exc = exc
+                if attempt < _TENCENT_RETRIES:
+                    time.sleep(_TENCENT_BACKOFF * (attempt + 1))
+            except Exception as exc:
+                raise exc
+        raise last_exc or TimeoutError(f"Tencent quote failed after retries: {code}")
 
     def _build_tencent_quote(self, code: str, parts: list[str], market: str) -> dict[str, Any]:
         def to_f(idx: int) -> float | None:
@@ -163,10 +228,10 @@ class RealtimeQuoteService:
             return self._quote_hk_tencent(code)
         except Exception:
             pass
-        # Fallback to akshare bulk
+        # Fallback to akshare bulk (cached)
         if ak is None:
             raise RuntimeError(f"AkShare not available: {_AKSHARE_IMPORT_ERROR}")
-        df = ak.stock_hk_spot()
+        df = _fetch_akshare_with_timeout(ak.stock_hk_spot, "hk_spot")
         if "symbol" not in df.columns:
             raise ValueError("Unexpected response for HK spot quotes")
         row = df.loc[df["symbol"].astype(str) == code]
@@ -197,14 +262,8 @@ class RealtimeQuoteService:
     def _quote_hk_tencent(self, code: str) -> dict[str, Any]:
         """Fetch individual HK stock quote via Tencent API (faster than bulk akshare)."""
         url = f"https://qt.gtimg.cn/q=hk{code}"
-        resp = requests.get(url, timeout=5)
-        resp.raise_for_status()
-        raw = resp.text
-        if "=" not in raw:
-            raise ValueError(f"Invalid Tencent HK response for {code}")
-        payload = raw.split("=", 1)[1].strip().strip('";')
-        parts = payload.replace("\r", "").replace("\n", "").split("~")
-        if len(parts) < 6 or not parts[3]:
+        parts = self._tencent_request_with_retry(url, code)
+        if not parts[3]:
             raise ValueError(f"HK symbol not found: {code}")
 
         def to_f(idx: int) -> float | None:
@@ -242,7 +301,7 @@ class RealtimeQuoteService:
             raise RuntimeError(f"AkShare not available: {_AKSHARE_IMPORT_ERROR}")
         raw = symbol.split(".")[0].strip()
         sym = raw.upper()
-        df = ak.stock_us_spot_em()
+        df = _fetch_akshare_with_timeout(ak.stock_us_spot_em, "us_spot")
         if "代码" not in df.columns:
             raise ValueError("Unexpected response for US spot quotes")
         codes = df["代码"].astype(str).str.upper().str.split(".").str[-1]
@@ -275,7 +334,7 @@ class RealtimeQuoteService:
         if ak is None:
             raise RuntimeError(f"AkShare not available: {_AKSHARE_IMPORT_ERROR}")
         sym = self._normalize_symbol(symbol)
-        df = ak.forex_spot_em()
+        df = _fetch_akshare_with_timeout(ak.forex_spot_em, "fx_spot")
         if "代码" not in df.columns:
             raise ValueError("Unexpected response for FX spot quotes")
         codes = df["代码"].astype(str).apply(self._normalize_symbol)
@@ -306,7 +365,7 @@ class RealtimeQuoteService:
         if ak is None:
             raise RuntimeError(f"AkShare not available: {_AKSHARE_IMPORT_ERROR}")
         sym = self._normalize_symbol(symbol)
-        df = ak.futures_zh_spot()
+        df = _fetch_akshare_with_timeout(ak.futures_zh_spot, "futures_spot")
         if "symbol" not in df.columns:
             raise ValueError("Unexpected response for futures spot quotes")
         codes = df["symbol"].astype(str).apply(self._normalize_symbol)
@@ -337,7 +396,7 @@ class RealtimeQuoteService:
         if ak is None:
             raise RuntimeError(f"AkShare not available: {_AKSHARE_IMPORT_ERROR}")
         sym = self._normalize_symbol(symbol)
-        df = ak.crypto_js_spot()
+        df = _fetch_akshare_with_timeout(ak.crypto_js_spot, "crypto_spot")
         if "交易品种" not in df.columns:
             raise ValueError("Unexpected response for crypto spot quotes")
         codes = df["交易品种"].astype(str).apply(self._normalize_symbol)

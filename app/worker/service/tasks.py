@@ -226,6 +226,26 @@ def save_backtest_to_db(
         logger.exception("[worker] Error saving backtest to database: %s", e)
 
 
+def run_datasync_task(target_date_str: Optional[str] = None) -> Dict[str, Any]:
+    """RQ worker task: run daily data sync asynchronously."""
+    from datetime import datetime, date as date_type
+    from app.datasync.scheduler import run_daily_sync
+
+    logger.info("[worker] Starting datasync task, target_date=%s", target_date_str)
+
+    target_date: date_type | None = None
+    if target_date_str:
+        target_date = datetime.strptime(target_date_str, "%Y-%m-%d").date()
+
+    try:
+        results = run_daily_sync(target_date)
+        logger.info("[worker] Datasync completed: %s", results)
+        return {"status": "ok", "results": results}
+    except Exception as exc:
+        logger.exception("[worker] Datasync failed: %s", exc)
+        return {"status": "error", "error": str(exc)}
+
+
 def run_backtest_task(
     strategy_code: Optional[str],
     strategy_class_name: str,

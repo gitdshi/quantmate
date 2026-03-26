@@ -167,24 +167,45 @@ async def trigger_manual_sync(
     body: ManualSyncRequest,
     current_user: TokenData = Depends(get_current_user),
 ):
-    """Trigger a manual daily sync (runs in the foreground for simplicity).
+    """Dispatch a manual daily sync to an RQ worker (non-blocking)."""
+    from app.worker.service.config import get_queue
 
-    In production, this should be dispatched to an RQ worker.
-    """
-    from datetime import datetime
+    queue = get_queue("default")
+    job = queue.enqueue(
+        "app.worker.service.tasks.run_datasync_task",
+        body.target_date,
+        job_timeout=1800,
+    )
+    return {"status": "queued", "job_id": job.id}
 
-    target_date = None
-    if body.target_date:
-        target_date = datetime.strptime(body.target_date, "%Y-%m-%d").date()
 
+@router.get("/job/{job_id}")
+async def get_datasync_job_status(
+    job_id: str,
+    current_user: TokenData = Depends(get_current_user),
+):
+    """Poll RQ job status for a previously triggered datasync."""
+    from redis import Redis
+    from rq.job import Job, NoSuchJobError
+    import os
+
+    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    conn = Redis.from_url(redis_url)
     try:
-        from app.datasync.scheduler import run_daily_sync
+        job = Job.fetch(job_id, connection=conn)
+    except NoSuchJobError:
+        raise APIError(status_code=404, code=ErrorCode.INTERNAL_ERROR, message=f"Job not found: {job_id}")
 
-        results = run_daily_sync(target_date)
-        return {"status": "ok", "results": results}
-    except Exception as e:
-        raise APIError(
-            status_code=500,
-            code=ErrorCode.INTERNAL_ERROR,
-            message=f"Sync failed: {e}",
-        )
+    result = None
+    error = None
+    if job.is_finished:
+        result = job.result
+    elif job.is_failed:
+        error = str(job.exc_info) if job.exc_info else "Unknown error"
+
+    return {
+        "job_id": job_id,
+        "status": job.get_status(),
+        "result": result,
+        "error": error,
+    }
