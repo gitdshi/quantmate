@@ -1222,11 +1222,7 @@ def run_optimization_task(
                 capital=initial_capital,
                 optimization_setting=setting,
                 search_method=search_method,
-                param_space=(
-                    optimization_settings
-                    if isinstance(optimization_settings, dict)
-                    else None
-                ),
+                param_space=(optimization_settings if isinstance(optimization_settings, dict) else None),
             )
         elif search_method == "random":
             # Random search: use vnpy's GA with a single generation so it
