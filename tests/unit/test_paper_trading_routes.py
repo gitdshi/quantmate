@@ -118,6 +118,7 @@ class TestPaperOrders:
     @patch("app.api.routes.paper_trading.OrderDao")
     def test_create_paper_order_zero_quantity(self, MockDao, client):
         resp = client.post("/api/v1/paper-trade/orders", json={
+            "paper_account_id": 1,
             "symbol": "000001.SZ", "direction": "buy",
             "order_type": "market", "quantity": 0,
         })
