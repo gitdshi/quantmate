@@ -46,6 +46,7 @@ from app.api.routes import api_keys
 from app.api.routes import sessions
 from app.api.routes import trading
 from app.api.routes import paper_trading
+from app.api.routes import paper_account
 from app.api.routes import risk
 from app.api.routes import alerts
 from app.api.routes import reports
@@ -234,6 +235,7 @@ app.include_router(api_keys.router, prefix="/api/v1")
 app.include_router(sessions.router, prefix="/api/v1")
 app.include_router(trading.router, prefix="/api/v1")
 app.include_router(paper_trading.router, prefix="/api/v1")
+app.include_router(paper_account.router, prefix="/api/v1")
 app.include_router(risk.router, prefix="/api/v1")
 app.include_router(alerts.router, prefix="/api/v1")
 app.include_router(reports.router, prefix="/api/v1")

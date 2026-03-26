@@ -140,6 +140,7 @@ class RealtimeQuoteService:
             "symbol": code,
             "name": parts[1] if len(parts) > 1 else None,
             "price": price,
+            "last_price": price,
             "change": change,
             "change_percent": change_pct,
             "open": to_f(5),
@@ -156,9 +157,15 @@ class RealtimeQuoteService:
         }
 
     def _quote_hk(self, symbol: str) -> dict[str, Any]:
+        code = symbol.split(".")[0].strip().zfill(5)
+        # Try Tencent HK quote first (faster, individual stock)
+        try:
+            return self._quote_hk_tencent(code)
+        except Exception:
+            pass
+        # Fallback to akshare bulk
         if ak is None:
             raise RuntimeError(f"AkShare not available: {_AKSHARE_IMPORT_ERROR}")
-        code = symbol.split(".")[0].strip().zfill(5)
         df = ak.stock_hk_spot()
         if "symbol" not in df.columns:
             raise ValueError("Unexpected response for HK spot quotes")
@@ -166,10 +173,12 @@ class RealtimeQuoteService:
         if row.empty:
             raise ValueError(f"Symbol not found in HK spot data: {symbol}")
         r = row.iloc[0]
+        price = self._to_float(self._pick(r, ["lasttrade"]))
         return {
             "symbol": code,
             "name": self._pick(r, ["name", "engname"]),
-            "price": self._to_float(self._pick(r, ["lasttrade"])),
+            "price": price,
+            "last_price": price,
             "change": self._to_float(self._pick(r, ["pricechange"])),
             "change_percent": self._to_float(self._pick(r, ["changepercent"])),
             "open": self._to_float(self._pick(r, ["open"])),
@@ -182,6 +191,49 @@ class RealtimeQuoteService:
             "currency": "HKD",
             "source": "akshare:stock_hk_spot",
             "asof": str(self._pick(r, ["ticktime"]) or self._now_iso()),
+            "delayed": True,
+        }
+
+    def _quote_hk_tencent(self, code: str) -> dict[str, Any]:
+        """Fetch individual HK stock quote via Tencent API (faster than bulk akshare)."""
+        url = f"https://qt.gtimg.cn/q=hk{code}"
+        resp = requests.get(url, timeout=5)
+        resp.raise_for_status()
+        raw = resp.text
+        if "=" not in raw:
+            raise ValueError(f"Invalid Tencent HK response for {code}")
+        payload = raw.split("=", 1)[1].strip().strip('";')
+        parts = payload.replace("\r", "").replace("\n", "").split("~")
+        if len(parts) < 6 or not parts[3]:
+            raise ValueError(f"HK symbol not found: {code}")
+
+        def to_f(idx: int) -> float | None:
+            if idx >= len(parts):
+                return None
+            return self._to_float(parts[idx])
+
+        price = to_f(3)
+        prev_close = to_f(4)
+        change = price - prev_close if (price is not None and prev_close) else None
+        change_pct = (change / prev_close * 100) if (change is not None and prev_close) else None
+
+        return {
+            "symbol": code,
+            "name": parts[1] if len(parts) > 1 else None,
+            "price": price,
+            "last_price": price,
+            "change": change,
+            "change_percent": change_pct,
+            "open": to_f(5),
+            "high": to_f(33) if len(parts) > 33 else None,
+            "low": to_f(34) if len(parts) > 34 else None,
+            "prev_close": prev_close,
+            "volume": self._to_int(parts[6]) if len(parts) > 6 else None,
+            "amount": None,
+            "market": "HK",
+            "currency": "HKD",
+            "source": "tencent:qt_hk",
+            "asof": self._now_iso(),
             "delayed": True,
         }
 
@@ -198,10 +250,12 @@ class RealtimeQuoteService:
         if row.empty:
             raise ValueError(f"Symbol not found in US spot data: {symbol}")
         r = row.iloc[0]
+        price_us = self._to_float(self._pick(r, ["最新价"]))
         return {
             "symbol": sym,
             "name": self._pick(r, ["名称"]),
-            "price": self._to_float(self._pick(r, ["最新价"])),
+            "price": price_us,
+            "last_price": price_us,
             "change": self._to_float(self._pick(r, ["涨跌额"])),
             "change_percent": self._to_float(self._pick(r, ["涨跌幅"])),
             "open": self._to_float(self._pick(r, ["开盘价"])),

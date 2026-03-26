@@ -10,7 +10,7 @@ from app.api.services.auth_service import decode_token
 router = APIRouter(tags=["WebSocket"])
 
 # Channels that contain user-specific data and require ownership validation
-_USER_CHANNEL_PREFIXES = ("alerts:", "orders:", "portfolio:")
+_USER_CHANNEL_PREFIXES = ("alerts:", "orders:", "portfolio:", "paper-signals:", "paper-orders:")
 
 
 def _validate_channel_access(channel: str, user_id: int) -> bool:

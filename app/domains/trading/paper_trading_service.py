@@ -28,6 +28,8 @@ class PaperTradingService:
         strategy_id: int,
         vt_symbol: str,
         parameters: Optional[Dict[str, Any]] = None,
+        paper_account_id: Optional[int] = None,
+        execution_mode: str = "auto",
     ) -> Dict[str, Any]:
         """Deploy a strategy to paper trading mode."""
         with connection("quantmate") as conn:
@@ -41,22 +43,25 @@ class PaperTradingService:
 
             result = conn.execute(
                 text("""
-                    INSERT INTO paper_deployments (user_id, strategy_id, strategy_name, vt_symbol, parameters, status)
-                    VALUES (:uid, :sid, :sname, :sym, :params, 'running')
+                    INSERT INTO paper_deployments (user_id, paper_account_id, strategy_id, strategy_name,
+                                                   vt_symbol, parameters, status, execution_mode)
+                    VALUES (:uid, :paid, :sid, :sname, :sym, :params, 'running', :emode)
                 """),
                 {
                     "uid": user_id,
+                    "paid": paper_account_id,
                     "sid": strategy_id,
                     "sname": row.name,
                     "sym": vt_symbol,
                     "params": json.dumps(parameters or {}),
+                    "emode": execution_mode,
                 },
             )
             conn.commit()
             deployment_id = int(result.lastrowid)
 
-        logger.info("Paper deployment %d started: strategy=%d symbol=%s", deployment_id, strategy_id, vt_symbol)
-        return {"success": True, "deployment_id": deployment_id, "status": "running"}
+        logger.info("Paper deployment %d started: strategy=%d symbol=%s mode=%s", deployment_id, strategy_id, vt_symbol, execution_mode)
+        return {"success": True, "deployment_id": deployment_id, "status": "running", "strategy_name": row.name}
 
     def list_deployments(self, user_id: int) -> List[Dict[str, Any]]:
         """List all paper trading deployments for a user."""
