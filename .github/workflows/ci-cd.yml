@@ -8,7 +8,7 @@ on:
       - "tests/**"
       - "requirements.txt"
       - "pytest.ini"
-      - "Dockerfile.api"
+      - "Dockerfile"
       - "docker-compose.staging.yml"
       - "nginx/staging.conf"
       - ".github/workflows/ci-cd.yml"
@@ -131,7 +131,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./Dockerfile.api
+          file: ./Dockerfile
           push: true
           platforms: linux/arm64
           build-args: |
