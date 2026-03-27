@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+
+# If invoked via `sh script.sh`, re-exec with bash to support arrays, process substitution and pipefail.
+if [ -z "${BASH_VERSION:-}" ]; then
+  exec /usr/bin/env bash "$0" "$@"
+fi
+
 set -euo pipefail
 
 # Safe SQL deployment for test/dev environments.
