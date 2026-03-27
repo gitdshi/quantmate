@@ -41,10 +41,10 @@ class DeployRequest(BaseModel):
 
 
 class PaperOrderRequest(BaseModel):
-    paper_account_id: int
+    paper_account_id: Optional[int] = None
     symbol: str
     direction: str  # buy/sell
-    order_type: str = "market"  # market/limit/stop
+    order_type: str = "market"  # market/limit
     quantity: int
     price: Optional[float] = None
     stop_price: Optional[float] = None
@@ -139,20 +139,22 @@ async def create_paper_order(req: PaperOrderRequest, current_user: TokenData = D
     """Submit a paper order with market-rules validation & matching engine."""
     if req.direction not in ("buy", "sell"):
         raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message="Invalid direction")
-    if req.order_type not in ("market", "limit", "stop"):
+    if req.order_type not in ("market", "limit"):
         raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message="Invalid order type for paper trading")
     if req.quantity <= 0:
         raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message="Quantity must be positive")
 
     # ── Resolve paper account & market ──────────────────────
     acct_svc = PaperAccountService()
-    account = acct_svc.get_account(req.paper_account_id, current_user.user_id)
-    if not account:
-        raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Paper account not found")
-    if account["status"] != "active":
-        raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message="Paper account is not active")
-
-    market = account["market"]
+    account = None
+    market = "CN"
+    if req.paper_account_id is not None:
+        account = acct_svc.get_account(req.paper_account_id, current_user.user_id)
+        if not account:
+            raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Paper account not found")
+        if account["status"] != "active":
+            raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message="Paper account is not active")
+        market = account["market"]
 
     # ── Fetch realtime quote ────────────────────────────────
     quote_svc = RealtimeQuoteService()
@@ -161,7 +163,7 @@ async def create_paper_order(req: PaperOrderRequest, current_user: TokenData = D
     except Exception:
         quote = {}
 
-    last_price = quote.get("last_price") or quote.get("price") or quote.get("current") or 0.0
+    last_price = quote.get("last_price") or quote.get("price") or quote.get("current") or req.price or 0.0
     prev_close = quote.get("prev_close") or quote.get("pre_close") or last_price
 
     # ── Market rules validation ─────────────────────────────
@@ -173,7 +175,7 @@ async def create_paper_order(req: PaperOrderRequest, current_user: TokenData = D
         price=req.price,
         order_type=req.order_type,
         prev_close=prev_close if prev_close else None,
-        available_balance=account["balance"] if req.direction == "buy" else None,
+        available_balance=account["balance"] if account and req.direction == "buy" else None,
     )
     if not vr.valid:
         raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message=vr.error or "Order validation failed")
@@ -196,14 +198,14 @@ async def create_paper_order(req: PaperOrderRequest, current_user: TokenData = D
             raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message=fill.reason or "Market order fill failed")
 
         # Freeze funds for buy, then settle immediately
-        if req.direction == "buy":
+        if account and req.direction == "buy":
             total_cost = fill.fill_price * fill.fill_quantity + fill.fee.total
             ok = acct_svc.freeze_funds(req.paper_account_id, total_cost)
             if not ok:
                 raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message="Insufficient funds in paper account")
             acct_svc.settle_buy(req.paper_account_id, total_cost)
 
-        elif req.direction == "sell":
+        elif account and req.direction == "sell":
             proceeds = fill.fill_price * fill.fill_quantity - fill.fee.total
             acct_svc.settle_sell(req.paper_account_id, proceeds)
 
@@ -221,10 +223,10 @@ async def create_paper_order(req: PaperOrderRequest, current_user: TokenData = D
         dao.update_status(order_id, "filled", filled_quantity=fill.fill_quantity, avg_fill_price=fill.fill_price, fee=fill.fee.total)
         dao.insert_trade(order_id, fill.fill_quantity, fill.fill_price, fill.fee.total)
 
-    # ── Limit/stop order → pending, worker handles matching ─
+    # ── Limit order → pending, worker handles matching ─
     else:
         est_price = req.price or last_price or 0.0
-        if req.direction == "buy" and est_price > 0:
+        if account and req.direction == "buy" and est_price > 0:
             est_cost = est_price * req.quantity * 1.003  # small buffer for fees
             ok = acct_svc.freeze_funds(req.paper_account_id, est_cost)
             if not ok:
@@ -242,8 +244,6 @@ async def create_paper_order(req: PaperOrderRequest, current_user: TokenData = D
             paper_account_id=req.paper_account_id,
             buy_date=today_str if req.direction == "buy" else None,
         )
-        dao.update_status(order_id, "submitted")
-
     order = dao.get_by_id(order_id, current_user.user_id)
     return order
 
