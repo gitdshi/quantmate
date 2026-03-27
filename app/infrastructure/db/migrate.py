@@ -64,6 +64,90 @@ def _file_checksum(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _split_sql_statements(sql_content: str) -> list[str]:
+    """Split SQL into statements without breaking on semicolons in strings/comments."""
+    statements: list[str] = []
+    buf: list[str] = []
+    in_single = False
+    in_double = False
+    in_line_comment = False
+    in_block_comment = False
+    i = 0
+    length = len(sql_content)
+
+    while i < length:
+        ch = sql_content[i]
+        nxt = sql_content[i + 1] if i + 1 < length else ""
+
+        if in_line_comment:
+            buf.append(ch)
+            if ch == "\n":
+                in_line_comment = False
+            i += 1
+            continue
+
+        if in_block_comment:
+            buf.append(ch)
+            if ch == "*" and nxt == "/":
+                buf.append(nxt)
+                in_block_comment = False
+                i += 2
+            else:
+                i += 1
+            continue
+
+        if not in_single and not in_double:
+            if ch == "-" and nxt == "-":
+                buf.append(ch)
+                buf.append(nxt)
+                in_line_comment = True
+                i += 2
+                continue
+            if ch == "/" and nxt == "*":
+                buf.append(ch)
+                buf.append(nxt)
+                in_block_comment = True
+                i += 2
+                continue
+
+        if ch == "'" and not in_double:
+            buf.append(ch)
+            if in_single and nxt == "'":
+                buf.append(nxt)
+                i += 2
+                continue
+            in_single = not in_single
+            i += 1
+            continue
+
+        if ch == '"' and not in_single:
+            buf.append(ch)
+            if in_double and nxt == '"':
+                buf.append(nxt)
+                i += 2
+                continue
+            in_double = not in_double
+            i += 1
+            continue
+
+        if ch == ";" and not in_single and not in_double:
+            stmt = "".join(buf).strip()
+            if stmt:
+                statements.append(stmt)
+            buf = []
+            i += 1
+            continue
+
+        buf.append(ch)
+        i += 1
+
+    tail = "".join(buf).strip()
+    if tail:
+        statements.append(tail)
+
+    return statements
+
+
 def apply_migrations(dry_run: bool = False) -> list[str]:
     """Apply all pending migrations. Returns list of applied versions."""
     engine = get_quantmate_engine()
@@ -87,11 +171,12 @@ def apply_migrations(dry_run: bool = False) -> list[str]:
                 continue
 
             print(f"Applying migration: {path.name} ...")
-            # Execute each statement in the SQL file
-            for statement in sql_content.split(";"):
-                stmt = statement.strip()
-                if stmt and not stmt.startswith("--"):
-                    conn.execute(text(stmt))
+            # Split safely so embedded strategy code strings can contain semicolons.
+            for stmt in _split_sql_statements(sql_content):
+                stripped = stmt.lstrip()
+                if stripped.startswith("--") or stripped.startswith("/*"):
+                    continue
+                conn.execute(text(stmt))
 
             # Record migration
             conn.execute(
