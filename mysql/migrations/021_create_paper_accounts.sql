@@ -58,9 +58,59 @@ CREATE TABLE IF NOT EXISTS `quantmate`.`paper_signals` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Extend existing orders table with paper_account_id and buy_date for T+1
-ALTER TABLE `quantmate`.`orders` ADD COLUMN paper_account_id INT DEFAULT NULL AFTER mode;
-ALTER TABLE `quantmate`.`orders` ADD COLUMN buy_date DATE DEFAULT NULL AFTER paper_account_id;
+SET @has_col_orders_paper_account_id := (
+    SELECT COUNT(*)
+    FROM information_schema.columns
+    WHERE table_schema = 'quantmate' AND table_name = 'orders' AND column_name = 'paper_account_id'
+);
+SET @sql_add_orders_paper_account_id := IF(
+    @has_col_orders_paper_account_id = 0,
+    'ALTER TABLE `quantmate`.`orders` ADD COLUMN `paper_account_id` INT DEFAULT NULL AFTER `mode`',
+    'SELECT 1'
+);
+PREPARE stmt_add_orders_paper_account_id FROM @sql_add_orders_paper_account_id;
+EXECUTE stmt_add_orders_paper_account_id;
+DEALLOCATE PREPARE stmt_add_orders_paper_account_id;
+
+SET @has_col_orders_buy_date := (
+    SELECT COUNT(*)
+    FROM information_schema.columns
+    WHERE table_schema = 'quantmate' AND table_name = 'orders' AND column_name = 'buy_date'
+);
+SET @sql_add_orders_buy_date := IF(
+    @has_col_orders_buy_date = 0,
+    'ALTER TABLE `quantmate`.`orders` ADD COLUMN `buy_date` DATE DEFAULT NULL AFTER `paper_account_id`',
+    'SELECT 1'
+);
+PREPARE stmt_add_orders_buy_date FROM @sql_add_orders_buy_date;
+EXECUTE stmt_add_orders_buy_date;
+DEALLOCATE PREPARE stmt_add_orders_buy_date;
 
 -- Extend paper_deployments with paper_account_id and execution_mode
-ALTER TABLE `quantmate`.`paper_deployments` ADD COLUMN paper_account_id INT DEFAULT NULL AFTER user_id;
-ALTER TABLE `quantmate`.`paper_deployments` ADD COLUMN execution_mode ENUM('auto','semi_auto') NOT NULL DEFAULT 'auto' AFTER status;
+SET @has_col_deploy_paper_account_id := (
+    SELECT COUNT(*)
+    FROM information_schema.columns
+    WHERE table_schema = 'quantmate' AND table_name = 'paper_deployments' AND column_name = 'paper_account_id'
+);
+SET @sql_add_deploy_paper_account_id := IF(
+    @has_col_deploy_paper_account_id = 0,
+    'ALTER TABLE `quantmate`.`paper_deployments` ADD COLUMN `paper_account_id` INT DEFAULT NULL AFTER `user_id`',
+    'SELECT 1'
+);
+PREPARE stmt_add_deploy_paper_account_id FROM @sql_add_deploy_paper_account_id;
+EXECUTE stmt_add_deploy_paper_account_id;
+DEALLOCATE PREPARE stmt_add_deploy_paper_account_id;
+
+SET @has_col_deploy_execution_mode := (
+    SELECT COUNT(*)
+    FROM information_schema.columns
+    WHERE table_schema = 'quantmate' AND table_name = 'paper_deployments' AND column_name = 'execution_mode'
+);
+SET @sql_add_deploy_execution_mode := IF(
+    @has_col_deploy_execution_mode = 0,
+    'ALTER TABLE `quantmate`.`paper_deployments` ADD COLUMN `execution_mode` ENUM(''auto'',''semi_auto'') NOT NULL DEFAULT ''auto'' AFTER `status`',
+    'SELECT 1'
+);
+PREPARE stmt_add_deploy_execution_mode FROM @sql_add_deploy_execution_mode;
+EXECUTE stmt_add_deploy_execution_mode;
+DEALLOCATE PREPARE stmt_add_deploy_execution_mode;
