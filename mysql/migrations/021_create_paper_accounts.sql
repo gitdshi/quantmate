@@ -2,7 +2,7 @@
 -- and extensions to existing tables for paper trading support.
 
 -- Paper accounts — independent virtual capital accounts for simulation
-CREATE TABLE IF NOT EXISTS paper_accounts (
+CREATE TABLE IF NOT EXISTS `quantmate`.`paper_accounts` (
     id              INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
     user_id         INT          NOT NULL,
     name            VARCHAR(100) NOT NULL,
@@ -18,11 +18,11 @@ CREATE TABLE IF NOT EXISTS paper_accounts (
     updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_pa_user   (user_id),
     INDEX idx_pa_status (status),
-    CONSTRAINT fk_pa_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    CONSTRAINT fk_pa_user FOREIGN KEY (user_id) REFERENCES `quantmate`.`users`(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Daily equity snapshots for paper accounts (used for equity curve)
-CREATE TABLE IF NOT EXISTS paper_account_snapshots (
+CREATE TABLE IF NOT EXISTS `quantmate`.`paper_account_snapshots` (
     id              INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
     account_id      INT          NOT NULL,
     snapshot_date   DATE         NOT NULL,
@@ -32,11 +32,11 @@ CREATE TABLE IF NOT EXISTS paper_account_snapshots (
     daily_pnl       DECIMAL(16,2) NOT NULL DEFAULT 0.00,
     created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uq_snap_acct_date (account_id, snapshot_date),
-    CONSTRAINT fk_snap_acct FOREIGN KEY (account_id) REFERENCES paper_accounts(id) ON DELETE CASCADE
+    CONSTRAINT fk_snap_acct FOREIGN KEY (account_id) REFERENCES `quantmate`.`paper_accounts`(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Paper signals — strategy signal notifications for semi-auto mode
-CREATE TABLE IF NOT EXISTS paper_signals (
+CREATE TABLE IF NOT EXISTS `quantmate`.`paper_signals` (
     id               INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
     user_id          INT          NOT NULL,
     paper_account_id INT          NOT NULL,
@@ -52,15 +52,15 @@ CREATE TABLE IF NOT EXISTS paper_signals (
     INDEX idx_ps_user   (user_id),
     INDEX idx_ps_acct   (paper_account_id),
     INDEX idx_ps_status (status),
-    CONSTRAINT fk_ps_user FOREIGN KEY (user_id)          REFERENCES users(id)             ON DELETE CASCADE,
-    CONSTRAINT fk_ps_acct FOREIGN KEY (paper_account_id) REFERENCES paper_accounts(id)    ON DELETE CASCADE,
-    CONSTRAINT fk_ps_depl FOREIGN KEY (deployment_id)    REFERENCES paper_deployments(id) ON DELETE CASCADE
+    CONSTRAINT fk_ps_user FOREIGN KEY (user_id)          REFERENCES `quantmate`.`users`(id)             ON DELETE CASCADE,
+    CONSTRAINT fk_ps_acct FOREIGN KEY (paper_account_id) REFERENCES `quantmate`.`paper_accounts`(id)    ON DELETE CASCADE,
+    CONSTRAINT fk_ps_depl FOREIGN KEY (deployment_id)    REFERENCES `quantmate`.`paper_deployments`(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Extend existing orders table with paper_account_id and buy_date for T+1
-ALTER TABLE orders ADD COLUMN paper_account_id INT DEFAULT NULL AFTER mode;
-ALTER TABLE orders ADD COLUMN buy_date DATE DEFAULT NULL AFTER paper_account_id;
+ALTER TABLE `quantmate`.`orders` ADD COLUMN paper_account_id INT DEFAULT NULL AFTER mode;
+ALTER TABLE `quantmate`.`orders` ADD COLUMN buy_date DATE DEFAULT NULL AFTER paper_account_id;
 
 -- Extend paper_deployments with paper_account_id and execution_mode
-ALTER TABLE paper_deployments ADD COLUMN paper_account_id INT DEFAULT NULL AFTER user_id;
-ALTER TABLE paper_deployments ADD COLUMN execution_mode ENUM('auto','semi_auto') NOT NULL DEFAULT 'auto' AFTER status;
+ALTER TABLE `quantmate`.`paper_deployments` ADD COLUMN paper_account_id INT DEFAULT NULL AFTER user_id;
+ALTER TABLE `quantmate`.`paper_deployments` ADD COLUMN execution_mode ENUM('auto','semi_auto') NOT NULL DEFAULT 'auto' AFTER status;

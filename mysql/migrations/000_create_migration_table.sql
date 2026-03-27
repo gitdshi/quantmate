@@ -3,9 +3,7 @@
 -- Tracks which SQL migration scripts have been applied
 -- =============================================================================
 
-USE quantmate;
-
-CREATE TABLE IF NOT EXISTS schema_migrations (
+CREATE TABLE IF NOT EXISTS `quantmate`.`schema_migrations` (
     version VARCHAR(14) NOT NULL PRIMARY KEY COMMENT 'Migration version (YYYYMMDDHHMMSS)',
     name VARCHAR(255) NOT NULL COMMENT 'Migration script name',
     applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -13,5 +11,5 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Tracks applied database migrations';
 
 -- Mark all existing init scripts as applied (baseline)
-INSERT IGNORE INTO schema_migrations (version, name) VALUES
+INSERT IGNORE INTO `quantmate`.`schema_migrations` (version, name) VALUES
     ('00000000000000', 'baseline_init_quantmate');

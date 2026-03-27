@@ -1,5 +1,5 @@
 -- Issue #5: Data source items configuration table
-CREATE TABLE IF NOT EXISTS data_source_items (
+CREATE TABLE IF NOT EXISTS `quantmate`.`data_source_items` (
     id                  INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
     source              VARCHAR(20)  NOT NULL COMMENT 'tushare or akshare',
     item_key            VARCHAR(100) NOT NULL,
@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS data_source_items (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Default enabled items
-INSERT INTO data_source_items (source, item_key, item_name, enabled, description) VALUES
+INSERT INTO `quantmate`.`data_source_items` (source, item_key, item_name, enabled, description) VALUES
 ('tushare', 'stock_basic',  '股票基本信息',  1, 'A股基本资料'),
 ('tushare', 'stock_daily',  '日线行情',      1, 'A股日K线'),
 ('tushare', 'adj_factor',   '复权因子',      1, '前复权因子'),
@@ -20,7 +20,7 @@ INSERT INTO data_source_items (source, item_key, item_name, enabled, description
 ON DUPLICATE KEY UPDATE item_name = VALUES(item_name);
 
 -- Default disabled items (require higher permissions)
-INSERT INTO data_source_items (source, item_key, item_name, enabled, requires_permission, description) VALUES
+INSERT INTO `quantmate`.`data_source_items` (source, item_key, item_name, enabled, requires_permission, description) VALUES
 ('tushare', 'top10_holders',   '十大股东',     0, 'premium', '十大流通股东'),
 ('tushare', 'stock_dividend',  '分红送股',     0, 'premium', '分红送转信息'),
 ('tushare', 'money_flow',      '资金流向',     0, 'premium', '个股资金流向'),

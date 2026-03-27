@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS `quantmate`.`strategy_factors` (
   INDEX `idx_strategy` (`strategy_id`),
   INDEX `idx_factor` (`factor_id`),
   CONSTRAINT `fk_sf_strategy` FOREIGN KEY (`strategy_id`)
-    REFERENCES `strategies`(`id`) ON DELETE CASCADE,
+    REFERENCES `quantmate`.`strategies`(`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_sf_factor` FOREIGN KEY (`factor_id`)
-    REFERENCES `factor_definitions`(`id`) ON DELETE SET NULL
+    REFERENCES `quantmate`.`factor_definitions`(`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Strategy-Factor relationship for multi-factor strategies';

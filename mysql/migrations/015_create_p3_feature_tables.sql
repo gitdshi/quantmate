@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS `quantmate`.`ai_messages` (
   `metadata`    JSON DEFAULT NULL COMMENT 'tool_calls, citations, etc.',
   `created_at`  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX `idx_conversation` (`conversation_id`),
-  CONSTRAINT `fk_msg_conversation` FOREIGN KEY (`conversation_id`) REFERENCES `ai_conversations`(`id`) ON DELETE CASCADE
+  CONSTRAINT `fk_msg_conversation` FOREIGN KEY (`conversation_id`) REFERENCES `quantmate`.`ai_conversations`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- AI model configurations
@@ -73,7 +73,7 @@ CREATE TABLE IF NOT EXISTS `quantmate`.`factor_evaluations` (
   `metrics`     JSON DEFAULT NULL COMMENT 'Full evaluation metrics',
   `created_at`  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX `idx_factor` (`factor_id`),
-  CONSTRAINT `fk_eval_factor` FOREIGN KEY (`factor_id`) REFERENCES `factor_definitions`(`id`) ON DELETE CASCADE
+  CONSTRAINT `fk_eval_factor` FOREIGN KEY (`factor_id`) REFERENCES `quantmate`.`factor_definitions`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Strategy templates
@@ -133,7 +133,7 @@ CREATE TABLE IF NOT EXISTS `quantmate`.`workspace_members` (
   `joined_at`   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY `uq_workspace_user` (`workspace_id`, `user_id`),
   INDEX `idx_user` (`user_id`),
-  CONSTRAINT `fk_member_workspace` FOREIGN KEY (`workspace_id`) REFERENCES `team_workspaces`(`id`) ON DELETE CASCADE
+  CONSTRAINT `fk_member_workspace` FOREIGN KEY (`workspace_id`) REFERENCES `quantmate`.`team_workspaces`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- P4: Strategy comments (marketplace)
@@ -146,7 +146,7 @@ CREATE TABLE IF NOT EXISTS `quantmate`.`strategy_comments` (
   `created_at`  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX `idx_template` (`template_id`),
   INDEX `idx_parent` (`parent_id`),
-  CONSTRAINT `fk_comment_template` FOREIGN KEY (`template_id`) REFERENCES `strategy_templates`(`id`) ON DELETE CASCADE
+  CONSTRAINT `fk_comment_template` FOREIGN KEY (`template_id`) REFERENCES `quantmate`.`strategy_templates`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- P4: Strategy ratings
@@ -159,6 +159,6 @@ CREATE TABLE IF NOT EXISTS `quantmate`.`strategy_ratings` (
   `created_at`  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY `uq_template_user` (`template_id`, `user_id`),
   INDEX `idx_template` (`template_id`),
-  CONSTRAINT `fk_rating_template` FOREIGN KEY (`template_id`) REFERENCES `strategy_templates`(`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_rating_template` FOREIGN KEY (`template_id`) REFERENCES `quantmate`.`strategy_templates`(`id`) ON DELETE CASCADE,
   CONSTRAINT `chk_rating` CHECK (`rating` BETWEEN 1 AND 5)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

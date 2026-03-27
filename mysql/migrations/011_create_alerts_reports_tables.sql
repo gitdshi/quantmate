@@ -1,7 +1,7 @@
 -- P2 Issue: Alert Engine, Notification Channels, Reports
 
 -- Alert rules
-CREATE TABLE IF NOT EXISTS alert_rules (
+CREATE TABLE IF NOT EXISTS `quantmate`.`alert_rules` (
     id           INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
     user_id      INT          NOT NULL,
     name         VARCHAR(100) NOT NULL,
@@ -14,11 +14,11 @@ CREATE TABLE IF NOT EXISTS alert_rules (
     created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_ar_user (user_id),
-    CONSTRAINT fk_ar_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    CONSTRAINT fk_ar_user FOREIGN KEY (user_id) REFERENCES `quantmate`.`users`(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Alert history
-CREATE TABLE IF NOT EXISTS alert_history (
+CREATE TABLE IF NOT EXISTS `quantmate`.`alert_history` (
     id           INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
     rule_id      INT          DEFAULT NULL,
     user_id      INT          NOT NULL,
@@ -28,11 +28,11 @@ CREATE TABLE IF NOT EXISTS alert_history (
     status       ENUM('unread','read','acknowledged') NOT NULL DEFAULT 'unread',
     INDEX idx_ah_user (user_id),
     INDEX idx_ah_date (triggered_at),
-    CONSTRAINT fk_ah_rule FOREIGN KEY (rule_id) REFERENCES alert_rules(id) ON DELETE SET NULL
+    CONSTRAINT fk_ah_rule FOREIGN KEY (rule_id) REFERENCES `quantmate`.`alert_rules`(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Notification channels
-CREATE TABLE IF NOT EXISTS notification_channels (
+CREATE TABLE IF NOT EXISTS `quantmate`.`notification_channels` (
     id            INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
     user_id       INT          NOT NULL,
     channel_type  ENUM('email','wechat','dingtalk','telegram','slack','webhook') NOT NULL,
@@ -40,11 +40,11 @@ CREATE TABLE IF NOT EXISTS notification_channels (
     is_active     TINYINT(1)   NOT NULL DEFAULT 1,
     created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_nc_user (user_id),
-    CONSTRAINT fk_nc_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    CONSTRAINT fk_nc_user FOREIGN KEY (user_id) REFERENCES `quantmate`.`users`(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Reports
-CREATE TABLE IF NOT EXISTS reports (
+CREATE TABLE IF NOT EXISTS `quantmate`.`reports` (
     id            INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
     user_id       INT          NOT NULL,
     report_type   ENUM('daily','weekly','monthly','custom') NOT NULL,
@@ -55,5 +55,5 @@ CREATE TABLE IF NOT EXISTS reports (
     created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_rpt_user (user_id),
     INDEX idx_rpt_date (period_start, period_end),
-    CONSTRAINT fk_rpt_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    CONSTRAINT fk_rpt_user FOREIGN KEY (user_id) REFERENCES `quantmate`.`users`(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

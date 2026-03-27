@@ -51,5 +51,5 @@ CREATE TABLE IF NOT EXISTS `quantmate`.`factor_screening_details` (
   INDEX `idx_run` (`run_id`),
   INDEX `idx_rank` (`run_id`, `rank_order`),
   CONSTRAINT `fk_screening_run` FOREIGN KEY (`run_id`)
-    REFERENCES `factor_screening_results`(`id`) ON DELETE CASCADE
+    REFERENCES `quantmate`.`factor_screening_results`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Individual factor results within a screening run';

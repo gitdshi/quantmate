@@ -1,7 +1,7 @@
 -- Paper trading deployments table
 -- Tracks strategy deployments to paper trading simulation
 
-CREATE TABLE IF NOT EXISTS `paper_deployments` (
+CREATE TABLE IF NOT EXISTS `quantmate`.`paper_deployments` (
     `id`              INT AUTO_INCREMENT PRIMARY KEY,
     `user_id`         INT NOT NULL,
     `strategy_id`     INT NOT NULL,

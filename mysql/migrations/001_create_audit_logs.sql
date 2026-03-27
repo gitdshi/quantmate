@@ -3,9 +3,7 @@
 -- Issue #2: Audit Logging System
 -- =============================================================================
 
-USE quantmate;
-
-CREATE TABLE IF NOT EXISTS audit_logs (
+CREATE TABLE IF NOT EXISTS `quantmate`.`audit_logs` (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     timestamp DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     user_id INT,

@@ -1,7 +1,7 @@
 -- P2 Issue: System Config, Parameter Optimization, Indicator Library
 
 -- System configuration
-CREATE TABLE IF NOT EXISTS system_configs (
+CREATE TABLE IF NOT EXISTS `quantmate`.`system_configs` (
     id                 INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
     config_key         VARCHAR(100) NOT NULL,
     config_value       TEXT         NOT NULL,
@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS system_configs (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Data source configurations (token/rate limits)
-CREATE TABLE IF NOT EXISTS data_source_configs (
+CREATE TABLE IF NOT EXISTS `quantmate`.`data_source_configs` (
     id                INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
     source_type       VARCHAR(50)  NOT NULL,
     api_token_encrypted TEXT       DEFAULT NULL,
@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS data_source_configs (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Optimization tasks
-CREATE TABLE IF NOT EXISTS optimization_tasks (
+CREATE TABLE IF NOT EXISTS `quantmate`.`optimization_tasks` (
     id             INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
     user_id        INT          NOT NULL,
     strategy_id    INT          NOT NULL,
@@ -37,21 +37,21 @@ CREATE TABLE IF NOT EXISTS optimization_tasks (
     created_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     completed_at   DATETIME     DEFAULT NULL,
     INDEX idx_ot_user (user_id),
-    CONSTRAINT fk_ot_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    CONSTRAINT fk_ot_user FOREIGN KEY (user_id) REFERENCES `quantmate`.`users`(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Optimization results
-CREATE TABLE IF NOT EXISTS optimization_task_results (
+CREATE TABLE IF NOT EXISTS `quantmate`.`optimization_task_results` (
     id          INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
     task_id     INT          NOT NULL,
     params      JSON         NOT NULL,
     metrics     JSON         NOT NULL,
     rank_num    INT          DEFAULT NULL,
-    CONSTRAINT fk_otr_task FOREIGN KEY (task_id) REFERENCES optimization_tasks(id) ON DELETE CASCADE
+    CONSTRAINT fk_otr_task FOREIGN KEY (task_id) REFERENCES `quantmate`.`optimization_tasks`(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Indicator configurations
-CREATE TABLE IF NOT EXISTS indicator_configs (
+CREATE TABLE IF NOT EXISTS `quantmate`.`indicator_configs` (
     id           INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
     name         VARCHAR(50)  NOT NULL,
     category     ENUM('trend','oscillator','volume','volatility','custom') NOT NULL,
@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS indicator_configs (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Insert built-in indicators
-INSERT IGNORE INTO indicator_configs (name, category, params_schema, is_builtin) VALUES
+INSERT IGNORE INTO `quantmate`.`indicator_configs` (name, category, params_schema, is_builtin) VALUES
 ('SMA', 'trend', '{"period": {"type": "int", "default": 20, "min": 2, "max": 500}}', 1),
 ('EMA', 'trend', '{"period": {"type": "int", "default": 20, "min": 2, "max": 500}}', 1),
 ('BOLL', 'trend', '{"period": {"type": "int", "default": 20}, "std_dev": {"type": "float", "default": 2.0}}', 1),

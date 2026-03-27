@@ -6,7 +6,7 @@
 -- -----------------------------------------------------------------------------
 -- 1. Alter data_source_items: add target_database, target_table, table_created, sync_priority
 -- -----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS data_source_items (
+CREATE TABLE IF NOT EXISTS `quantmate`.`data_source_items` (
     id                  INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
     source              VARCHAR(20)  NOT NULL COMMENT 'tushare or akshare',
     item_key            VARCHAR(100) NOT NULL,
@@ -25,7 +25,7 @@ SET @has_col_target_database := (
 );
 SET @sql_add_target_database := IF(
     @has_col_target_database = 0,
-    'ALTER TABLE data_source_items ADD COLUMN target_database VARCHAR(50) NOT NULL DEFAULT '''' AFTER requires_permission',
+    'ALTER TABLE `quantmate`.`data_source_items` ADD COLUMN target_database VARCHAR(50) NOT NULL DEFAULT '''' AFTER requires_permission',
     'SELECT 1'
 );
 PREPARE stmt_add_target_database FROM @sql_add_target_database;
@@ -39,7 +39,7 @@ SET @has_col_target_table := (
 );
 SET @sql_add_target_table := IF(
     @has_col_target_table = 0,
-    'ALTER TABLE data_source_items ADD COLUMN target_table VARCHAR(100) NOT NULL DEFAULT '''' AFTER target_database',
+    'ALTER TABLE `quantmate`.`data_source_items` ADD COLUMN target_table VARCHAR(100) NOT NULL DEFAULT '''' AFTER target_database',
     'SELECT 1'
 );
 PREPARE stmt_add_target_table FROM @sql_add_target_table;
@@ -53,7 +53,7 @@ SET @has_col_table_created := (
 );
 SET @sql_add_table_created := IF(
     @has_col_table_created = 0,
-    'ALTER TABLE data_source_items ADD COLUMN table_created TINYINT(1) NOT NULL DEFAULT 0 AFTER target_table',
+    'ALTER TABLE `quantmate`.`data_source_items` ADD COLUMN table_created TINYINT(1) NOT NULL DEFAULT 0 AFTER target_table',
     'SELECT 1'
 );
 PREPARE stmt_add_table_created FROM @sql_add_table_created;
@@ -67,7 +67,7 @@ SET @has_col_sync_priority := (
 );
 SET @sql_add_sync_priority := IF(
     @has_col_sync_priority = 0,
-    'ALTER TABLE data_source_items ADD COLUMN sync_priority INT NOT NULL DEFAULT 100 AFTER table_created',
+    'ALTER TABLE `quantmate`.`data_source_items` ADD COLUMN sync_priority INT NOT NULL DEFAULT 100 AFTER table_created',
     'SELECT 1'
 );
 PREPARE stmt_add_sync_priority FROM @sql_add_sync_priority;
@@ -75,31 +75,31 @@ EXECUTE stmt_add_sync_priority;
 DEALLOCATE PREPARE stmt_add_sync_priority;
 
 -- Backfill target_database and target_table for existing rows
-UPDATE data_source_items SET target_database = 'tushare', target_table = 'stock_basic',     sync_priority = 10  WHERE source = 'tushare' AND item_key = 'stock_basic';
-UPDATE data_source_items SET target_database = 'tushare', target_table = 'stock_daily',     sync_priority = 20  WHERE source = 'tushare' AND item_key = 'stock_daily';
-UPDATE data_source_items SET target_database = 'tushare', target_table = 'adj_factor',      sync_priority = 30  WHERE source = 'tushare' AND item_key = 'adj_factor';
-UPDATE data_source_items SET target_database = 'akshare', target_table = 'trade_cal',       sync_priority = 5   WHERE source = 'tushare' AND item_key = 'trade_cal';
-UPDATE data_source_items SET target_database = 'tushare', target_table = 'stock_dividend',  sync_priority = 50  WHERE source = 'tushare' AND item_key = 'stock_dividend';
-UPDATE data_source_items SET target_database = 'tushare', target_table = 'stock_weekly',    sync_priority = 25  WHERE source = 'tushare' AND item_key = 'stock_weekly';
-UPDATE data_source_items SET target_database = 'tushare', target_table = 'stock_monthly',   sync_priority = 26  WHERE source = 'tushare' AND item_key = 'stock_monthly';
-UPDATE data_source_items SET target_database = 'tushare', target_table = 'index_weekly',    sync_priority = 28  WHERE source = 'tushare' AND item_key = 'index_weekly';
-UPDATE data_source_items SET target_database = 'tushare', target_table = 'index_daily',     sync_priority = 27  WHERE source = 'tushare' AND item_key = 'index_daily';
-UPDATE data_source_items SET target_database = 'tushare', target_table = 'moneyflow',       sync_priority = 60  WHERE source = 'tushare' AND item_key = 'money_flow';
-UPDATE data_source_items SET target_database = 'tushare', target_table = 'stk_limit',       sync_priority = 70  WHERE source = 'tushare' AND item_key = 'stk_limit';
-UPDATE data_source_items SET target_database = 'tushare', target_table = 'margin',          sync_priority = 80  WHERE source = 'tushare' AND item_key = 'margin_detail';
-UPDATE data_source_items SET target_database = 'tushare', target_table = 'block_trade',     sync_priority = 90  WHERE source = 'tushare' AND item_key = 'block_trade';
-UPDATE data_source_items SET target_database = 'tushare', target_table = 'stock_company',   sync_priority = 15  WHERE source = 'tushare' AND item_key = 'stock_company';
-UPDATE data_source_items SET target_database = 'tushare', target_table = 'fina_indicator',  sync_priority = 55  WHERE source = 'tushare' AND item_key = 'fina_indicator';
-UPDATE data_source_items SET target_database = 'tushare', target_table = 'stock_dividend',  sync_priority = 50  WHERE source = 'tushare' AND item_key = 'dividend';
-UPDATE data_source_items SET target_database = 'tushare', target_table = 'income',          sync_priority = 56  WHERE source = 'tushare' AND item_key = 'income';
-UPDATE data_source_items SET target_database = 'tushare', target_table = 'top10_holders',   sync_priority = 57  WHERE source = 'tushare' AND item_key = 'top10_holders';
+UPDATE `quantmate`.`data_source_items` SET target_database = 'tushare', target_table = 'stock_basic',     sync_priority = 10  WHERE source = 'tushare' AND item_key = 'stock_basic';
+UPDATE `quantmate`.`data_source_items` SET target_database = 'tushare', target_table = 'stock_daily',     sync_priority = 20  WHERE source = 'tushare' AND item_key = 'stock_daily';
+UPDATE `quantmate`.`data_source_items` SET target_database = 'tushare', target_table = 'adj_factor',      sync_priority = 30  WHERE source = 'tushare' AND item_key = 'adj_factor';
+UPDATE `quantmate`.`data_source_items` SET target_database = 'akshare', target_table = 'trade_cal',       sync_priority = 5   WHERE source = 'tushare' AND item_key = 'trade_cal';
+UPDATE `quantmate`.`data_source_items` SET target_database = 'tushare', target_table = 'stock_dividend',  sync_priority = 50  WHERE source = 'tushare' AND item_key = 'stock_dividend';
+UPDATE `quantmate`.`data_source_items` SET target_database = 'tushare', target_table = 'stock_weekly',    sync_priority = 25  WHERE source = 'tushare' AND item_key = 'stock_weekly';
+UPDATE `quantmate`.`data_source_items` SET target_database = 'tushare', target_table = 'stock_monthly',   sync_priority = 26  WHERE source = 'tushare' AND item_key = 'stock_monthly';
+UPDATE `quantmate`.`data_source_items` SET target_database = 'tushare', target_table = 'index_weekly',    sync_priority = 28  WHERE source = 'tushare' AND item_key = 'index_weekly';
+UPDATE `quantmate`.`data_source_items` SET target_database = 'tushare', target_table = 'index_daily',     sync_priority = 27  WHERE source = 'tushare' AND item_key = 'index_daily';
+UPDATE `quantmate`.`data_source_items` SET target_database = 'tushare', target_table = 'moneyflow',       sync_priority = 60  WHERE source = 'tushare' AND item_key = 'money_flow';
+UPDATE `quantmate`.`data_source_items` SET target_database = 'tushare', target_table = 'stk_limit',       sync_priority = 70  WHERE source = 'tushare' AND item_key = 'stk_limit';
+UPDATE `quantmate`.`data_source_items` SET target_database = 'tushare', target_table = 'margin',          sync_priority = 80  WHERE source = 'tushare' AND item_key = 'margin_detail';
+UPDATE `quantmate`.`data_source_items` SET target_database = 'tushare', target_table = 'block_trade',     sync_priority = 90  WHERE source = 'tushare' AND item_key = 'block_trade';
+UPDATE `quantmate`.`data_source_items` SET target_database = 'tushare', target_table = 'stock_company',   sync_priority = 15  WHERE source = 'tushare' AND item_key = 'stock_company';
+UPDATE `quantmate`.`data_source_items` SET target_database = 'tushare', target_table = 'fina_indicator',  sync_priority = 55  WHERE source = 'tushare' AND item_key = 'fina_indicator';
+UPDATE `quantmate`.`data_source_items` SET target_database = 'tushare', target_table = 'stock_dividend',  sync_priority = 50  WHERE source = 'tushare' AND item_key = 'dividend';
+UPDATE `quantmate`.`data_source_items` SET target_database = 'tushare', target_table = 'income',          sync_priority = 56  WHERE source = 'tushare' AND item_key = 'income';
+UPDATE `quantmate`.`data_source_items` SET target_database = 'tushare', target_table = 'top10_holders',   sync_priority = 57  WHERE source = 'tushare' AND item_key = 'top10_holders';
 
-UPDATE data_source_items SET target_database = 'akshare', target_table = 'stock_zh_index_spot', sync_priority = 40  WHERE source = 'akshare' AND item_key = 'stock_zh_index';
-UPDATE data_source_items SET target_database = 'akshare', target_table = 'stock_zh_index_spot', sync_priority = 40  WHERE source = 'akshare' AND item_key = 'stock_zh_index_spot';
-UPDATE data_source_items SET target_database = 'akshare', target_table = 'fund_etf_daily',      sync_priority = 45  WHERE source = 'akshare' AND item_key = 'fund_etf_daily';
+UPDATE `quantmate`.`data_source_items` SET target_database = 'akshare', target_table = 'stock_zh_index_spot', sync_priority = 40  WHERE source = 'akshare' AND item_key = 'stock_zh_index';
+UPDATE `quantmate`.`data_source_items` SET target_database = 'akshare', target_table = 'stock_zh_index_spot', sync_priority = 40  WHERE source = 'akshare' AND item_key = 'stock_zh_index_spot';
+UPDATE `quantmate`.`data_source_items` SET target_database = 'akshare', target_table = 'fund_etf_daily',      sync_priority = 45  WHERE source = 'akshare' AND item_key = 'fund_etf_daily';
 
 -- Mark all existing tables as created (they exist from init SQL)
-UPDATE data_source_items SET table_created = 1 WHERE target_table != '';
+UPDATE `quantmate`.`data_source_items` SET table_created = 1 WHERE target_table != '';
 
 -- -----------------------------------------------------------------------------
 -- 2. Recreate data_sync_status with VARCHAR instead of ENUM
@@ -112,7 +112,7 @@ SET @has_data_sync_status := (
 );
 SET @rename_data_sync_status_sql := IF(
     @has_data_sync_status > 0,
-    'RENAME TABLE data_sync_status TO data_sync_status_old',
+    'RENAME TABLE `quantmate`.`data_sync_status` TO `quantmate`.`data_sync_status_old`',
     'SELECT 1'
 );
 PREPARE stmt_rename_data_sync_status FROM @rename_data_sync_status_sql;
@@ -120,7 +120,7 @@ EXECUTE stmt_rename_data_sync_status;
 DEALLOCATE PREPARE stmt_rename_data_sync_status;
 
 -- In case there was no legacy table, create an empty source table so the INSERT ... SELECT remains valid.
-CREATE TABLE IF NOT EXISTS data_sync_status_old (
+CREATE TABLE IF NOT EXISTS `quantmate`.`data_sync_status_old` (
     sync_date DATE NOT NULL,
     step_name VARCHAR(100) NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'pending',
@@ -133,7 +133,7 @@ CREATE TABLE IF NOT EXISTS data_sync_status_old (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Create new table with dynamic columns
-CREATE TABLE IF NOT EXISTS data_sync_status (
+CREATE TABLE IF NOT EXISTS `quantmate`.`data_sync_status` (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     sync_date DATE NOT NULL,
     source VARCHAR(50) NOT NULL,
@@ -153,7 +153,7 @@ CREATE TABLE IF NOT EXISTS data_sync_status (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Per-interface per-trading-day sync status tracking';
 
 -- Migrate existing data: map step_name to source + interface_key
-INSERT INTO data_sync_status (sync_date, source, interface_key, status, rows_synced, error_message, started_at, finished_at, created_at, updated_at)
+INSERT INTO `quantmate`.`data_sync_status` (sync_date, source, interface_key, status, rows_synced, error_message, started_at, finished_at, created_at, updated_at)
 SELECT
     sync_date,
     CASE
@@ -183,15 +183,15 @@ SELECT
     finished_at,
     created_at,
     updated_at
-FROM data_sync_status_old;
+FROM `quantmate`.`data_sync_status_old`;
 
 -- Drop old table after migration
-DROP TABLE data_sync_status_old;
+DROP TABLE `quantmate`.`data_sync_status_old`;
 
 -- -----------------------------------------------------------------------------
 -- 3. Enhance data_source_configs
 -- -----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS data_source_configs (
+CREATE TABLE IF NOT EXISTS `quantmate`.`data_source_configs` (
     id                  INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
     source_type         VARCHAR(50)  NOT NULL,
     api_token_encrypted TEXT         DEFAULT NULL,
@@ -210,7 +210,7 @@ SET @has_col_display_name := (
 );
 SET @sql_add_display_name := IF(
     @has_col_display_name = 0,
-    'ALTER TABLE data_source_configs ADD COLUMN display_name VARCHAR(100) NOT NULL DEFAULT ''''',
+    'ALTER TABLE `quantmate`.`data_source_configs` ADD COLUMN display_name VARCHAR(100) NOT NULL DEFAULT ''''',
     'SELECT 1'
 );
 PREPARE stmt_add_display_name FROM @sql_add_display_name;
@@ -224,7 +224,7 @@ SET @has_col_config_json := (
 );
 SET @sql_add_config_json := IF(
     @has_col_config_json = 0,
-    'ALTER TABLE data_source_configs ADD COLUMN config_json JSON DEFAULT NULL',
+    'ALTER TABLE `quantmate`.`data_source_configs` ADD COLUMN config_json JSON DEFAULT NULL',
     'SELECT 1'
 );
 PREPARE stmt_add_config_json FROM @sql_add_config_json;
@@ -238,7 +238,7 @@ SET @has_col_requires_token := (
 );
 SET @sql_add_requires_token := IF(
     @has_col_requires_token = 0,
-    'ALTER TABLE data_source_configs ADD COLUMN requires_token TINYINT(1) DEFAULT 0',
+    'ALTER TABLE `quantmate`.`data_source_configs` ADD COLUMN requires_token TINYINT(1) DEFAULT 0',
     'SELECT 1'
 );
 PREPARE stmt_add_requires_token FROM @sql_add_requires_token;
@@ -252,7 +252,7 @@ SET @has_col_source_type := (
 );
 SET @sql_add_source_type := IF(
     @has_col_source_type = 0,
-    'ALTER TABLE data_source_configs ADD COLUMN source_type VARCHAR(50) DEFAULT NULL',
+    'ALTER TABLE `quantmate`.`data_source_configs` ADD COLUMN source_type VARCHAR(50) DEFAULT NULL',
     'SELECT 1'
 );
 PREPARE stmt_add_source_type FROM @sql_add_source_type;
@@ -266,7 +266,7 @@ SET @has_col_is_enabled := (
 );
 SET @sql_add_is_enabled := IF(
     @has_col_is_enabled = 0,
-    'ALTER TABLE data_source_configs ADD COLUMN is_enabled TINYINT(1) DEFAULT 1',
+    'ALTER TABLE `quantmate`.`data_source_configs` ADD COLUMN is_enabled TINYINT(1) DEFAULT 1',
     'SELECT 1'
 );
 PREPARE stmt_add_is_enabled FROM @sql_add_is_enabled;
@@ -280,7 +280,7 @@ SET @has_col_source_key := (
 );
 SET @sql_add_source_key := IF(
     @has_col_source_key = 0,
-    'ALTER TABLE data_source_configs ADD COLUMN source_key VARCHAR(50) DEFAULT NULL',
+    'ALTER TABLE `quantmate`.`data_source_configs` ADD COLUMN source_key VARCHAR(50) DEFAULT NULL',
     'SELECT 1'
 );
 PREPARE stmt_add_source_key FROM @sql_add_source_key;
@@ -294,7 +294,7 @@ SET @has_col_enabled := (
 );
 SET @sql_add_enabled := IF(
     @has_col_enabled = 0,
-    'ALTER TABLE data_source_configs ADD COLUMN enabled TINYINT(1) NOT NULL DEFAULT 1',
+    'ALTER TABLE `quantmate`.`data_source_configs` ADD COLUMN enabled TINYINT(1) NOT NULL DEFAULT 1',
     'SELECT 1'
 );
 PREPARE stmt_add_enabled FROM @sql_add_enabled;
@@ -302,16 +302,16 @@ EXECUTE stmt_add_enabled;
 DEALLOCATE PREPARE stmt_add_enabled;
 
 -- Backfill new canonical columns from legacy columns.
-UPDATE data_source_configs SET source_key = source_type WHERE source_key IS NULL OR source_key = '';
-UPDATE data_source_configs SET enabled = is_enabled WHERE enabled IS NULL;
-UPDATE data_source_configs SET source_type = source_key WHERE source_type IS NULL OR source_type = '';
-UPDATE data_source_configs SET is_enabled = enabled WHERE is_enabled IS NULL;
+UPDATE `quantmate`.`data_source_configs` SET source_key = source_type WHERE source_key IS NULL OR source_key = '';
+UPDATE `quantmate`.`data_source_configs` SET enabled = is_enabled WHERE enabled IS NULL;
+UPDATE `quantmate`.`data_source_configs` SET source_type = source_key WHERE source_type IS NULL OR source_type = '';
+UPDATE `quantmate`.`data_source_configs` SET is_enabled = enabled WHERE is_enabled IS NULL;
 
 -- Ensure source_key is non-null after backfill.
-UPDATE data_source_configs SET source_key = 'unknown' WHERE source_key IS NULL OR source_key = '';
+UPDATE `quantmate`.`data_source_configs` SET source_key = 'unknown' WHERE source_key IS NULL OR source_key = '';
 
 -- Seed/update config data
-INSERT INTO data_source_configs (source_key, source_type, display_name, enabled, is_enabled, rate_limit, requires_token) VALUES
+INSERT INTO `quantmate`.`data_source_configs` (source_key, source_type, display_name, enabled, is_enabled, rate_limit, requires_token) VALUES
 ('tushare', 'tushare', 'Tushare Pro', 1, 1, 50, 1),
 ('akshare', 'akshare', 'AkShare', 1, 1, 30, 0)
 ON DUPLICATE KEY UPDATE
@@ -323,5 +323,5 @@ ON DUPLICATE KEY UPDATE
 -- -----------------------------------------------------------------------------
 -- 4. Record migration
 -- -----------------------------------------------------------------------------
-INSERT IGNORE INTO schema_migrations (version, name) VALUES
+INSERT IGNORE INTO `quantmate`.`schema_migrations` (version, name) VALUES
     ('018', '018_datasync_multi_source_refactor.sql');

@@ -1,7 +1,7 @@
 -- P2 Issue: Paper Trading, Order Management, Broker Config, Risk Rules
 
 -- Orders (paper + live)
-CREATE TABLE IF NOT EXISTS orders (
+CREATE TABLE IF NOT EXISTS `quantmate`.`orders` (
     id           INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
     user_id      INT          NOT NULL,
     portfolio_id INT          DEFAULT NULL,
@@ -23,22 +23,22 @@ CREATE TABLE IF NOT EXISTS orders (
     INDEX idx_ord_status (status),
     INDEX idx_ord_symbol (symbol),
     INDEX idx_ord_date (created_at),
-    CONSTRAINT fk_ord_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    CONSTRAINT fk_ord_user FOREIGN KEY (user_id) REFERENCES `quantmate`.`users`(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Trades (fills from orders)
-CREATE TABLE IF NOT EXISTS trades (
+CREATE TABLE IF NOT EXISTS `quantmate`.`trades` (
     id              INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
     order_id        INT          NOT NULL,
     filled_quantity INT          NOT NULL,
     filled_price    DECIMAL(10,4) NOT NULL,
     fee             DECIMAL(10,4) NOT NULL DEFAULT 0,
     filled_at       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_trade_order FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+    CONSTRAINT fk_trade_order FOREIGN KEY (order_id) REFERENCES `quantmate`.`orders`(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Risk rules
-CREATE TABLE IF NOT EXISTS risk_rules (
+CREATE TABLE IF NOT EXISTS `quantmate`.`risk_rules` (
     id          INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
     user_id     INT          NOT NULL,
     name        VARCHAR(100) NOT NULL,
@@ -50,11 +50,11 @@ CREATE TABLE IF NOT EXISTS risk_rules (
     created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_rr_user (user_id),
-    CONSTRAINT fk_rr_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    CONSTRAINT fk_rr_user FOREIGN KEY (user_id) REFERENCES `quantmate`.`users`(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Broker configurations
-CREATE TABLE IF NOT EXISTS broker_configs (
+CREATE TABLE IF NOT EXISTS `quantmate`.`broker_configs` (
     id              INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
     user_id         INT          NOT NULL,
     broker_type     VARCHAR(50)  NOT NULL,
@@ -64,5 +64,5 @@ CREATE TABLE IF NOT EXISTS broker_configs (
     created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_bc_user (user_id),
-    CONSTRAINT fk_bc_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    CONSTRAINT fk_bc_user FOREIGN KEY (user_id) REFERENCES `quantmate`.`users`(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

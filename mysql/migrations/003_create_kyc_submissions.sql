@@ -1,5 +1,5 @@
 -- Issue #9: KYC verification tables
-CREATE TABLE IF NOT EXISTS kyc_submissions (
+CREATE TABLE IF NOT EXISTS `quantmate`.`kyc_submissions` (
     id            INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
     user_id       INT          NOT NULL,
     status        ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
@@ -15,5 +15,5 @@ CREATE TABLE IF NOT EXISTS kyc_submissions (
     updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_kyc_user (user_id),
     INDEX idx_kyc_status (status),
-    CONSTRAINT fk_kyc_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    CONSTRAINT fk_kyc_user FOREIGN KEY (user_id) REFERENCES `quantmate`.`users`(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

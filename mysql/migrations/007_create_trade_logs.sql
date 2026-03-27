@@ -1,5 +1,5 @@
 -- Issue: Trade Audit Log table
-CREATE TABLE IF NOT EXISTS trade_logs (
+CREATE TABLE IF NOT EXISTS `quantmate`.`trade_logs` (
     id          INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
     timestamp   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     event_type  VARCHAR(50)  NOT NULL COMMENT 'signal|risk_check|order_submit|fill|settlement',
