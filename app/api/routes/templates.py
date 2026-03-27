@@ -51,12 +51,15 @@ class RatingCreate(BaseModel):
 @router.get("/marketplace")
 async def list_marketplace(
     category: Optional[str] = None,
+    template_type: Optional[str] = None,
     pagination: PaginationParams = Depends(),
     current_user: TokenData = Depends(get_current_user),
 ):
     service = TemplateService()
-    total = service.count_marketplace(category=category)
-    rows = service.list_marketplace(category=category, limit=pagination.page_size, offset=pagination.offset)
+    total = service.count_marketplace(category=category, template_type=template_type)
+    rows = service.list_marketplace(
+        category=category, template_type=template_type, limit=pagination.page_size, offset=pagination.offset
+    )
     return paginate(rows, total, pagination)
 
 

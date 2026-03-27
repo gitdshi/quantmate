@@ -229,3 +229,27 @@ class CompositeBacktestResult(BaseModel):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     created_at: datetime
+
+
+# ── Component Backtest ───────────────────────────────────────────────────
+
+
+class ComponentBacktestRequest(BaseModel):
+    """Request body for running a component-level backtest."""
+
+    config_override: Optional[Dict[str, Any]] = Field(
+        None, description="Config overrides merged with component defaults"
+    )
+    params_override: Optional[Dict[str, Any]] = Field(
+        None, description="Parameter overrides merged with component defaults"
+    )
+
+
+class ComponentBacktestResult(BaseModel):
+    """Result of a component-level backtest."""
+
+    component_id: int
+    layer: str
+    sub_type: str
+    result: Dict[str, Any]
+    ran_at: datetime

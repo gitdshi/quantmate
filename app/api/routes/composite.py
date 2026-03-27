@@ -27,6 +27,8 @@ from app.api.models.composite import (
     CompositeBacktestSubmit,
     CompositeBacktestListItem,
     CompositeBacktestResult,
+    ComponentBacktestRequest,
+    ComponentBacktestResult as ComponentBTResult,
 )
 from app.api.services.auth_service import get_current_user
 from app.api.errors import ErrorCode
@@ -166,6 +168,56 @@ async def delete_component(
             code=ErrorCode.COMPOSITE_COMPONENT_NOT_FOUND,
             message="Strategy component not found",
         )
+
+
+@comp_router.post("/{component_id}/backtest", response_model=ComponentBTResult)
+async def backtest_component(
+    component_id: int,
+    req: ComponentBacktestRequest = ComponentBacktestRequest(),
+    current_user: TokenData = Depends(get_current_user),
+):
+    """Run an isolated backtest for a single strategy component."""
+    from app.domains.composite.component_backtest import run_component_backtest
+
+    service = CompositeStrategyService()
+    try:
+        row = service.get_component(current_user.user_id, component_id)
+    except KeyError:
+        raise APIError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code=ErrorCode.COMPOSITE_COMPONENT_NOT_FOUND,
+            message="Strategy component not found",
+        )
+
+    config = row.get("config") or {}
+    if isinstance(config, str):
+        import json
+        config = json.loads(config)
+    params = row.get("parameters") or {}
+    if isinstance(params, str):
+        import json
+        params = json.loads(params)
+
+    if req.config_override:
+        config = {**config, **req.config_override}
+    if req.params_override:
+        params = {**params, **req.params_override}
+
+    result = run_component_backtest(
+        layer=row["layer"],
+        sub_type=row["sub_type"],
+        code=row.get("code"),
+        config=config,
+        params=params,
+    )
+
+    return ComponentBTResult(
+        component_id=component_id,
+        layer=row["layer"],
+        sub_type=row["sub_type"],
+        result=result,
+        ran_at=datetime.utcnow(),
+    )
 
 
 # ── Composite Strategies ─────────────────────────────────────────────────

@@ -13,26 +13,39 @@ from app.infrastructure.db.connections import connection
 class StrategyTemplateDao:
     """CRUD for strategy_templates."""
 
-    def list_public(self, category: Optional[str] = None, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
+    def list_public(
+        self,
+        category: Optional[str] = None,
+        template_type: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
         query = (
-            "SELECT id, author_id, name, category, description, version, visibility, downloads, created_at, updated_at "
+            "SELECT id, author_id, name, category, template_type, layer, sub_type, "
+            "description, version, visibility, downloads, created_at, updated_at "
             "FROM strategy_templates WHERE visibility = 'public'"
         )
         params: dict[str, Any] = {"limit": limit, "offset": offset}
         if category:
             query += " AND category = :cat"
             params["cat"] = category
+        if template_type:
+            query += " AND template_type = :ttype"
+            params["ttype"] = template_type
         query += " ORDER BY downloads DESC, updated_at DESC LIMIT :limit OFFSET :offset"
         with connection("quantmate") as conn:
             rows = conn.execute(text(query), params).fetchall()
             return [dict(r._mapping) for r in rows]
 
-    def count_public(self, category: Optional[str] = None) -> int:
+    def count_public(self, category: Optional[str] = None, template_type: Optional[str] = None) -> int:
         query = "SELECT COUNT(*) AS cnt FROM strategy_templates WHERE visibility = 'public'"
         params: dict[str, Any] = {}
         if category:
             query += " AND category = :cat"
             params["cat"] = category
+        if template_type:
+            query += " AND template_type = :ttype"
+            params["ttype"] = template_type
         with connection("quantmate") as conn:
             row = conn.execute(text(query), params).fetchone()
             return row._mapping["cnt"] if row else 0

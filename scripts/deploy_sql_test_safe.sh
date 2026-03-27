@@ -114,9 +114,9 @@ fi
 _mysql() {
   if [ -n "$MYSQL_CONTAINER" ]; then
     docker exec -i "$MYSQL_CONTAINER" \
-      mysql --protocol TCP -h "$MYSQL_HOST" -P "$MYSQL_PORT" -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$@"
+      mysql --protocol TCP --default-character-set=utf8mb4 -h "$MYSQL_HOST" -P "$MYSQL_PORT" -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$@"
   else
-    MYSQL_PWD="$MYSQL_PASSWORD" mysql --protocol TCP -h "$MYSQL_HOST" -P "$MYSQL_PORT" -u "$MYSQL_USER" "$@"
+    MYSQL_PWD="$MYSQL_PASSWORD" mysql --protocol TCP --default-character-set=utf8mb4 -h "$MYSQL_HOST" -P "$MYSQL_PORT" -u "$MYSQL_USER" "$@"
   fi
 }
 

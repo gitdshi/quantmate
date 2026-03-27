@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from datetime import datetime
 from typing import Any, Optional
 
 from app.domains.templates.dao.template_dao import (
@@ -9,6 +11,8 @@ from app.domains.templates.dao.template_dao import (
     StrategyCommentDao,
     StrategyRatingDao,
 )
+from app.domains.composite.dao.strategy_component_dao import StrategyComponentDao
+from app.domains.composite.dao.composite_strategy_dao import CompositeStrategyDao
 
 
 class TemplateService:
@@ -16,16 +20,18 @@ class TemplateService:
         self._tpl_dao = StrategyTemplateDao()
         self._comment_dao = StrategyCommentDao()
         self._rating_dao = StrategyRatingDao()
+        self._comp_dao = StrategyComponentDao()
+        self._composite_dao = CompositeStrategyDao()
 
     # --- Templates ---
 
     def list_marketplace(
-        self, category: Optional[str] = None, limit: int = 50, offset: int = 0
+        self, category: Optional[str] = None, template_type: Optional[str] = None, limit: int = 50, offset: int = 0
     ) -> list[dict[str, Any]]:
-        return self._tpl_dao.list_public(category=category, limit=limit, offset=offset)
+        return self._tpl_dao.list_public(category=category, template_type=template_type, limit=limit, offset=offset)
 
-    def count_marketplace(self, category: Optional[str] = None) -> int:
-        return self._tpl_dao.count_public(category=category)
+    def count_marketplace(self, category: Optional[str] = None, template_type: Optional[str] = None) -> int:
+        return self._tpl_dao.count_public(category=category, template_type=template_type)
 
     def list_my_templates(self, user_id: int, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
         return self._tpl_dao.list_for_user(user_id, limit=limit, offset=offset)
@@ -55,11 +61,30 @@ class TemplateService:
             raise KeyError("Template not found")
 
     def clone_template(self, user_id: int, template_id: int) -> dict[str, Any]:
-        """Clone a public template into user's own templates."""
+        """Clone a public template into user's own resources.
+
+        Dispatches by template_type:
+        - standalone → clone into strategy_templates (private)
+        - component  → create a new strategy_component for the user
+        - composite  → create a new composite_strategy + bindings from blueprint
+        """
         source = self._tpl_dao.get(template_id)
         if not source:
             raise KeyError("Template not found")
         self._tpl_dao.increment_downloads(template_id)
+
+        ttype = source.get("template_type", "standalone")
+
+        if ttype == "component":
+            return self._clone_as_component(user_id, source)
+        elif ttype == "composite":
+            return self._clone_as_composite(user_id, source)
+        else:
+            return self._clone_as_standalone(user_id, source)
+
+    # -- private clone helpers --
+
+    def _clone_as_standalone(self, user_id: int, source: dict[str, Any]) -> dict[str, Any]:
         new_id = self._tpl_dao.create(
             author_id=user_id,
             name=f"{source['name']} (copy)",
@@ -68,7 +93,66 @@ class TemplateService:
             description=source.get("description"),
             visibility="private",
         )
-        return self.get_template(new_id)
+        return {"target_type": "template", "target_id": new_id, "template": self.get_template(new_id)}
+
+    def _clone_as_component(self, user_id: int, source: dict[str, Any]) -> dict[str, Any]:
+        now = datetime.utcnow()
+        params_schema = source.get("params_schema")
+        default_params = source.get("default_params")
+        new_id = self._comp_dao.insert(
+            user_id=user_id,
+            name=f"{source['name']} (copy)",
+            layer=source["layer"],
+            sub_type=source.get("sub_type", ""),
+            description=source.get("description"),
+            code=source.get("code", ""),
+            config_json=json.dumps(params_schema) if isinstance(params_schema, dict) else params_schema,
+            parameters_json=json.dumps(default_params) if isinstance(default_params, dict) else default_params,
+            created_at=now,
+            updated_at=now,
+        )
+        return {"target_type": "component", "target_id": new_id}
+
+    def _clone_as_composite(self, user_id: int, source: dict[str, Any]) -> dict[str, Any]:
+        now = datetime.utcnow()
+        composite_cfg = source.get("composite_config") or {}
+        if isinstance(composite_cfg, str):
+            composite_cfg = json.loads(composite_cfg)
+        bindings_blueprint = composite_cfg.get("bindings", {})
+
+        composite_id = self._composite_dao.insert(
+            user_id=user_id,
+            name=f"{source['name']} (copy)",
+            description=source.get("description"),
+            portfolio_config_json=None,
+            market_constraints_json=None,
+            execution_mode="backtest",
+            created_at=now,
+            updated_at=now,
+        )
+
+        # Resolve sub_type references → user's existing component ids
+        user_components = self._comp_dao.list_for_user(user_id)
+        sub_type_to_comp: dict[str, dict[str, Any]] = {}
+        for c in user_components:
+            sub_type_to_comp.setdefault(c["sub_type"], c)
+
+        ordinal = 0
+        for layer in ("universe", "trading", "risk"):
+            sub_types = bindings_blueprint.get(layer, [])
+            for st in sub_types:
+                comp = sub_type_to_comp.get(st)
+                if comp:
+                    ordinal += 1
+                    self._composite_dao.add_binding(
+                        composite_id=composite_id,
+                        binding={
+                            "component_id": comp["id"],
+                            "layer": layer,
+                            "ordinal": ordinal,
+                        },
+                    )
+        return {"target_type": "composite", "target_id": composite_id}
 
     # --- Comments ---
 

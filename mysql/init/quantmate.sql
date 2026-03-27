@@ -774,6 +774,14 @@ CREATE TABLE IF NOT EXISTS strategy_templates (
     author_id   INT NOT NULL,
     name        VARCHAR(100) NOT NULL,
     category    VARCHAR(50) DEFAULT NULL COMMENT 'trend/mean_revert/arbitrage/ml/multi_factor',
+    template_type ENUM('standalone','component','composite') NOT NULL DEFAULT 'standalone'
+                  COMMENT 'standalone = VNPy CTA, component = pipeline layer, composite = pipeline blueprint',
+    layer       ENUM('universe','trading','risk') DEFAULT NULL
+                  COMMENT 'Applicable only when template_type = component',
+    sub_type    VARCHAR(50) DEFAULT NULL
+                  COMMENT 'Finer subclass label for component templates',
+    composite_config JSON DEFAULT NULL
+                  COMMENT 'Composite-only: bindings blueprint referencing sub_type values',
     description TEXT DEFAULT NULL,
     code        MEDIUMTEXT NOT NULL,
     params_schema JSON DEFAULT NULL COMMENT 'JSON Schema for parameters',
@@ -785,7 +793,9 @@ CREATE TABLE IF NOT EXISTS strategy_templates (
     updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_author (author_id),
     INDEX idx_visibility (visibility),
-    INDEX idx_category (category)
+    INDEX idx_category (category),
+    INDEX idx_template_type (template_type),
+    INDEX idx_layer (layer)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS strategy_shares (
