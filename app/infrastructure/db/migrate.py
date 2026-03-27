@@ -199,7 +199,7 @@ def apply_migrations(dry_run: bool = False) -> list[str]:
                 executable = _strip_leading_sql_comments(stmt)
                 if not executable:
                     continue
-                conn.execute(text(executable))
+                conn.exec_driver_sql(executable)
 
             # Record migration
             conn.execute(
