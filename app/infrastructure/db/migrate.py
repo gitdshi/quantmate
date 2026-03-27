@@ -148,6 +148,29 @@ def _split_sql_statements(sql_content: str) -> list[str]:
     return statements
 
 
+def _strip_leading_sql_comments(stmt: str) -> str:
+    """Remove only leading SQL comments so commented statements still execute."""
+    i = 0
+    length = len(stmt)
+    while i < length:
+        while i < length and stmt[i].isspace():
+            i += 1
+        if stmt.startswith("--", i):
+            newline = stmt.find("\n", i)
+            if newline == -1:
+                return ""
+            i = newline + 1
+            continue
+        if stmt.startswith("/*", i):
+            end = stmt.find("*/", i + 2)
+            if end == -1:
+                return ""
+            i = end + 2
+            continue
+        break
+    return stmt[i:].strip()
+
+
 def apply_migrations(dry_run: bool = False) -> list[str]:
     """Apply all pending migrations. Returns list of applied versions."""
     engine = get_quantmate_engine()
@@ -173,10 +196,10 @@ def apply_migrations(dry_run: bool = False) -> list[str]:
             print(f"Applying migration: {path.name} ...")
             # Split safely so embedded strategy code strings can contain semicolons.
             for stmt in _split_sql_statements(sql_content):
-                stripped = stmt.lstrip()
-                if stripped.startswith("--") or stripped.startswith("/*"):
+                executable = _strip_leading_sql_comments(stmt)
+                if not executable:
                     continue
-                conn.execute(text(stmt))
+                conn.execute(text(executable))
 
             # Record migration
             conn.execute(
