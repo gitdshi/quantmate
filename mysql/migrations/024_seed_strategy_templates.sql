@@ -10,23 +10,96 @@ SET CHARACTER SET utf8mb4;
 -- 2.1  ALTER TABLE — add new columns
 -- ─────────────────────────────────────────────────────────
 
-ALTER TABLE `quantmate`.`strategy_templates`
-  ADD COLUMN template_type ENUM('standalone','component','composite') NOT NULL DEFAULT 'standalone'
-    COMMENT 'standalone = VNPy CTA, component = pipeline layer, composite = pipeline blueprint'
-    AFTER category,
-  ADD COLUMN layer ENUM('universe','trading','risk') DEFAULT NULL
-    COMMENT 'Applicable only when template_type = component'
-    AFTER template_type,
-  ADD COLUMN sub_type VARCHAR(50) DEFAULT NULL
-    COMMENT 'Finer subclass label for component templates'
-    AFTER layer,
-  ADD COLUMN composite_config JSON DEFAULT NULL
-    COMMENT 'Composite-only: bindings blueprint referencing sub_type values'
-    AFTER sub_type;
+SET @ddl = (
+  SELECT CONCAT(
+    'ALTER TABLE `quantmate`.`strategy_templates`',
+    IF(
+      EXISTS(
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'quantmate' AND table_name = 'strategy_templates' AND column_name = 'template_type'
+      ),
+      '',
+      ' ADD COLUMN template_type ENUM(''standalone'',''component'',''composite'') NOT NULL DEFAULT ''standalone'' COMMENT ''standalone = VNPy CTA, component = pipeline layer, composite = pipeline blueprint'' AFTER category'
+    ),
+    IF(
+      EXISTS(
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'quantmate' AND table_name = 'strategy_templates' AND column_name = 'layer'
+      ),
+      '',
+      IF(
+        EXISTS(
+          SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'quantmate' AND table_name = 'strategy_templates' AND column_name = 'template_type'
+        ),
+        ', ADD COLUMN layer ENUM(''universe'',''trading'',''risk'') DEFAULT NULL COMMENT ''Applicable only when template_type = component'' AFTER template_type',
+        ', ADD COLUMN layer ENUM(''universe'',''trading'',''risk'') DEFAULT NULL COMMENT ''Applicable only when template_type = component'' AFTER category'
+      )
+    ),
+    IF(
+      EXISTS(
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'quantmate' AND table_name = 'strategy_templates' AND column_name = 'sub_type'
+      ),
+      '',
+      IF(
+        EXISTS(
+          SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'quantmate' AND table_name = 'strategy_templates' AND column_name = 'layer'
+        ),
+        ', ADD COLUMN sub_type VARCHAR(50) DEFAULT NULL COMMENT ''Finer subclass label for component templates'' AFTER layer',
+        ', ADD COLUMN sub_type VARCHAR(50) DEFAULT NULL COMMENT ''Finer subclass label for component templates'' AFTER category'
+      )
+    ),
+    IF(
+      EXISTS(
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'quantmate' AND table_name = 'strategy_templates' AND column_name = 'composite_config'
+      ),
+      '',
+      IF(
+        EXISTS(
+          SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'quantmate' AND table_name = 'strategy_templates' AND column_name = 'sub_type'
+        ),
+        ', ADD COLUMN composite_config JSON DEFAULT NULL COMMENT ''Composite-only: bindings blueprint referencing sub_type values'' AFTER sub_type',
+        ', ADD COLUMN composite_config JSON DEFAULT NULL COMMENT ''Composite-only: bindings blueprint referencing sub_type values'' AFTER category'
+      )
+    )
+  )
+);
+SET @ddl = IF(@ddl = 'ALTER TABLE `quantmate`.`strategy_templates`', 'SELECT 1', @ddl);
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
-ALTER TABLE `quantmate`.`strategy_templates`
-  ADD INDEX idx_template_type (template_type),
-  ADD INDEX idx_layer (layer);
+SET @idx_template_type = (
+  SELECT IF(
+    EXISTS(
+      SELECT 1 FROM information_schema.statistics
+      WHERE table_schema = 'quantmate' AND table_name = 'strategy_templates' AND index_name = 'idx_template_type'
+    ),
+    'SELECT 1',
+    'ALTER TABLE `quantmate`.`strategy_templates` ADD INDEX idx_template_type (template_type)'
+  )
+);
+PREPARE stmt FROM @idx_template_type;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @idx_layer = (
+  SELECT IF(
+    EXISTS(
+      SELECT 1 FROM information_schema.statistics
+      WHERE table_schema = 'quantmate' AND table_name = 'strategy_templates' AND index_name = 'idx_layer'
+    ),
+    'SELECT 1',
+    'ALTER TABLE `quantmate`.`strategy_templates` ADD INDEX idx_layer (layer)'
+  )
+);
+PREPARE stmt FROM @idx_layer;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 -- ─────────────────────────────────────────────────────────
 -- 2.2  Seed 5 standalone templates (VNPy CtaTemplate)
