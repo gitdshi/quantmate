@@ -79,7 +79,7 @@ security = HTTPBearer(auto_error=False)
 async def ensure_password_changed(
     request: Request, credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
 ):
-    """Global dependency to enforce password change on first login for admin."""
+    """Global dependency to enforce password changes, except for the built-in admin user."""
     exempt_paths = [
         "/api/v1/auth/login",
         "/api/v1/auth/register",
@@ -110,7 +110,7 @@ async def ensure_password_changed(
             code=ErrorCode.AUTH_INVALID_TOKEN,
             message="Invalid or expired token",
         )
-    if token_data.must_change_password:
+    if token_data.must_change_password and token_data.username != os.getenv("ADMIN_USERNAME", "admin"):
         raise APIError(
             status_code=status.HTTP_403_FORBIDDEN,
             code=ErrorCode.AUTH_PASSWORD_CHANGE_REQUIRED,
@@ -154,9 +154,9 @@ async def lifespan(app: FastAPI):
                 email=admin_email,
                 hashed_password=hashed,
                 created_at=now,
-                must_change_password=True,
+                must_change_password=False,
             )
-            logger.info(f"Admin user '{admin_username}' created. First login will require password change.")
+            logger.info(f"Admin user '{admin_username}' created without forcing password change.")
         else:
             # Existing admin: if ADMIN_PASSWORD is explicitly provided, enforce it.
             if admin_password:
