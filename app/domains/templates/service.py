@@ -33,11 +33,13 @@ class TemplateService:
     def count_marketplace(self, category: Optional[str] = None, template_type: Optional[str] = None) -> int:
         return self._tpl_dao.count_public(category=category, template_type=template_type)
 
-    def list_my_templates(self, user_id: int, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
-        return self._tpl_dao.list_for_user(user_id, limit=limit, offset=offset)
+    def list_my_templates(
+        self, user_id: int, source: Optional[str] = None, limit: int = 50, offset: int = 0
+    ) -> list[dict[str, Any]]:
+        return self._tpl_dao.list_for_user(user_id, source=source, limit=limit, offset=offset)
 
-    def count_my_templates(self, user_id: int) -> int:
-        return self._tpl_dao.count_for_user(user_id)
+    def count_my_templates(self, user_id: int, source: Optional[str] = None) -> int:
+        return self._tpl_dao.count_for_user(user_id, source=source)
 
     def get_template(self, template_id: int) -> dict[str, Any]:
         row = self._tpl_dao.get(template_id)
@@ -87,31 +89,32 @@ class TemplateService:
     def _clone_as_standalone(self, user_id: int, source: dict[str, Any]) -> dict[str, Any]:
         new_id = self._tpl_dao.create(
             author_id=user_id,
-            name=f"{source['name']} (copy)",
+            name=source["name"],
             code=source.get("code", ""),
             category=source.get("category"),
             description=source.get("description"),
+            default_params=source.get("default_params"),
             visibility="private",
+            source_template_id=source["id"],
+            source="marketplace",
+            template_type="standalone",
         )
         return {"target_type": "template", "target_id": new_id, "template": self.get_template(new_id)}
 
     def _clone_as_component(self, user_id: int, source: dict[str, Any]) -> dict[str, Any]:
-        now = datetime.utcnow()
-        params_schema = source.get("params_schema")
-        default_params = source.get("default_params")
-        new_id = self._comp_dao.insert(
-            user_id=user_id,
-            name=f"{source['name']} (copy)",
-            layer=source["layer"],
-            sub_type=source.get("sub_type", ""),
-            description=source.get("description"),
+        new_id = self._tpl_dao.create(
+            author_id=user_id,
+            name=source["name"],
             code=source.get("code", ""),
-            config_json=json.dumps(params_schema) if isinstance(params_schema, dict) else params_schema,
-            parameters_json=json.dumps(default_params) if isinstance(default_params, dict) else default_params,
-            created_at=now,
-            updated_at=now,
+            category=source.get("category"),
+            description=source.get("description"),
+            default_params=source.get("default_params"),
+            visibility="private",
+            source_template_id=source["id"],
+            source="marketplace",
+            template_type="component",
         )
-        return {"target_type": "component", "target_id": new_id}
+        return {"target_type": "template", "target_id": new_id, "template": self.get_template(new_id)}
 
     def _clone_as_composite(self, user_id: int, source: dict[str, Any]) -> dict[str, Any]:
         now = datetime.utcnow()
@@ -122,7 +125,7 @@ class TemplateService:
 
         composite_id = self._composite_dao.insert(
             user_id=user_id,
-            name=f"{source['name']} (copy)",
+            name=source["name"],
             description=source.get("description"),
             portfolio_config_json=None,
             market_constraints_json=None,
@@ -153,6 +156,29 @@ class TemplateService:
                         },
                     )
         return {"target_type": "composite", "target_id": composite_id}
+
+    # --- Comments ---
+
+    def publish_template(self, user_id: int, template_id: int) -> dict[str, Any]:
+        """Publish a personal template by creating a public copy in the marketplace."""
+        original = self._tpl_dao.get(template_id)
+        if not original or original["author_id"] != user_id:
+            raise KeyError("Template not found")
+        if original["visibility"] == "public":
+            raise ValueError("Template is already public")
+        new_id = self._tpl_dao.create(
+            author_id=user_id,
+            name=original["name"],
+            code=original.get("code", ""),
+            category=original.get("category"),
+            description=original.get("description"),
+            params_schema=original.get("params_schema") if isinstance(original.get("params_schema"), dict) else None,
+            default_params=original.get("default_params") if isinstance(original.get("default_params"), dict) else None,
+            visibility="public",
+            source_template_id=template_id,
+            source="personal",
+        )
+        return self.get_template(new_id)
 
     # --- Comments ---
 

@@ -50,23 +50,31 @@ class StrategyTemplateDao:
             row = conn.execute(text(query), params).fetchone()
             return row._mapping["cnt"] if row else 0
 
-    def list_for_user(self, user_id: int, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
+    def list_for_user(
+        self,
+        user_id: int,
+        source: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        query = "SELECT * FROM strategy_templates WHERE author_id = :uid"
+        params: dict[str, Any] = {"uid": user_id, "limit": limit, "offset": offset}
+        if source:
+            query += " AND source = :source"
+            params["source"] = source
+        query += " ORDER BY updated_at DESC LIMIT :limit OFFSET :offset"
         with connection("quantmate") as conn:
-            rows = conn.execute(
-                text(
-                    "SELECT * FROM strategy_templates WHERE author_id = :uid "
-                    "ORDER BY updated_at DESC LIMIT :limit OFFSET :offset"
-                ),
-                {"uid": user_id, "limit": limit, "offset": offset},
-            ).fetchall()
+            rows = conn.execute(text(query), params).fetchall()
             return [dict(r._mapping) for r in rows]
 
-    def count_for_user(self, user_id: int) -> int:
+    def count_for_user(self, user_id: int, source: Optional[str] = None) -> int:
+        query = "SELECT COUNT(*) AS cnt FROM strategy_templates WHERE author_id = :uid"
+        params: dict[str, Any] = {"uid": user_id}
+        if source:
+            query += " AND source = :source"
+            params["source"] = source
         with connection("quantmate") as conn:
-            row = conn.execute(
-                text("SELECT COUNT(*) AS cnt FROM strategy_templates WHERE author_id = :uid"),
-                {"uid": user_id},
-            ).fetchone()
+            row = conn.execute(text(query), params).fetchone()
             return row._mapping["cnt"] if row else 0
 
     def get(self, template_id: int) -> Optional[dict[str, Any]]:
@@ -87,16 +95,22 @@ class StrategyTemplateDao:
         params_schema: Optional[dict] = None,
         default_params: Optional[dict] = None,
         visibility: str = "private",
+        source_template_id: Optional[int] = None,
+        source: str = "personal",
+        template_type: str = "standalone",
     ) -> int:
         with connection("quantmate") as conn:
             result = conn.execute(
                 text(
                     "INSERT INTO strategy_templates "
-                    "(author_id, name, category, description, code, params_schema, default_params, visibility) "
-                    "VALUES (:author, :name, :cat, :desc, :code, :schema, :defaults, :vis)"
+                    "(author_id, source_template_id, source, name, category, description, code, "
+                    "params_schema, default_params, visibility, template_type) "
+                    "VALUES (:author, :src_id, :src, :name, :cat, :desc, :code, :schema, :defaults, :vis, :ttype)"
                 ),
                 {
                     "author": author_id,
+                    "src_id": source_template_id,
+                    "src": source,
                     "name": name,
                     "cat": category,
                     "desc": description,
@@ -104,6 +118,7 @@ class StrategyTemplateDao:
                     "schema": json.dumps(params_schema) if params_schema else None,
                     "defaults": json.dumps(default_params) if default_params else None,
                     "vis": visibility,
+                    "ttype": template_type,
                 },
             )
             conn.commit()

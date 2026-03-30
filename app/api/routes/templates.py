@@ -68,12 +68,15 @@ async def list_marketplace(
 
 @router.get("/mine")
 async def list_my_templates(
+    source: Optional[str] = None,
     pagination: PaginationParams = Depends(),
     current_user: TokenData = Depends(get_current_user),
 ):
     service = TemplateService()
-    total = service.count_my_templates(current_user.user_id)
-    rows = service.list_my_templates(current_user.user_id, limit=pagination.page_size, offset=pagination.offset)
+    total = service.count_my_templates(current_user.user_id, source=source)
+    rows = service.list_my_templates(
+        current_user.user_id, source=source, limit=pagination.page_size, offset=pagination.offset
+    )
     return paginate(rows, total, pagination)
 
 
@@ -126,6 +129,17 @@ async def clone_template(template_id: int, current_user: TokenData = Depends(get
         return service.clone_template(current_user.user_id, template_id)
     except KeyError:
         raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Template not found")
+
+
+@router.post("/{template_id}/publish", status_code=status.HTTP_201_CREATED)
+async def publish_template(template_id: int, current_user: TokenData = Depends(get_current_user)):
+    service = TemplateService()
+    try:
+        return service.publish_template(current_user.user_id, template_id)
+    except KeyError:
+        raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Template not found")
+    except ValueError as exc:
+        raise APIError(status_code=400, code=ErrorCode.BAD_REQUEST, message=str(exc))
 
 
 # --- Comments ---
