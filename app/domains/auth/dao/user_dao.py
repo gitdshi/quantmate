@@ -133,3 +133,20 @@ class UserDao:
                 {"pwd": new_hashed_password, "mcp": must_change_password, "uid": user_id},
             )
             conn.commit()
+
+    def update_user_status(self, user_id: int, is_active: bool) -> bool:
+        with connection("quantmate") as conn:
+            from sqlalchemy import text
+
+            result = conn.execute(
+                text(
+                    """
+                    UPDATE users
+                    SET is_active = :active, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = :uid
+                    """
+                ),
+                {"active": 1 if is_active else 0, "uid": user_id},
+            )
+            conn.commit()
+            return result.rowcount > 0

@@ -5,19 +5,18 @@ from typing import Optional
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+from app.api.dependencies.permissions import require_permission
+from app.api.errors import ErrorCode
 from app.api.services.auth_service import get_current_user
 from app.api.models.user import TokenData
-from app.api.errors import ErrorCode
 from app.api.exception_handlers import APIError
 from app.domains.system.dao.system_config_dao import SystemConfigDao, DataSourceConfigDao
 
 router = APIRouter(prefix="/system", tags=["System Configuration"])
 
 
-def _require_admin(current_user: TokenData = Depends(get_current_user)) -> TokenData:
-    """Restrict endpoint to admin users only."""
-    if current_user.username != "admin":
-        raise APIError(status_code=403, code=ErrorCode.FORBIDDEN, message="Admin only")
+def _require_admin(current_user: TokenData = require_permission("system", "manage")) -> TokenData:
+    """Restrict mutating endpoints to RBAC system managers."""
     return current_user
 
 

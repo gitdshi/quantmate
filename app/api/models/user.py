@@ -33,6 +33,9 @@ class User(UserBase):
     id: int
     is_active: bool = True
     created_at: datetime
+    role: Optional[str] = None
+    primary_role: Optional[str] = None
+    permissions: list[str] = Field(default_factory=list)
 
     class Config:
         from_attributes = True
@@ -52,6 +55,7 @@ class Token(BaseModel):
     token_type: str = "bearer"
     expires_in: int  # seconds
     must_change_password: bool = False
+    user: Optional[User] = None
 
 
 class TokenData(BaseModel):

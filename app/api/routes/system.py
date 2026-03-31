@@ -28,4 +28,5 @@ async def get_version_info() -> Dict[str, str]:
         "name": settings.app_name,
         "version": settings.app_version,
         "build_time": os.getenv("APP_BUILD_TIME", DEFAULT_BUILD_TIME),
+        "environment": settings.environment,
     }

@@ -9,22 +9,33 @@ import json
 from typing import Optional
 
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.infrastructure.db.connections import connection
 
 
+def _is_missing_table_error(exc: Exception, table_name: str) -> bool:
+    message = str(getattr(exc, "orig", exc)).lower()
+    return table_name.lower() in message and ("doesn't exist" in message or "no such table" in message)
+
+
 class AlertRuleDao:
     def list_by_user(self, user_id: int) -> list[dict]:
-        with connection("quantmate") as conn:
-            rows = conn.execute(
-                text("""
-                    SELECT id, user_id, name, metric, comparator, threshold,
-                           time_window, level, is_active, created_at, updated_at
-                    FROM alert_rules WHERE user_id = :uid ORDER BY created_at DESC
-                """),
-                {"uid": user_id},
-            ).fetchall()
-            return [self._rule_to_dict(r) for r in rows]
+        try:
+            with connection("quantmate") as conn:
+                rows = conn.execute(
+                    text("""
+                        SELECT id, user_id, name, metric, comparator, threshold,
+                               time_window, level, is_active, created_at, updated_at
+                        FROM alert_rules WHERE user_id = :uid ORDER BY created_at DESC
+                    """),
+                    {"uid": user_id},
+                ).fetchall()
+                return [self._rule_to_dict(r) for r in rows]
+        except SQLAlchemyError as exc:
+            if _is_missing_table_error(exc, "alert_rules"):
+                return []
+            raise
 
     def create(
         self,
@@ -102,40 +113,45 @@ class AlertHistoryDao:
     def list_by_user(
         self, user_id: int, level: Optional[str] = None, page: int = 1, page_size: int = 20
     ) -> tuple[list[dict], int]:
-        with connection("quantmate") as conn:
-            conditions = ["user_id = :uid"]
-            params: dict = {"uid": user_id}
-            if level:
-                conditions.append("level = :level")
-                params["level"] = level
-            where = " AND ".join(conditions)
+        try:
+            with connection("quantmate") as conn:
+                conditions = ["user_id = :uid"]
+                params: dict = {"uid": user_id}
+                if level:
+                    conditions.append("level = :level")
+                    params["level"] = level
+                where = " AND ".join(conditions)
 
-            total_row = conn.execute(
-                text(f"SELECT COUNT(*) as cnt FROM alert_history WHERE {where}"), params
-            ).fetchone()
+                total_row = conn.execute(
+                    text(f"SELECT COUNT(*) as cnt FROM alert_history WHERE {where}"), params
+                ).fetchone()
 
-            params["limit"] = page_size
-            params["offset"] = (page - 1) * page_size
-            rows = conn.execute(
-                text(f"""
-                    SELECT id, rule_id, user_id, triggered_at, level, message, status
-                    FROM alert_history WHERE {where}
-                    ORDER BY triggered_at DESC LIMIT :limit OFFSET :offset
-                """),
-                params,
-            ).fetchall()
-            return [
-                {
-                    "id": r.id,
-                    "rule_id": r.rule_id,
-                    "user_id": r.user_id,
-                    "triggered_at": r.triggered_at,
-                    "level": r.level,
-                    "message": r.message,
-                    "status": r.status,
-                }
-                for r in rows
-            ], total_row.cnt
+                params["limit"] = page_size
+                params["offset"] = (page - 1) * page_size
+                rows = conn.execute(
+                    text(f"""
+                        SELECT id, rule_id, user_id, triggered_at, level, message, status
+                        FROM alert_history WHERE {where}
+                        ORDER BY triggered_at DESC LIMIT :limit OFFSET :offset
+                    """),
+                    params,
+                ).fetchall()
+                return [
+                    {
+                        "id": r.id,
+                        "rule_id": r.rule_id,
+                        "user_id": r.user_id,
+                        "triggered_at": r.triggered_at,
+                        "level": r.level,
+                        "message": r.message,
+                        "status": r.status,
+                    }
+                    for r in rows
+                ], total_row.cnt
+        except SQLAlchemyError as exc:
+            if _is_missing_table_error(exc, "alert_history"):
+                return [], 0
+            raise
 
     def insert(self, rule_id: Optional[int], user_id: int, level: str, message: str) -> int:
         with connection("quantmate") as conn:
@@ -161,25 +177,30 @@ class AlertHistoryDao:
 
 class NotificationChannelDao:
     def list_by_user(self, user_id: int) -> list[dict]:
-        with connection("quantmate") as conn:
-            rows = conn.execute(
-                text("""
-                    SELECT id, user_id, channel_type, config_json, is_active, created_at
-                    FROM notification_channels WHERE user_id = :uid ORDER BY created_at DESC
-                """),
-                {"uid": user_id},
-            ).fetchall()
-            return [
-                {
-                    "id": r.id,
-                    "user_id": r.user_id,
-                    "channel_type": r.channel_type,
-                    "config": json.loads(r.config_json) if isinstance(r.config_json, str) else r.config_json,
-                    "is_active": bool(r.is_active),
-                    "created_at": r.created_at,
-                }
-                for r in rows
-            ]
+        try:
+            with connection("quantmate") as conn:
+                rows = conn.execute(
+                    text("""
+                        SELECT id, user_id, channel_type, config_json, is_active, created_at
+                        FROM notification_channels WHERE user_id = :uid ORDER BY created_at DESC
+                    """),
+                    {"uid": user_id},
+                ).fetchall()
+                return [
+                    {
+                        "id": r.id,
+                        "user_id": r.user_id,
+                        "channel_type": r.channel_type,
+                        "config": json.loads(r.config_json) if isinstance(r.config_json, str) else r.config_json,
+                        "is_active": bool(r.is_active),
+                        "created_at": r.created_at,
+                    }
+                    for r in rows
+                ]
+        except SQLAlchemyError as exc:
+            if _is_missing_table_error(exc, "notification_channels"):
+                return []
+            raise
 
     def create(self, user_id: int, channel_type: str, config: dict) -> int:
         with connection("quantmate") as conn:

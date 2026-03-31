@@ -15,6 +15,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
+from app.api.dependencies.permissions import require_permission
 from app.api.services.auth_service import get_current_user
 from app.api.models.user import TokenData
 from app.api.errors import ErrorCode
@@ -30,7 +31,7 @@ class ClosePositionRequest(BaseModel):
     price: float = Field(..., gt=0)
 
 
-@router.get("/positions")
+@router.get("/positions", dependencies=[require_permission("portfolios", "read")])
 async def get_positions(current_user: TokenData = Depends(get_current_user)):
     """Get all open positions for the user's default portfolio."""
     from app.domains.portfolio.dao.portfolio_dao import PortfolioDao
@@ -45,7 +46,7 @@ async def get_positions(current_user: TokenData = Depends(get_current_user)):
     }
 
 
-@router.post("/close")
+@router.post("/close", dependencies=[require_permission("portfolios", "write")])
 async def close_position(
     body: ClosePositionRequest,
     current_user: TokenData = Depends(get_current_user),
@@ -85,7 +86,7 @@ async def close_position(
     return {"symbol": body.symbol, "sold": body.quantity, "proceeds": proceeds, "fee": fee, "cash": new_cash}
 
 
-@router.get("/{portfolio_id}/transactions")
+@router.get("/{portfolio_id}/transactions", dependencies=[require_permission("portfolios", "read")])
 async def get_transactions(
     portfolio_id: int,
     pagination: PaginationParams = Depends(),
@@ -104,7 +105,7 @@ async def get_transactions(
     return paginate(rows, total, pagination)
 
 
-@router.get("/{portfolio_id}/snapshots")
+@router.get("/{portfolio_id}/snapshots", dependencies=[require_permission("portfolios", "read")])
 async def get_snapshots(
     portfolio_id: int,
     current_user: TokenData = Depends(get_current_user),
@@ -132,7 +133,7 @@ class PositionSizingRequest(BaseModel):
     max_total_pct: float = 80.0
 
 
-@router.post("/position-sizing")
+@router.post("/position-sizing", dependencies=[require_permission("portfolios", "write")])
 async def calculate_position_size(
     req: PositionSizingRequest,
     current_user: TokenData = Depends(get_current_user),
@@ -166,7 +167,7 @@ class AttributionRequest(BaseModel):
     benchmark_returns: dict[str, float]
 
 
-@router.post("/attribution")
+@router.post("/attribution", dependencies=[require_permission("portfolios", "write")])
 async def performance_attribution(
     req: AttributionRequest,
     current_user: TokenData = Depends(get_current_user),

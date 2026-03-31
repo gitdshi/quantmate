@@ -5,6 +5,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
+from app.api.dependencies.permissions import require_permission
 from app.api.services.auth_service import get_current_user, get_current_user_optional
 from app.api.models.user import TokenData
 from app.api.services.data_service import DataService
@@ -12,7 +13,7 @@ from app.api.errors import ErrorCode
 from app.api.exception_handlers import APIError
 from app.api.pagination import PaginationParams, paginate
 
-router = APIRouter(prefix="/data", tags=["Data"])
+router = APIRouter(prefix="/data", tags=["Data"], dependencies=[require_permission("data", "read")])
 
 
 class SymbolInfo(BaseModel):

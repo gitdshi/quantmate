@@ -14,24 +14,16 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 
-from app.api.services.auth_service import get_current_user
+from app.api.dependencies.permissions import require_permission
 from app.api.models.user import TokenData
-from app.api.errors import ErrorCode
-from app.api.exception_handlers import APIError
 from app.api.pagination import PaginationParams, paginate
 from app.domains.audit.dao.audit_log_dao import AuditLogDao
 
 router = APIRouter(prefix="/audit", tags=["Audit"])
 
 
-def _require_admin(current_user: TokenData = Depends(get_current_user)) -> TokenData:
-    """Dependency: only admin users can access audit logs."""
-    if current_user.username != "admin":
-        raise APIError(
-            status_code=403,
-            code=ErrorCode.FORBIDDEN,
-            message="Only admin can access audit logs",
-        )
+def _require_admin(current_user: TokenData = require_permission("system", "manage")) -> TokenData:
+    """Dependency kept for backward-compatible overrides in tests."""
     return current_user
 
 

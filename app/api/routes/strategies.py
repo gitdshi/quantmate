@@ -5,6 +5,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel
 
+from app.api.dependencies.permissions import require_permission
 from app.api.models.user import TokenData
 from app.api.models.strategy import (
     Strategy,
@@ -24,7 +25,7 @@ from app.domains.strategies.service import StrategiesService
 router = APIRouter(prefix="/strategies", tags=["Strategies"])
 
 
-@router.get("")
+@router.get("", dependencies=[require_permission("strategies", "read")])
 async def list_strategies(
     pagination: PaginationParams = Depends(),
     current_user: TokenData = Depends(get_current_user),
@@ -49,7 +50,12 @@ async def list_strategies(
     return paginate(items, total, pagination)
 
 
-@router.post("", response_model=Strategy, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=Strategy,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[require_permission("strategies", "write")],
+)
 async def create_strategy(strategy_data: StrategyCreate, current_user: TokenData = Depends(get_current_user)):
     """Create a new strategy."""
     service = StrategiesService()
@@ -82,7 +88,7 @@ async def create_strategy(strategy_data: StrategyCreate, current_user: TokenData
     )
 
 
-@router.get("/{strategy_id}", response_model=Strategy)
+@router.get("/{strategy_id}", response_model=Strategy, dependencies=[require_permission("strategies", "read")])
 async def get_strategy(strategy_id: int, current_user: TokenData = Depends(get_current_user)):
     """Get a strategy by ID."""
     service = StrategiesService()
@@ -108,7 +114,11 @@ async def get_strategy(strategy_id: int, current_user: TokenData = Depends(get_c
     )
 
 
-@router.put("/{strategy_id}", response_model=Strategy)
+@router.put(
+    "/{strategy_id}",
+    response_model=Strategy,
+    dependencies=[require_permission("strategies", "write")],
+)
 async def update_strategy(
     strategy_id: int, strategy_data: StrategyUpdate, current_user: TokenData = Depends(get_current_user)
 ):
@@ -149,7 +159,11 @@ async def update_strategy(
     )
 
 
-@router.delete("/{strategy_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{strategy_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[require_permission("strategies", "write")],
+)
 async def delete_strategy(strategy_id: int, current_user: TokenData = Depends(get_current_user)):
     """Delete a strategy from database."""
     service = StrategiesService()
@@ -161,14 +175,18 @@ async def delete_strategy(strategy_id: int, current_user: TokenData = Depends(ge
         )
 
 
-@router.post("/{strategy_id}/validate", response_model=StrategyValidation)
+@router.post(
+    "/{strategy_id}/validate",
+    response_model=StrategyValidation,
+    dependencies=[require_permission("strategies", "read")],
+)
 async def validate_strategy(strategy_id: int, current_user: TokenData = Depends(get_current_user)):
     """Validate a strategy's code."""
     strategy = await get_strategy(strategy_id, current_user)
     return validate_strategy_code(strategy.code, strategy.class_name)
 
 
-@router.get("/{strategy_id}/code-history")
+@router.get("/{strategy_id}/code-history", dependencies=[require_permission("strategies", "read")])
 async def list_strategy_code_history(strategy_id: int, current_user: TokenData = Depends(get_current_user)):
     """List stored code history for a DB strategy (latest first)."""
     service = StrategiesService()
@@ -180,7 +198,10 @@ async def list_strategy_code_history(strategy_id: int, current_user: TokenData =
         )
 
 
-@router.get("/{strategy_id}/code-history/{history_id}")
+@router.get(
+    "/{strategy_id}/code-history/{history_id}",
+    dependencies=[require_permission("strategies", "read")],
+)
 async def get_strategy_code_history(
     strategy_id: int, history_id: int, current_user: TokenData = Depends(get_current_user)
 ):
@@ -197,7 +218,10 @@ async def get_strategy_code_history(
         )
 
 
-@router.post("/{strategy_id}/code-history/{history_id}/restore")
+@router.post(
+    "/{strategy_id}/code-history/{history_id}/restore",
+    dependencies=[require_permission("strategies", "write")],
+)
 async def restore_strategy_code_history(
     strategy_id: int, history_id: int, current_user: TokenData = Depends(get_current_user)
 ):

@@ -6,6 +6,7 @@ import json
 from fastapi import APIRouter, Depends, BackgroundTasks
 from pydantic import BaseModel
 
+from app.api.dependencies.permissions import require_permission
 from app.api.models.user import TokenData
 from app.api.models.backtest import (
     BacktestRequest,
@@ -39,7 +40,7 @@ class BacktestSubmitResponse(BaseModel):
     message: str
 
 
-@router.post("", response_model=BacktestSubmitResponse)
+@router.post("", response_model=BacktestSubmitResponse, dependencies=[require_permission("backtests", "write")])
 async def submit_backtest(
     request: BacktestRequest, background_tasks: BackgroundTasks, current_user: TokenData = Depends(get_current_user)
 ):
@@ -61,7 +62,11 @@ async def submit_backtest(
     return BacktestSubmitResponse(job_id=job_id, status=BacktestStatus.PENDING, message="Backtest queued successfully")
 
 
-@router.post("/batch", response_model=BacktestSubmitResponse)
+@router.post(
+    "/batch",
+    response_model=BacktestSubmitResponse,
+    dependencies=[require_permission("backtests", "write")],
+)
 async def submit_batch_backtest(
     request: BatchBacktestRequest,
     background_tasks: BackgroundTasks,
@@ -89,7 +94,7 @@ async def submit_batch_backtest(
     )
 
 
-@router.get("/{job_id}", response_model=BacktestJob)
+@router.get("/{job_id}", response_model=BacktestJob, dependencies=[require_permission("backtests", "read")])
 async def get_backtest_status(job_id: str, current_user: TokenData = Depends(get_current_user)):
     """Get backtest job status and results."""
     if job_id in _jobs:
@@ -98,7 +103,11 @@ async def get_backtest_status(job_id: str, current_user: TokenData = Depends(get
     raise APIError(status_code=404, code=ErrorCode.JOB_NOT_FOUND, message="Job not found")
 
 
-@router.get("/batch/{job_id}", response_model=BatchBacktestJob)
+@router.get(
+    "/batch/{job_id}",
+    response_model=BatchBacktestJob,
+    dependencies=[require_permission("backtests", "read")],
+)
 async def get_batch_backtest_status(job_id: str, current_user: TokenData = Depends(get_current_user)):
     """Get batch backtest job status and results."""
     if job_id in _batch_jobs:
@@ -107,7 +116,7 @@ async def get_batch_backtest_status(job_id: str, current_user: TokenData = Depen
     raise APIError(status_code=404, code=ErrorCode.JOB_NOT_FOUND, message="Batch job not found")
 
 
-@router.get("/history/list")
+@router.get("/history/list", dependencies=[require_permission("backtests", "read")])
 async def list_backtest_history(
     pagination: PaginationParams = Depends(), current_user: TokenData = Depends(get_current_user)
 ):
@@ -150,7 +159,7 @@ async def list_backtest_history(
     return paginate(history, total, pagination)
 
 
-@router.get("/history/{job_id}")
+@router.get("/history/{job_id}", dependencies=[require_permission("backtests", "read")])
 async def get_backtest_history_detail(job_id: str, current_user: TokenData = Depends(get_current_user)):
     """Get detailed backtest result from database by job_id."""
     dao = BacktestHistoryDao()
@@ -190,7 +199,7 @@ async def get_backtest_history_detail(job_id: str, current_user: TokenData = Dep
     }
 
 
-@router.delete("/{job_id}")
+@router.delete("/{job_id}", dependencies=[require_permission("backtests", "write")])
 async def cancel_backtest(job_id: str, current_user: TokenData = Depends(get_current_user)):
     """Cancel a pending or running backtest."""
     if job_id in _jobs:

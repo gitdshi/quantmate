@@ -84,6 +84,7 @@ async def login(credentials: UserLogin, request: Request):
         token_type=t["token_type"],
         expires_in=t["expires_in"],
         must_change_password=t.get("must_change_password", False),
+        user=t.get("user"),
     )
 
 
@@ -102,6 +103,7 @@ async def refresh_token(refresh_token: str):
         token_type=t["token_type"],
         expires_in=t["expires_in"],
         must_change_password=t.get("must_change_password", False),
+        user=t.get("user"),
     )
 
 
@@ -120,6 +122,9 @@ async def get_me(current_user: TokenData = Depends(get_current_user)):
         email=u.get("email"),
         is_active=u.get("is_active", True),
         created_at=u["created_at"],
+        role=u.get("role"),
+        primary_role=u.get("primary_role"),
+        permissions=u.get("permissions", []),
     )
 
 

@@ -35,6 +35,7 @@ from app.api.routes import auth, strategies, data, backtest, queue
 from app.api.routes import system
 from app.api.routes import strategy_code
 from app.api.routes import audit
+from app.api.routes import admin
 from app.api.routes import kyc
 from app.api.routes import settings as settings_routes
 from app.api.routes import watchlist
@@ -227,6 +228,7 @@ app.include_router(queue.router, prefix="/api/v1")
 app.include_router(system.router, prefix="/api/v1")
 app.include_router(strategy_code.router, prefix="/api/v1")
 app.include_router(audit.router, prefix="/api/v1")
+app.include_router(admin.router, prefix="/api/v1")
 app.include_router(kyc.router, prefix="/api/v1")
 app.include_router(settings_routes.router, prefix="/api/v1")
 app.include_router(watchlist.router, prefix="/api/v1")

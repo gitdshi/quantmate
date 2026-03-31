@@ -5,6 +5,7 @@ This module is a copy of `app.api.config` moved to
 """
 
 from functools import lru_cache
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,6 +17,7 @@ class Settings(BaseSettings):
     app_name: str = "QuantMate API"
     app_version: str = "1.0.0"
     debug: bool = False
+    environment: str = Field(default="development", validation_alias="QUANTMATE_ENV")
 
     secret_key: str  # JWT 密钥，必须从环境变量 SECRET_KEY 读取
     algorithm: str = "HS256"
@@ -40,6 +42,17 @@ class Settings(BaseSettings):
         extra="ignore",
         env_parse_json=True,  # Enable JSON parsing for list fields
     )
+
+    @field_validator("debug", mode="before")
+    @classmethod
+    def normalize_debug(cls, value):
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in {"release", "prod", "production"}:
+                return False
+            if lowered in {"debug", "dev", "development"}:
+                return True
+        return value
 
     @property
     def mysql_url(self) -> str:

@@ -18,9 +18,30 @@ from app.domains.auth.dao.user_dao import UserDao
 settings = get_settings()
 
 
+def _frontend_role(primary_role: str) -> str:
+    if primary_role == "admin":
+        return "admin"
+    if primary_role == "viewer":
+        return "viewer"
+    return "user"
+
+
 class AuthService:
     def __init__(self) -> None:
         self._users = UserDao()
+
+    def _enrich_user(self, user: dict) -> dict:
+        from app.domains.rbac.service.rbac_service import RbacService
+
+        rbac_service = RbacService()
+        primary_role = rbac_service.get_primary_role(user["id"], user.get("username"))
+        permissions = sorted(rbac_service.get_user_permissions(user["id"], user.get("username")))
+        return {
+            **user,
+            "role": _frontend_role(primary_role),
+            "primary_role": primary_role,
+            "permissions": permissions,
+        }
 
     def register(self, username: str, email: Optional[str], password: str) -> dict:
         if self._users.username_exists(username):
@@ -30,14 +51,14 @@ class AuthService:
 
         now = datetime.utcnow()
         user_id = self._users.insert_user(username, email, get_password_hash(password), now, must_change_password=False)
-        return {
+        return self._enrich_user({
             "id": user_id,
             "username": username,
             "email": email,
             "is_active": True,
             "created_at": now,
             "must_change_password": False,
-        }
+        })
 
     def login(self, username: str, password: str) -> dict:
         user = self._users.get_user_for_login(username)
@@ -51,12 +72,20 @@ class AuthService:
         must_change = user.get("must_change_password", False)
         access_token = create_access_token(user["id"], user["username"], must_change_password=must_change)
         refresh_token = create_refresh_token(user["id"], user["username"], must_change_password=must_change)
+        full_user = self._users.get_user_by_id(user["id"]) or {
+            "id": user["id"],
+            "username": user["username"],
+            "email": None,
+            "is_active": user.get("is_active", True),
+            "created_at": datetime.utcnow(),
+        }
         return {
             "access_token": access_token,
             "refresh_token": refresh_token,
             "token_type": "bearer",
             "expires_in": settings.access_token_expire_minutes * 60,
             "must_change_password": must_change,
+            "user": self._enrich_user(full_user),
         }
 
     def refresh(self, refresh_token: str) -> dict:
@@ -77,13 +106,14 @@ class AuthService:
             "token_type": "bearer",
             "expires_in": settings.access_token_expire_minutes * 60,
             "must_change_password": must_change,
+            "user": self._enrich_user(user),
         }
 
     def me(self, user_id: int) -> dict:
         user = self._users.get_user_by_id(user_id)
         if not user:
             raise KeyError("User not found")
-        return user
+        return self._enrich_user(user)
 
     def change_password(self, user_id: int, current_password: str, new_password: str) -> None:
         """Change user's password. Verifies current password and clears must_change_password flag."""

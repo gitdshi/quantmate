@@ -33,6 +33,7 @@ _OPERATION_MAP: list[tuple[str, str, str, Optional[str]]] = [
     ("/queue", "POST", "JOB_SUBMIT", "job"),
     ("/queue", "DELETE", "JOB_DELETE", "job"),
     ("/data/", "GET", "DATA_ACCESS", "data"),
+    ("/portfolio", "GET", "PORTFOLIO_VIEW", "portfolio"),
 ]
 
 # Paths to skip logging
@@ -42,6 +43,20 @@ _SKIP_PATHS = {"/health", "/docs", "/redoc", "/openapi.json", "/", "/metrics"}
 def _classify_request(path: str, method: str) -> tuple[str, Optional[str]]:
     """Determine operation_type and resource_type from path + method."""
     method_upper = method.upper()
+    if method_upper == "POST" and "/trade/orders/" in path and path.endswith("/cancel"):
+        return "TRADING_ORDER_CANCEL", "order"
+    if method_upper == "POST" and path.endswith("/trade/orders"):
+        return "TRADING_ORDER_CREATE", "order"
+    if method_upper == "POST" and path.endswith("/portfolio/close"):
+        return "PORTFOLIO_UPDATE", "portfolio"
+    if method_upper == "PUT" and path.endswith("/system/configs"):
+        return "CONFIG_UPDATE", "system_config"
+    if method_upper == "PUT" and path.endswith("/system/data-sources"):
+        return "DATA_SOURCE_UPDATE", "data_source"
+    if method_upper == "POST" and path.endswith("/paper-trade/deploy"):
+        return "PAPER_TRADE_START", "paper_deployment"
+    if method_upper == "POST" and "/paper-trade/deployments/" in path and path.endswith("/stop"):
+        return "PAPER_TRADE_STOP", "paper_deployment"
     for prefix, m, op_type, res_type in _OPERATION_MAP:
         if prefix in path and (m == method_upper or m == "*"):
             return op_type, res_type

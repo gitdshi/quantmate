@@ -4,7 +4,9 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel
+from sqlalchemy.exc import SQLAlchemyError
 
+from app.api.dependencies.permissions import require_permission
 from app.api.services.auth_service import get_current_user
 from app.api.models.user import TokenData
 from app.api.errors import ErrorCode
@@ -41,14 +43,17 @@ class NotificationChannelCreateRequest(BaseModel):
 # ── Alert Rules ──────────────────────────────────────────────────────
 
 
-@router.get("/rules")
+@router.get("/rules", dependencies=[require_permission("alerts", "read")])
 async def list_alert_rules(current_user: TokenData = Depends(get_current_user)):
     """List all alert rules for the current user."""
     dao = AlertRuleDao()
-    return {"rules": dao.list_by_user(current_user.user_id)}
+    try:
+        return {"rules": dao.list_by_user(current_user.user_id)}
+    except SQLAlchemyError:
+        return {"rules": []}
 
 
-@router.post("/rules", status_code=status.HTTP_201_CREATED)
+@router.post("/rules", status_code=status.HTTP_201_CREATED, dependencies=[require_permission("alerts", "write")])
 async def create_alert_rule(req: AlertRuleCreateRequest, current_user: TokenData = Depends(get_current_user)):
     """Create a new alert rule."""
     valid_comparators = ("gt", "gte", "lt", "lte", "eq", "neq")
@@ -71,7 +76,7 @@ async def create_alert_rule(req: AlertRuleCreateRequest, current_user: TokenData
     return {"id": rule_id, "message": "Alert rule created"}
 
 
-@router.put("/rules/{rule_id}")
+@router.put("/rules/{rule_id}", dependencies=[require_permission("alerts", "write")])
 async def update_alert_rule(
     rule_id: int, req: AlertRuleUpdateRequest, current_user: TokenData = Depends(get_current_user)
 ):
@@ -85,7 +90,7 @@ async def update_alert_rule(
     return {"message": "Alert rule updated"}
 
 
-@router.delete("/rules/{rule_id}")
+@router.delete("/rules/{rule_id}", dependencies=[require_permission("alerts", "write")])
 async def delete_alert_rule(rule_id: int, current_user: TokenData = Depends(get_current_user)):
     """Delete an alert rule."""
     dao = AlertRuleDao()
@@ -97,7 +102,7 @@ async def delete_alert_rule(rule_id: int, current_user: TokenData = Depends(get_
 # ── Alert History ────────────────────────────────────────────────────
 
 
-@router.get("/history")
+@router.get("/history", dependencies=[require_permission("alerts", "read")])
 async def list_alert_history(
     level: Optional[str] = None,
     page: int = Query(1, ge=1),
@@ -113,7 +118,7 @@ async def list_alert_history(
     }
 
 
-@router.post("/history/{alert_id}/acknowledge")
+@router.post("/history/{alert_id}/acknowledge", dependencies=[require_permission("alerts", "write")])
 async def acknowledge_alert(alert_id: int, current_user: TokenData = Depends(get_current_user)):
     """Acknowledge an alert."""
     dao = AlertHistoryDao()
@@ -125,14 +130,14 @@ async def acknowledge_alert(alert_id: int, current_user: TokenData = Depends(get
 # ── Notification Channels ────────────────────────────────────────────
 
 
-@router.get("/channels")
+@router.get("/channels", dependencies=[require_permission("alerts", "manage")])
 async def list_channels(current_user: TokenData = Depends(get_current_user)):
     """List notification channels."""
     dao = NotificationChannelDao()
     return {"channels": dao.list_by_user(current_user.user_id)}
 
 
-@router.post("/channels", status_code=status.HTTP_201_CREATED)
+@router.post("/channels", status_code=status.HTTP_201_CREATED, dependencies=[require_permission("alerts", "manage")])
 async def create_channel(req: NotificationChannelCreateRequest, current_user: TokenData = Depends(get_current_user)):
     """Create a notification channel."""
     valid_types = ("email", "wechat", "dingtalk", "telegram", "slack", "webhook")
@@ -143,7 +148,7 @@ async def create_channel(req: NotificationChannelCreateRequest, current_user: To
     return {"id": channel_id, "message": "Channel created"}
 
 
-@router.delete("/channels/{channel_id}")
+@router.delete("/channels/{channel_id}", dependencies=[require_permission("alerts", "manage")])
 async def delete_channel(channel_id: int, current_user: TokenData = Depends(get_current_user)):
     """Delete a notification channel."""
     dao = NotificationChannelDao()
