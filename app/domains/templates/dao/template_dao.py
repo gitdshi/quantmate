@@ -9,6 +9,21 @@ from sqlalchemy import text
 
 from app.infrastructure.db.connections import connection
 
+# MySQL JSON columns are returned by PyMySQL as raw strings.
+# This set lists columns that must be parsed back to Python objects.
+_JSON_COLUMNS = {"params_schema", "default_params", "composite_config"}
+
+
+def _parse_json_cols(row: dict[str, Any]) -> dict[str, Any]:
+    """Parse string-valued JSON columns to Python dicts/lists in-place."""
+    for col in _JSON_COLUMNS:
+        val = row.get(col)
+        if isinstance(val, str):
+            try:
+                row[col] = json.loads(val)
+            except (json.JSONDecodeError, ValueError):
+                pass  # leave as-is if unparseable
+    return row
 
 class StrategyTemplateDao:
     """CRUD for strategy_templates."""
@@ -35,7 +50,7 @@ class StrategyTemplateDao:
         query += " ORDER BY downloads DESC, updated_at DESC LIMIT :limit OFFSET :offset"
         with connection("quantmate") as conn:
             rows = conn.execute(text(query), params).fetchall()
-            return [dict(r._mapping) for r in rows]
+            return [_parse_json_cols(dict(r._mapping)) for r in rows]
 
     def count_public(self, category: Optional[str] = None, template_type: Optional[str] = None) -> int:
         query = "SELECT COUNT(*) AS cnt FROM strategy_templates WHERE visibility = 'public'"
@@ -65,7 +80,7 @@ class StrategyTemplateDao:
         query += " ORDER BY updated_at DESC LIMIT :limit OFFSET :offset"
         with connection("quantmate") as conn:
             rows = conn.execute(text(query), params).fetchall()
-            return [dict(r._mapping) for r in rows]
+            return [_parse_json_cols(dict(r._mapping)) for r in rows]
 
     def count_for_user(self, user_id: int, source: Optional[str] = None) -> int:
         query = "SELECT COUNT(*) AS cnt FROM strategy_templates WHERE author_id = :uid"
@@ -83,7 +98,7 @@ class StrategyTemplateDao:
                 text("SELECT * FROM strategy_templates WHERE id = :tid"),
                 {"tid": template_id},
             ).fetchone()
-            return dict(row._mapping) if row else None
+            return _parse_json_cols(dict(row._mapping)) if row else None
 
     def create(
         self,
