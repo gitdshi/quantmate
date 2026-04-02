@@ -37,11 +37,6 @@ COPY scripts/ ./scripts/
 COPY mysql/migrations/ ./mysql/migrations/
 COPY mysql/init/ ./mysql/init/
 
-# Backward-compatible alias expected by historical staging SOP
-RUN if [ -f /app/mysql/init/quantmate.sql ] && [ ! -f /app/mysql/init/tradermate.sql ]; then \
-      cp /app/mysql/init/quantmate.sql /app/mysql/init/tradermate.sql; \
-    fi
-
 # Persist image build metadata for runtime env injection
 RUN mkdir -p /opt/quantmate-build \
     && if [ "$IMAGE_BUILD_TIME" = "unknown" ]; then \
