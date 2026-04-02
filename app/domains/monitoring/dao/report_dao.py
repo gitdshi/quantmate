@@ -10,6 +10,7 @@ from datetime import date
 from typing import Optional
 
 from sqlalchemy import text
+from sqlalchemy.exc import ProgrammingError
 
 from app.infrastructure.db.connections import connection
 
@@ -26,18 +27,22 @@ class ReportDao:
                 params["rt"] = report_type
             where = " AND ".join(conditions)
 
-            total_row = conn.execute(text(f"SELECT COUNT(*) as cnt FROM reports WHERE {where}"), params).fetchone()
+            try:
+                total_row = conn.execute(text(f"SELECT COUNT(*) as cnt FROM reports WHERE {where}"), params).fetchone()
 
-            params["limit"] = page_size
-            params["offset"] = (page - 1) * page_size
-            rows = conn.execute(
-                text(f"""
-                    SELECT id, user_id, report_type, period_start, period_end, pdf_path, created_at
-                    FROM reports WHERE {where}
-                    ORDER BY created_at DESC LIMIT :limit OFFSET :offset
-                """),
-                params,
-            ).fetchall()
+                params["limit"] = page_size
+                params["offset"] = (page - 1) * page_size
+                rows = conn.execute(
+                    text(f"""
+                        SELECT id, user_id, report_type, period_start, period_end, pdf_path, created_at
+                        FROM reports WHERE {where}
+                        ORDER BY created_at DESC LIMIT :limit OFFSET :offset
+                    """),
+                    params,
+                ).fetchall()
+            except ProgrammingError:
+                # Staging may start before optional reports schema is migrated.
+                return [], 0
             return [
                 {
                     "id": r.id,

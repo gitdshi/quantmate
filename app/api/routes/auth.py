@@ -55,9 +55,17 @@ async def login(credentials: UserLogin, request: Request):
         request.client.host if request.client else None
     )
 
+    login_id = (credentials.username or credentials.email or "").strip()
+    if not login_id:
+        raise APIError(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            code=ErrorCode.VALIDATION_ERROR,
+            message="username or email is required",
+        )
+
     # Check lockout
-    if brute_force.is_locked(ip=client_ip, username=credentials.username):
-        remaining = brute_force.remaining_lockout(ip=client_ip, username=credentials.username)
+    if brute_force.is_locked(ip=client_ip, username=login_id):
+        remaining = brute_force.remaining_lockout(ip=client_ip, username=login_id)
         raise APIError(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             code=ErrorCode.AUTH_ACCOUNT_LOCKED,
@@ -66,7 +74,7 @@ async def login(credentials: UserLogin, request: Request):
 
     service = AuthService()
     try:
-        t = service.login(credentials.username, credentials.password)
+        t = service.login(login_id, credentials.password)
     except PermissionError as e:
         msg = str(e)
         if "disabled" in msg:
@@ -76,7 +84,7 @@ async def login(credentials: UserLogin, request: Request):
         raise APIError(status_code=status.HTTP_401_UNAUTHORIZED, code=ErrorCode.AUTH_INVALID_CREDENTIALS, message=msg)
 
     # Success — reset counters
-    brute_force.reset(ip=client_ip, username=credentials.username)
+    brute_force.reset(ip=client_ip, username=login_id)
 
     return Token(
         access_token=t["access_token"],

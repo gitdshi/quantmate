@@ -27,6 +27,10 @@ datasync_failed_steps_total = Counter("datasync_failed_steps_total", "Total numb
 datasync_backfill_lock_status = Gauge(
     "datasync_backfill_lock_status", "Status of datasync backfill lock (0 = cannot acquire, 1 = healthy)"
 )
+# Avoid false-red on fresh process before the first lock check runs.
+datasync_backfill_lock_status.set(1)
+# Default to healthy/idle to avoid false-red alerts before the first lock check runs.
+datasync_backfill_lock_status.set(1)
 
 
 # Metrics hook for call_pro integration

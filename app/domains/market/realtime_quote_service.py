@@ -151,8 +151,17 @@ class RealtimeQuoteService:
         return self._build_tencent_quote(code, parts, market="CN")
 
     def _quote_cn_index(self, symbol: str) -> dict[str, Any]:
-        code = symbol.split(".")[0].strip()
-        parts = self._fetch_tencent_quote(code)
+        parts_symbol = symbol.split(".")
+        code = parts_symbol[0].strip()
+        suffix = parts_symbol[1].strip().upper() if len(parts_symbol) > 1 else ""
+
+        # Index quotes need explicit exchange prefix when suffix is provided.
+        if suffix in {"SH", "SSE"}:
+            parts = self._fetch_tencent_quote_with_prefix(code, "sh")
+        elif suffix in {"SZ", "SZSE"}:
+            parts = self._fetch_tencent_quote_with_prefix(code, "sz")
+        else:
+            parts = self._fetch_tencent_quote(code)
         return self._build_tencent_quote(code, parts, market="CN_INDEX")
 
     def _fetch_tencent_quote(self, code: str) -> list[str]:

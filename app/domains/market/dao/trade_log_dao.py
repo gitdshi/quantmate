@@ -6,6 +6,7 @@ from datetime import date, datetime
 from typing import Any, Optional
 
 from sqlalchemy import text
+from sqlalchemy.exc import ProgrammingError
 
 from app.infrastructure.db.connections import connection
 
@@ -73,8 +74,11 @@ class TradeLogDao:
                 params[k] = v
         where = " AND ".join(conditions) if conditions else "1=1"
         with connection("quantmate") as conn:
-            row = conn.execute(
-                text(f"SELECT COUNT(*) AS cnt FROM trade_logs WHERE {where}"),
-                params,
-            ).fetchone()
+            try:
+                row = conn.execute(
+                    text(f"SELECT COUNT(*) AS cnt FROM trade_logs WHERE {where}"),
+                    params,
+                ).fetchone()
+            except ProgrammingError:
+                return 0
             return row._mapping["cnt"] if row else 0

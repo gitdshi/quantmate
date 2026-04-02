@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from sqlalchemy import text
+from sqlalchemy.exc import ProgrammingError
 
 from app.infrastructure.db.connections import connection
 
@@ -14,10 +15,13 @@ class UserProfileDao:
 
     def get(self, user_id: int) -> Optional[dict[str, Any]]:
         with connection("quantmate") as conn:
-            row = conn.execute(
-                text("SELECT * FROM user_profiles WHERE user_id = :uid"),
-                {"uid": user_id},
-            ).fetchone()
+            try:
+                row = conn.execute(
+                    text("SELECT * FROM user_profiles WHERE user_id = :uid"),
+                    {"uid": user_id},
+                ).fetchone()
+            except ProgrammingError:
+                return None
             return dict(row._mapping) if row else None
 
     def upsert(self, user_id: int, **fields) -> dict[str, Any]:

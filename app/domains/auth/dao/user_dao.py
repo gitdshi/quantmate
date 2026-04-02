@@ -75,15 +75,20 @@ class UserDao:
             conn.commit()
             return int(result.lastrowid)
 
-    def get_user_for_login(self, username: str) -> Optional[dict]:
+    def get_user_for_login(self, login_id: str) -> Optional[dict]:
         with connection("quantmate") as conn:
             from sqlalchemy import text
 
             row = conn.execute(
                 text(
-                    "SELECT id, username, hashed_password, is_active, must_change_password FROM users WHERE username = :u"
+                    """
+                    SELECT id, username, hashed_password, is_active, must_change_password
+                    FROM users
+                    WHERE username = :login_id OR email = :login_id
+                    LIMIT 1
+                    """
                 ),
-                {"u": username},
+                {"login_id": login_id},
             ).fetchone()
             if not row:
                 return None

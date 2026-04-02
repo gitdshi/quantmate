@@ -30,8 +30,17 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
 # Copy application code
 COPY app/ ./app/
 
-# Copy migration scripts
+# Copy scripts used by staging SOP/DataSync bootstrap
+COPY scripts/ ./scripts/
+
+# Copy SQL artifacts used by runtime bootstrap and migrations
 COPY mysql/migrations/ ./mysql/migrations/
+COPY mysql/init/ ./mysql/init/
+
+# Backward-compatible alias expected by historical staging SOP
+RUN if [ -f /app/mysql/init/quantmate.sql ] && [ ! -f /app/mysql/init/tradermate.sql ]; then \
+      cp /app/mysql/init/quantmate.sql /app/mysql/init/tradermate.sql; \
+    fi
 
 # Persist image build metadata for runtime env injection
 RUN mkdir -p /opt/quantmate-build \
