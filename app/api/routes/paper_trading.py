@@ -166,13 +166,19 @@ async def create_paper_order(req: PaperOrderRequest, current_user: TokenData = D
     last_price = quote.get("last_price") or quote.get("price") or quote.get("current") or req.price or 0.0
     prev_close = quote.get("prev_close") or quote.get("pre_close") or last_price
 
+    # Market orders should validate against the executable market price, not
+    # an optional client-supplied placeholder price that may drift from live bands.
+    validation_price = req.price
+    if req.order_type == "market":
+        validation_price = last_price if last_price > 0 else req.price
+
     # ── Market rules validation ─────────────────────────────
     vr = validate_order(
         market=market,
         symbol=req.symbol,
         direction=req.direction,
         quantity=req.quantity,
-        price=req.price,
+        price=validation_price,
         order_type=req.order_type,
         prev_close=prev_close if prev_close else None,
         available_balance=account["balance"] if account and req.direction == "buy" else None,

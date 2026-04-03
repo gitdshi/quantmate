@@ -86,11 +86,16 @@ class TestPaperOrders:
         # Limit orders should NOT be auto-filled
         instance.update_status.assert_not_called()
 
+    @patch("app.api.routes.paper_trading.RealtimeQuoteService")
     @patch("app.api.routes.paper_trading.OrderDao")
-    def test_create_paper_order_market_auto_fill(self, MockDao, client):
+    def test_create_paper_order_market_auto_fill(self, MockDao, MockQuoteSvc, client):
         instance = MockDao.return_value
         instance.create.return_value = 1
         instance.get_by_id.return_value = {"id": 1, "symbol": "000001.SZ", "status": "filled"}
+        MockQuoteSvc.return_value.get_quote.return_value = {
+            "last_price": 12.0,
+            "prev_close": 12.0,
+        }
         resp = client.post("/api/v1/paper-trade/orders", json={
             "symbol": "000001.SZ", "direction": "buy",
             "order_type": "market", "quantity": 100, "price": 10.0,
