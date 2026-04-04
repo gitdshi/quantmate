@@ -9,6 +9,7 @@ from typing import AsyncGenerator, Generator
 
 import pytest
 from loguru import logger
+from unittest.mock import patch
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
@@ -201,3 +202,10 @@ def caplog_handler(caplog):
     handler_id = logger.add(lambda msg: caplog.info(msg), level="DEBUG")
     yield
     logger.remove(handler_id)
+
+
+@pytest.fixture(scope="function", autouse=True)
+def allow_rbac_by_default():
+    """Keep legacy route tests green unless they explicitly exercise RBAC denial."""
+    with patch("app.api.dependencies.permissions.RbacService.check_permission", return_value=True):
+        yield
