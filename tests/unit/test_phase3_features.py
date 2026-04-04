@@ -18,7 +18,20 @@ def _make_client(*routers):
     app = FastAPI()
     register_exception_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: TEST_USER
+    # Route-level Depends(require_permission(...)) resolves to nested dependency
+    # callables, so override the concrete dependency objects attached to routes.
     for r in routers:
+        for route in r.routes:
+            dependant = getattr(route, "dependant", None)
+            if not dependant:
+                continue
+            for dep in dependant.dependencies:
+                call = getattr(dep, "call", None)
+                if callable(call):
+                    module = getattr(call, "__module__", "")
+                    qualname = getattr(call, "__qualname__", "")
+                    if module == "app.api.dependencies.permissions" and "require_permission" in qualname:
+                        app.dependency_overrides[call] = lambda: TEST_USER
         app.include_router(r)
     return TestClient(app, raise_server_exceptions=False)
 

@@ -18,6 +18,7 @@ from app.api.models.user import (
 from app.api.services.auth_service import (
     get_current_user,
 )
+from app.api.dependencies.permissions import require_permission
 from app.api.errors import ErrorCode
 from app.api.exception_handlers import APIError
 from app.api import brute_force
@@ -115,7 +116,7 @@ async def refresh_token(refresh_token: str):
     )
 
 
-@router.get("/me", response_model=User)
+@router.get("/me", response_model=User, dependencies=[require_permission("account", "read", scope="self")])
 async def get_me(current_user: TokenData = Depends(get_current_user)):
     """Get current user info."""
     service = AuthService()
@@ -136,7 +137,7 @@ async def get_me(current_user: TokenData = Depends(get_current_user)):
     )
 
 
-@router.post("/change-password")
+@router.post("/change-password", dependencies=[require_permission("account", "write", scope="self")])
 async def change_password(request: PasswordChangeRequest, current_user: TokenData = Depends(get_current_user)):
     """Change the current user's password. Required if must_change_password flag is set."""
     service = AuthService()
@@ -152,7 +153,7 @@ async def change_password(request: PasswordChangeRequest, current_user: TokenDat
 # --- User Profile (Issue #8) ---
 
 
-@router.get("/profile", response_model=UserProfileResponse)
+@router.get("/profile", response_model=UserProfileResponse, dependencies=[require_permission("account", "read", scope="self")])
 async def get_profile(current_user: TokenData = Depends(get_current_user)):
     """Get the current user's profile."""
     from app.domains.auth.dao.user_profile_dao import UserProfileDao
@@ -164,7 +165,7 @@ async def get_profile(current_user: TokenData = Depends(get_current_user)):
     return UserProfileResponse(**profile)
 
 
-@router.put("/profile", response_model=UserProfileResponse)
+@router.put("/profile", response_model=UserProfileResponse, dependencies=[require_permission("account", "write", scope="self")])
 async def update_profile(
     body: UserProfileUpdate,
     current_user: TokenData = Depends(get_current_user),

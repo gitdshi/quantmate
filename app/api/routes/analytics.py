@@ -9,13 +9,14 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
+from app.api.dependencies.permissions import require_permission
 from app.api.services.auth_service import get_current_user
 from app.api.models.user import TokenData
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
 
-@router.get("/dashboard")
+@router.get("/dashboard", dependencies=[require_permission("reports", "read")])
 async def get_dashboard(current_user: TokenData = Depends(get_current_user)):
     """Return aggregated portfolio analytics dashboard data.
 
@@ -52,7 +53,7 @@ async def get_dashboard(current_user: TokenData = Depends(get_current_user)):
     }
 
 
-@router.get("/risk-metrics")
+@router.get("/risk-metrics", dependencies=[require_permission("reports", "read")])
 async def get_risk_metrics(current_user: TokenData = Depends(get_current_user)):
     """Return risk metrics in the nested structure expected by the frontend RiskMetrics component."""
     from app.domains.portfolio.dao.portfolio_dao import PortfolioDao
@@ -102,7 +103,7 @@ async def get_risk_metrics(current_user: TokenData = Depends(get_current_user)):
     }
 
 
-@router.get("/live-pnl")
+@router.get("/live-pnl", dependencies=[require_permission("reports", "read")])
 async def get_live_pnl(current_user: TokenData = Depends(get_current_user)):
     """Compute real-time portfolio P&L from positions and last known prices."""
     from app.domains.portfolio.dao.portfolio_dao import PortfolioDao
@@ -123,7 +124,7 @@ async def get_live_pnl(current_user: TokenData = Depends(get_current_user)):
     )
 
 
-@router.get("/anomalies")
+@router.get("/anomalies", dependencies=[require_permission("reports", "read")])
 async def detect_portfolio_anomalies(current_user: TokenData = Depends(get_current_user)):
     """Run anomaly detection rules against current portfolio."""
     from app.domains.portfolio.dao.portfolio_dao import PortfolioDao

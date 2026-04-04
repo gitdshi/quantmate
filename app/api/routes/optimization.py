@@ -5,6 +5,7 @@ import logging
 from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel
 
+from app.api.dependencies.permissions import require_permission
 from app.api.services.auth_service import get_current_user
 from app.api.models.user import TokenData
 from app.api.errors import ErrorCode
@@ -23,7 +24,7 @@ class OptimizationCreateRequest(BaseModel):
     objective_metric: str = "sharpe_ratio"
 
 
-@router.get("/tasks")
+@router.get("/tasks", dependencies=[require_permission("backtests", "read")])
 async def list_optimization_tasks(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -38,7 +39,7 @@ async def list_optimization_tasks(
     }
 
 
-@router.get("/tasks/{task_id}")
+@router.get("/tasks/{task_id}", dependencies=[require_permission("backtests", "read")])
 async def get_optimization_task(task_id: int, current_user: TokenData = Depends(get_current_user)):
     """Get optimization task detail."""
     dao = OptimizationTaskDao()
@@ -48,7 +49,7 @@ async def get_optimization_task(task_id: int, current_user: TokenData = Depends(
     return task
 
 
-@router.post("/tasks", status_code=status.HTTP_201_CREATED)
+@router.post("/tasks", status_code=status.HTTP_201_CREATED, dependencies=[require_permission("backtests", "write")])
 async def create_optimization_task(req: OptimizationCreateRequest, current_user: TokenData = Depends(get_current_user)):
     """Create a new optimization task."""
     valid_methods = ("grid", "random", "bayesian")
@@ -84,7 +85,7 @@ async def create_optimization_task(req: OptimizationCreateRequest, current_user:
     return {"id": task_id, "message": "Optimization task created"}
 
 
-@router.delete("/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[require_permission("backtests", "write")])
 async def delete_optimization_task(task_id: int, current_user: TokenData = Depends(get_current_user)):
     """Delete an optimization task and its result rows for the current user."""
     dao = OptimizationTaskDao()
@@ -94,7 +95,7 @@ async def delete_optimization_task(task_id: int, current_user: TokenData = Depen
     return None
 
 
-@router.get("/tasks/{task_id}/results")
+@router.get("/tasks/{task_id}/results", dependencies=[require_permission("backtests", "read")])
 async def get_optimization_results(task_id: int, current_user: TokenData = Depends(get_current_user)):
     """Get results for an optimization task."""
     dao = OptimizationTaskDao()

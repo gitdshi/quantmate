@@ -6,6 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel
 
+from app.api.dependencies.permissions import require_permission
 from app.api.services.auth_service import get_current_user
 from app.api.models.user import TokenData
 from app.api.errors import ErrorCode
@@ -28,7 +29,7 @@ class OrderCreateRequest(BaseModel):
     gateway_name: Optional[str] = None  # for live mode: which gateway to use
 
 
-@router.post("/orders", status_code=status.HTTP_201_CREATED)
+@router.post("/orders", status_code=status.HTTP_201_CREATED, dependencies=[require_permission("trading", "write")])
 async def create_order(req: OrderCreateRequest, current_user: TokenData = Depends(get_current_user)):
     """Submit a live order through vnpy gateway. Paper orders should use /paper-trade/orders."""
     if req.mode == "paper":
@@ -83,7 +84,7 @@ async def create_order(req: OrderCreateRequest, current_user: TokenData = Depend
     return order
 
 
-@router.get("/orders")
+@router.get("/orders", dependencies=[require_permission("trading", "read")])
 async def list_orders(
     status_filter: Optional[str] = Query(None, alias="status"),
     mode: Optional[str] = None,
@@ -102,7 +103,7 @@ async def list_orders(
     }
 
 
-@router.get("/orders/{order_id}")
+@router.get("/orders/{order_id}", dependencies=[require_permission("trading", "read")])
 async def get_order(order_id: int, current_user: TokenData = Depends(get_current_user)):
     """Get a specific order."""
     dao = OrderDao()
@@ -112,7 +113,7 @@ async def get_order(order_id: int, current_user: TokenData = Depends(get_current
     return order
 
 
-@router.post("/orders/{order_id}/cancel")
+@router.post("/orders/{order_id}/cancel", dependencies=[require_permission("trading", "write")])
 async def cancel_order(order_id: int, current_user: TokenData = Depends(get_current_user)):
     """Cancel a pending order."""
     dao = OrderDao()
@@ -146,7 +147,7 @@ class IcebergRequest(BaseModel):
     price_limit: float
 
 
-@router.post("/algo/twap")
+@router.post("/algo/twap", dependencies=[require_permission("trading", "write")])
 async def algo_twap(req: TWAPRequest, current_user: TokenData = Depends(get_current_user)):
     """Generate TWAP order slices."""
     from app.domains.trading.algo_execution_service import AlgoExecutionService
@@ -155,7 +156,7 @@ async def algo_twap(req: TWAPRequest, current_user: TokenData = Depends(get_curr
     return {"slices": svc.twap(req.total_quantity, req.num_slices, req.start_time, req.end_time, req.price_limit)}
 
 
-@router.post("/algo/vwap")
+@router.post("/algo/vwap", dependencies=[require_permission("trading", "write")])
 async def algo_vwap(req: VWAPRequest, current_user: TokenData = Depends(get_current_user)):
     """Generate VWAP order slices."""
     from app.domains.trading.algo_execution_service import AlgoExecutionService
@@ -168,7 +169,7 @@ async def algo_vwap(req: VWAPRequest, current_user: TokenData = Depends(get_curr
     }
 
 
-@router.post("/algo/iceberg")
+@router.post("/algo/iceberg", dependencies=[require_permission("trading", "write")])
 async def algo_iceberg(req: IcebergRequest, current_user: TokenData = Depends(get_current_user)):
     """Generate Iceberg order slices."""
     from app.domains.trading.algo_execution_service import AlgoExecutionService
@@ -186,7 +187,7 @@ class GatewayConnectRequest(BaseModel):
     gateway_name: Optional[str] = None
 
 
-@router.post("/gateway/connect")
+@router.post("/gateway/connect", dependencies=[require_permission("trading", "manage")])
 async def connect_gateway(req: GatewayConnectRequest, current_user: TokenData = Depends(get_current_user)):
     """Connect to a vnpy broker gateway for live trading."""
     from app.domains.trading.vnpy_trading_service import VnpyTradingService, GatewayType
@@ -205,7 +206,7 @@ async def connect_gateway(req: GatewayConnectRequest, current_user: TokenData = 
     return {"message": f"Gateway '{req.gateway_name or req.gateway_type}' connected"}
 
 
-@router.post("/gateway/disconnect")
+@router.post("/gateway/disconnect", dependencies=[require_permission("trading", "manage")])
 async def disconnect_gateway(gateway_name: str = Query(...), current_user: TokenData = Depends(get_current_user)):
     """Disconnect a vnpy gateway."""
     from app.domains.trading.vnpy_trading_service import VnpyTradingService
@@ -216,7 +217,7 @@ async def disconnect_gateway(gateway_name: str = Query(...), current_user: Token
     return {"message": f"Gateway '{gateway_name}' disconnected"}
 
 
-@router.get("/gateways")
+@router.get("/gateways", dependencies=[require_permission("trading", "read")])
 async def list_gateways(current_user: TokenData = Depends(get_current_user)):
     """List connected vnpy gateways."""
     from app.domains.trading.vnpy_trading_service import VnpyTradingService
@@ -225,7 +226,7 @@ async def list_gateways(current_user: TokenData = Depends(get_current_user)):
     return {"gateways": svc.list_gateways()}
 
 
-@router.get("/gateway/positions")
+@router.get("/gateway/positions", dependencies=[require_permission("trading", "read")])
 async def gateway_positions(gateway_name: Optional[str] = None, current_user: TokenData = Depends(get_current_user)):
     """Query live positions from vnpy gateway."""
     from app.domains.trading.vnpy_trading_service import VnpyTradingService
@@ -236,7 +237,7 @@ async def gateway_positions(gateway_name: Optional[str] = None, current_user: To
     return {"positions": [dataclasses.asdict(p) for p in positions]}
 
 
-@router.get("/gateway/account")
+@router.get("/gateway/account", dependencies=[require_permission("trading", "read")])
 async def gateway_account(gateway_name: Optional[str] = None, current_user: TokenData = Depends(get_current_user)):
     """Query account info from vnpy gateway."""
     from app.domains.trading.vnpy_trading_service import VnpyTradingService

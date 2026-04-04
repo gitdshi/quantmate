@@ -1,4 +1,4 @@
-"""RBAC permission dependency coverage for admin, strategy, and audit routes."""
+"""RBAC permission dependency coverage for admin, strategy, audit, and scoped routes."""
 
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from app.api.exception_handlers import register_exception_handlers
 from app.api.models.user import TokenData
 from app.api.services.auth_service import get_current_user
+from app.domains.rbac.service.rbac_service import RbacService
 
 
 future_exp = datetime.utcnow() + timedelta(hours=1)
@@ -113,3 +114,57 @@ def test_audit_logs_accept_non_admin_username_when_rbac_allows():
     assert resp.status_code == 200
     assert resp.json()["meta"]["total"] == 1
     assert resp.json()["data"][0]["username"] == "alice"
+
+
+def test_auth_profile_returns_403_when_account_read_missing():
+    from app.api.routes.auth import router
+
+    client = _make_client(router)
+
+    with patch("app.api.dependencies.permissions.RbacService.check_permission", return_value=False):
+        resp = client.get("/api/v1/auth/profile")
+
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == "FORBIDDEN"
+
+
+def test_watchlist_update_returns_403_when_owner_scope_fails():
+    from app.api.routes.watchlist import router
+
+    client = _make_client(router)
+
+    watchlist_dao = MagicMock()
+    watchlist_dao.get.return_value = {"id": 9, "user_id": 99, "name": "Other"}
+
+    with patch("app.api.dependencies.permissions.RbacService.check_permission", return_value=True), patch(
+        "app.domains.market.dao.watchlist_dao.WatchlistDao", return_value=watchlist_dao
+    ):
+        resp = client.put("/api/v1/data/watchlists/9", json={"name": "Mine"})
+
+    assert resp.status_code == 403
+    body = resp.json()["error"]
+    assert body["code"] == "FORBIDDEN"
+    assert '"scope": "own"' in body["detail"]
+
+
+def test_watchlist_update_passes_when_owner_scope_matches():
+    from app.api.routes.watchlist import router
+
+    client = _make_client(router)
+
+    watchlist_dao = MagicMock()
+    watchlist_dao.get.return_value = {"id": 9, "user_id": 10, "name": "Mine"}
+
+    with patch("app.api.dependencies.permissions.RbacService.check_permission", return_value=True), patch(
+        "app.domains.market.dao.watchlist_dao.WatchlistDao", return_value=watchlist_dao
+    ):
+        resp = client.put("/api/v1/data/watchlists/9", json={"name": "Updated"})
+
+    assert resp.status_code == 200
+    watchlist_dao.update.assert_called_once()
+
+
+def test_default_viewer_permissions_match_spec_floor():
+    perms = RbacService().get_default_permissions("viewer")
+
+    assert perms == {"reports.read", "data.read", "alerts.read", "account.read"}

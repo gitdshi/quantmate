@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query
 
+from app.api.dependencies.permissions import require_permission
 from app.api.services.auth_service import get_current_user
 from app.api.models.user import TokenData
 
 router = APIRouter(prefix="/market", tags=["MultiMarket"])
 
 
-@router.get("/exchanges")
+@router.get("/exchanges", dependencies=[require_permission("data", "read")])
 async def list_exchanges(current_user: TokenData = Depends(get_current_user)):
     """List supported exchanges."""
     from app.domains.market.multi_market_dao import MultiMarketDao
@@ -18,7 +19,7 @@ async def list_exchanges(current_user: TokenData = Depends(get_current_user)):
     return MultiMarketDao().list_exchanges()
 
 
-@router.get("/hk/stocks")
+@router.get("/hk/stocks", dependencies=[require_permission("data", "read")])
 async def list_hk_stocks(
     limit: int = Query(500, le=2000),
     keyword: str = Query("", max_length=50),
@@ -30,7 +31,7 @@ async def list_hk_stocks(
     return MultiMarketDao().list_hk_stocks(limit=limit, keyword=keyword)
 
 
-@router.get("/hk/daily")
+@router.get("/hk/daily", dependencies=[require_permission("data", "read")])
 async def get_hk_daily(
     ts_code: str = Query(...),
     start_date: str = Query(...),
@@ -43,7 +44,7 @@ async def get_hk_daily(
     return MultiMarketDao().get_hk_daily(ts_code, start_date, end_date)
 
 
-@router.get("/us/stocks")
+@router.get("/us/stocks", dependencies=[require_permission("data", "read")])
 async def list_us_stocks(
     limit: int = Query(500, le=2000),
     keyword: str = Query("", max_length=50),
@@ -55,7 +56,7 @@ async def list_us_stocks(
     return MultiMarketDao().list_us_stocks(limit=limit, keyword=keyword)
 
 
-@router.get("/us/daily")
+@router.get("/us/daily", dependencies=[require_permission("data", "read")])
 async def get_us_daily(
     ts_code: str = Query(...),
     start_date: str = Query(...),

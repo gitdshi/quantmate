@@ -9,6 +9,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel
 
+from app.api.dependencies.permissions import require_permission
 from app.api.services.auth_service import get_current_user
 from app.api.models.user import TokenData
 from app.api.errors import ErrorCode
@@ -60,7 +61,7 @@ class ApiKeyListItem(BaseModel):
     last_used_at: Optional[datetime] = None
 
 
-@router.get("/", response_model=list[ApiKeyListItem])
+@router.get("/", response_model=list[ApiKeyListItem], dependencies=[require_permission("account", "write", scope="self")])
 async def list_api_keys(current_user: TokenData = Depends(get_current_user)):
     """List all API keys for the current user."""
     dao = ApiKeyDao()
@@ -68,7 +69,7 @@ async def list_api_keys(current_user: TokenData = Depends(get_current_user)):
     return keys
 
 
-@router.post("/", response_model=ApiKeyCreateResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=ApiKeyCreateResponse, status_code=status.HTTP_201_CREATED, dependencies=[require_permission("account", "write", scope="self")])
 async def create_api_key(req: ApiKeyCreateRequest, current_user: TokenData = Depends(get_current_user)):
     """Create a new API key. The secret is only shown once."""
     dao = ApiKeyDao()
@@ -106,7 +107,7 @@ async def create_api_key(req: ApiKeyCreateRequest, current_user: TokenData = Dep
     )
 
 
-@router.delete("/{api_key_id}")
+@router.delete("/{api_key_id}", dependencies=[require_permission("account", "write", scope="self")])
 async def revoke_api_key(api_key_id: int, current_user: TokenData = Depends(get_current_user)):
     """Revoke an API key."""
     dao = ApiKeyDao()

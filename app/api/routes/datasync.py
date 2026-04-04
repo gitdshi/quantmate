@@ -11,6 +11,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
+from app.api.dependencies.permissions import require_permission
 from app.api.services.auth_service import get_current_user
 from app.api.models.user import TokenData
 from app.api.errors import ErrorCode
@@ -28,7 +29,7 @@ class ManualSyncRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@router.get("/status")
+@router.get("/status", dependencies=[require_permission("system", "read")])
 async def get_sync_status(
     sync_date: Optional[str] = Query(None, description="Filter by date (YYYY-MM-DD)"),
     source: Optional[str] = Query(None, description="Filter by source key"),
@@ -77,7 +78,7 @@ async def get_sync_status(
     return {"data": data, "total": total, "limit": limit, "offset": offset}
 
 
-@router.get("/status/summary")
+@router.get("/status/summary", dependencies=[require_permission("system", "read")])
 async def get_sync_summary(
     days: int = Query(7, ge=1, le=90, description="Number of recent days to summarize"),
     current_user: TokenData = Depends(get_current_user),
@@ -125,7 +126,7 @@ async def get_sync_summary(
     }
 
 
-@router.get("/status/latest")
+@router.get("/status/latest", dependencies=[require_permission("system", "read")])
 async def get_latest_sync_status(
     current_user: TokenData = Depends(get_current_user),
 ):
@@ -162,7 +163,7 @@ async def get_latest_sync_status(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/trigger")
+@router.post("/trigger", dependencies=[require_permission("system", "manage")])
 async def trigger_manual_sync(
     body: ManualSyncRequest,
     current_user: TokenData = Depends(get_current_user),
@@ -179,7 +180,7 @@ async def trigger_manual_sync(
     return {"status": "queued", "job_id": job.id}
 
 
-@router.get("/job/{job_id}")
+@router.get("/job/{job_id}", dependencies=[require_permission("system", "read")])
 async def get_datasync_job_status(
     job_id: str,
     current_user: TokenData = Depends(get_current_user),

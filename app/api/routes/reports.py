@@ -5,6 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel
 
+from app.api.dependencies.permissions import require_permission
 from app.api.services.auth_service import get_current_user
 from app.api.models.user import TokenData
 from app.api.errors import ErrorCode
@@ -20,7 +21,7 @@ class ReportGenerateRequest(BaseModel):
     content_json: Optional[dict] = None
 
 
-@router.get("")
+@router.get("", dependencies=[require_permission("reports", "read")])
 async def list_reports(
     report_type: Optional[str] = None,
     page: int = Query(1, ge=1),
@@ -36,7 +37,7 @@ async def list_reports(
     }
 
 
-@router.get("/{report_id}")
+@router.get("/{report_id}", dependencies=[require_permission("reports", "read")])
 async def get_report(report_id: int, current_user: TokenData = Depends(get_current_user)):
     """Get report detail."""
     dao = ReportDao()
@@ -46,7 +47,7 @@ async def get_report(report_id: int, current_user: TokenData = Depends(get_curre
     return report
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED, dependencies=[require_permission("reports", "write")])
 async def generate_report(req: ReportGenerateRequest, current_user: TokenData = Depends(get_current_user)):
     """Generate a new report."""
     valid_types = ("daily", "weekly", "monthly", "custom")

@@ -13,6 +13,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel
 
+from app.api.dependencies.permissions import require_permission
 from app.api.services.auth_service import get_current_user
 from app.api.models.user import TokenData
 from app.api.errors import ErrorCode
@@ -53,7 +54,7 @@ class PaperOrderRequest(BaseModel):
 # ── Deploy Endpoints ────────────────────────────────────────
 
 
-@router.post("/deploy", status_code=status.HTTP_201_CREATED)
+@router.post("/deploy", status_code=status.HTTP_201_CREATED, dependencies=[require_permission("trading", "manage")])
 async def deploy_strategy(req: DeployRequest, current_user: TokenData = Depends(get_current_user)):
     """Deploy a strategy to paper trading simulation."""
     if req.execution_mode not in ("auto", "semi_auto"):
@@ -104,7 +105,7 @@ async def deploy_strategy(req: DeployRequest, current_user: TokenData = Depends(
     return result
 
 
-@router.get("/deployments")
+@router.get("/deployments", dependencies=[require_permission("trading", "read")])
 async def list_deployments(current_user: TokenData = Depends(get_current_user)):
     """List all paper trading deployments for the current user."""
     svc = PaperTradingService()
@@ -112,7 +113,7 @@ async def list_deployments(current_user: TokenData = Depends(get_current_user)):
     return {"deployments": deployments}
 
 
-@router.post("/deployments/{deployment_id}/stop")
+@router.post("/deployments/{deployment_id}/stop", dependencies=[require_permission("trading", "manage")])
 async def stop_deployment(deployment_id: int, current_user: TokenData = Depends(get_current_user)):
     """Stop a running paper deployment."""
     # Stop the executor thread if running
@@ -134,7 +135,7 @@ async def stop_deployment(deployment_id: int, current_user: TokenData = Depends(
 # ── Paper Order Endpoints ───────────────────────────────────
 
 
-@router.post("/orders", status_code=status.HTTP_201_CREATED)
+@router.post("/orders", status_code=status.HTTP_201_CREATED, dependencies=[require_permission("trading", "write")])
 async def create_paper_order(req: PaperOrderRequest, current_user: TokenData = Depends(get_current_user)):
     """Submit a paper order with market-rules validation & matching engine."""
     if req.direction not in ("buy", "sell"):

@@ -110,12 +110,9 @@ class TestFactorEvaluationRoutes:
         resp = client.get("/api/v1/factors/1/evaluations")
         assert resp.status_code == 200
 
-    @patch("app.domains.factors.service.FactorEvaluationDao")
-    @patch("app.domains.factors.service.FactorDefinitionDao")
-    def test_run_evaluation(self, MockFactorDao, MockEvalDao, client):
-        MockFactorDao.return_value.get.return_value = {"id": 1, "user_id": 1}
-        MockEvalDao.return_value.create.return_value = 1
-        MockEvalDao.return_value.get.return_value = {
+    @patch("app.domains.factors.service.FactorService.run_evaluation")
+    def test_run_evaluation(self, mock_run, client):
+        mock_run.return_value = {
             "id": 1, "factor_id": 1, "ic_mean": 0.035, "ic_ir": 0.42,
         }
         resp = client.post("/api/v1/factors/1/evaluations", json={
@@ -165,13 +162,15 @@ class TestQlibFactorRoutes:
         })
         assert resp.status_code == 400
 
-    @patch("qlib.utils.init_instance_by_config")
     @patch("app.infrastructure.qlib.qlib_config.ensure_qlib_initialized")
     @patch("app.infrastructure.qlib.qlib_config.is_qlib_available", return_value=True)
-    def test_compute_qlib_factors_success(self, mock_avail, mock_init, mock_handler_init, client):
+    @patch("app.infrastructure.qlib.qlib_config.SUPPORTED_DATASETS", {"Alpha158": "qlib.contrib.data.handler.Alpha158"})
+    def test_compute_qlib_factors_success(self, mock_avail, mock_init, client):
         import pandas as pd
         import numpy as np
-        # Create a mock handler with a mock DataFrame result
+        import sys
+        import types
+
         mock_handler = MagicMock()
         idx = pd.MultiIndex.from_tuples(
             [("SZ000001", "2024-01-02"), ("SZ000001", "2024-01-03")],
@@ -183,14 +182,19 @@ class TestQlibFactorRoutes:
             columns=["KMID", "KLEN", "KMID2", "KLOW", "KHIGH"],
         )
         mock_handler.fetch.return_value = mock_df
-        mock_handler_init.return_value = mock_handler
 
-        resp = client.post("/api/v1/factors/qlib/compute", json={
-            "factor_set": "Alpha158",
-            "instruments": "csi300",
-            "start_date": "2024-01-01",
-            "end_date": "2024-12-31",
-        })
+        fake_qlib = types.ModuleType("qlib")
+        fake_utils = types.ModuleType("qlib.utils")
+        fake_utils.init_instance_by_config = MagicMock(return_value=mock_handler)
+        fake_qlib.utils = fake_utils
+
+        with patch.dict(sys.modules, {"qlib": fake_qlib, "qlib.utils": fake_utils}):
+            resp = client.post("/api/v1/factors/qlib/compute", json={
+                "factor_set": "Alpha158",
+                "instruments": "csi300",
+                "start_date": "2024-01-01",
+                "end_date": "2024-12-31",
+            })
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "completed"

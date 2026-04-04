@@ -5,6 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel
 
+from app.api.dependencies.permissions import require_permission
 from app.api.services.auth_service import get_current_user
 from app.api.models.user import TokenData
 from app.api.errors import ErrorCode
@@ -52,7 +53,7 @@ class ModelConfigUpdate(BaseModel):
 # --- Conversation endpoints ---
 
 
-@router.get("/conversations")
+@router.get("/conversations", dependencies=[require_permission("account", "read")])
 async def list_conversations(
     conv_status: Optional[str] = Query(None, alias="status"),
     pagination: PaginationParams = Depends(),
@@ -69,7 +70,7 @@ async def list_conversations(
     return paginate(rows, total, pagination)
 
 
-@router.post("/conversations", status_code=status.HTTP_201_CREATED)
+@router.post("/conversations", status_code=status.HTTP_201_CREATED, dependencies=[require_permission("account", "write")])
 async def create_conversation(
     req: ConversationCreate,
     current_user: TokenData = Depends(get_current_user),
@@ -79,7 +80,7 @@ async def create_conversation(
     return conv
 
 
-@router.get("/conversations/{conversation_id}")
+@router.get("/conversations/{conversation_id}", dependencies=[require_permission("account", "read")])
 async def get_conversation(conversation_id: int, current_user: TokenData = Depends(get_current_user)):
     service = AIService()
     try:
@@ -88,7 +89,7 @@ async def get_conversation(conversation_id: int, current_user: TokenData = Depen
         raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Conversation not found")
 
 
-@router.put("/conversations/{conversation_id}")
+@router.put("/conversations/{conversation_id}", dependencies=[require_permission("account", "write")])
 async def update_conversation(
     conversation_id: int,
     req: ConversationUpdate,
@@ -101,7 +102,7 @@ async def update_conversation(
         raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Conversation not found")
 
 
-@router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[require_permission("account", "write")])
 async def delete_conversation(conversation_id: int, current_user: TokenData = Depends(get_current_user)):
     service = AIService()
     try:
@@ -113,7 +114,7 @@ async def delete_conversation(conversation_id: int, current_user: TokenData = De
 # --- Message endpoints ---
 
 
-@router.get("/conversations/{conversation_id}/messages")
+@router.get("/conversations/{conversation_id}/messages", dependencies=[require_permission("account", "read")])
 async def list_messages(conversation_id: int, current_user: TokenData = Depends(get_current_user)):
     service = AIService()
     try:
@@ -122,7 +123,7 @@ async def list_messages(conversation_id: int, current_user: TokenData = Depends(
         raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Conversation not found")
 
 
-@router.post("/conversations/{conversation_id}/messages")
+@router.post("/conversations/{conversation_id}/messages", dependencies=[require_permission("account", "write")])
 async def send_message(
     conversation_id: int,
     req: MessageSend,
@@ -138,7 +139,7 @@ async def send_message(
 # --- Model config endpoints ---
 
 
-@router.get("/models")
+@router.get("/models", dependencies=[require_permission("system", "read")])
 async def list_models(
     enabled_only: bool = Query(False),
     current_user: TokenData = Depends(get_current_user),
@@ -147,7 +148,7 @@ async def list_models(
     return service.list_models(enabled_only=enabled_only)
 
 
-@router.get("/models/{model_id}")
+@router.get("/models/{model_id}", dependencies=[require_permission("system", "read")])
 async def get_model(model_id: int, current_user: TokenData = Depends(get_current_user)):
     service = AIService()
     try:
@@ -156,7 +157,7 @@ async def get_model(model_id: int, current_user: TokenData = Depends(get_current
         raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Model config not found")
 
 
-@router.post("/models", status_code=status.HTTP_201_CREATED)
+@router.post("/models", status_code=status.HTTP_201_CREATED, dependencies=[require_permission("system", "manage")])
 async def create_model(req: ModelConfigCreate, current_user: TokenData = Depends(get_current_user)):
     service = AIService()
     try:
@@ -171,7 +172,7 @@ async def create_model(req: ModelConfigCreate, current_user: TokenData = Depends
         raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message=str(e))
 
 
-@router.put("/models/{model_id}")
+@router.put("/models/{model_id}", dependencies=[require_permission("system", "manage")])
 async def update_model(model_id: int, req: ModelConfigUpdate, current_user: TokenData = Depends(get_current_user)):
     service = AIService()
     try:
@@ -180,7 +181,7 @@ async def update_model(model_id: int, req: ModelConfigUpdate, current_user: Toke
         raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Model config not found")
 
 
-@router.delete("/models/{model_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/models/{model_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[require_permission("system", "manage")])
 async def delete_model(model_id: int, current_user: TokenData = Depends(get_current_user)):
     service = AIService()
     try:

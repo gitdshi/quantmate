@@ -5,6 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel
 
+from app.api.dependencies.permissions import require_permission
 from app.api.services.auth_service import get_current_user
 from app.api.models.user import TokenData
 from app.api.errors import ErrorCode
@@ -27,7 +28,7 @@ class BrokerConfigUpdateRequest(BaseModel):
     is_active: Optional[bool] = None
 
 
-@router.get("/configs")
+@router.get("/configs", dependencies=[require_permission("trading", "read")])
 async def list_broker_configs(current_user: TokenData = Depends(get_current_user)):
     """List broker configurations for the current user."""
     dao = BrokerConfigDao()
@@ -41,7 +42,7 @@ async def list_broker_configs(current_user: TokenData = Depends(get_current_user
     return {"configs": configs}
 
 
-@router.post("/configs", status_code=status.HTTP_201_CREATED)
+@router.post("/configs", status_code=status.HTTP_201_CREATED, dependencies=[require_permission("trading", "write")])
 async def create_broker_config(req: BrokerConfigCreateRequest, current_user: TokenData = Depends(get_current_user)):
     """Create a new broker configuration."""
     dao = BrokerConfigDao()
@@ -54,7 +55,7 @@ async def create_broker_config(req: BrokerConfigCreateRequest, current_user: Tok
     return {"id": config_id, "message": "Broker config created"}
 
 
-@router.put("/configs/{config_id}")
+@router.put("/configs/{config_id}", dependencies=[require_permission("trading", "write")])
 async def update_broker_config(
     config_id: int, req: BrokerConfigUpdateRequest, current_user: TokenData = Depends(get_current_user)
 ):
@@ -68,7 +69,7 @@ async def update_broker_config(
     return {"message": "Broker config updated"}
 
 
-@router.delete("/configs/{config_id}")
+@router.delete("/configs/{config_id}", dependencies=[require_permission("trading", "write")])
 async def delete_broker_config(config_id: int, current_user: TokenData = Depends(get_current_user)):
     """Delete a broker configuration."""
     dao = BrokerConfigDao()

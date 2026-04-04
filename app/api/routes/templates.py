@@ -5,6 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field
 
+from app.api.dependencies.permissions import require_permission
 from app.api.services.auth_service import get_current_user
 from app.api.models.user import TokenData
 from app.api.errors import ErrorCode
@@ -48,7 +49,7 @@ class RatingCreate(BaseModel):
 # --- Marketplace (public) ---
 
 
-@router.get("/marketplace")
+@router.get("/marketplace", dependencies=[require_permission("templates", "read")])
 async def list_marketplace(
     category: Optional[str] = None,
     template_type: Optional[str] = None,
@@ -66,7 +67,7 @@ async def list_marketplace(
 # --- My templates ---
 
 
-@router.get("/mine")
+@router.get("/mine", dependencies=[require_permission("templates", "read")])
 async def list_my_templates(
     source: Optional[str] = None,
     pagination: PaginationParams = Depends(),
@@ -80,7 +81,7 @@ async def list_my_templates(
     return paginate(rows, total, pagination)
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED, dependencies=[require_permission("templates", "write")])
 async def create_template(req: TemplateCreate, current_user: TokenData = Depends(get_current_user)):
     service = TemplateService()
     return service.create_template(
@@ -95,7 +96,7 @@ async def create_template(req: TemplateCreate, current_user: TokenData = Depends
     )
 
 
-@router.get("/{template_id}")
+@router.get("/{template_id}", dependencies=[require_permission("templates", "read")])
 async def get_template(template_id: int, current_user: TokenData = Depends(get_current_user)):
     service = TemplateService()
     try:
@@ -104,7 +105,7 @@ async def get_template(template_id: int, current_user: TokenData = Depends(get_c
         raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Template not found")
 
 
-@router.put("/{template_id}")
+@router.put("/{template_id}", dependencies=[require_permission("templates", "write")])
 async def update_template(template_id: int, req: TemplateUpdate, current_user: TokenData = Depends(get_current_user)):
     service = TemplateService()
     try:
@@ -113,7 +114,7 @@ async def update_template(template_id: int, req: TemplateUpdate, current_user: T
         raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Template not found")
 
 
-@router.delete("/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{template_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[require_permission("templates", "write")])
 async def delete_template(template_id: int, current_user: TokenData = Depends(get_current_user)):
     service = TemplateService()
     try:
@@ -122,7 +123,7 @@ async def delete_template(template_id: int, current_user: TokenData = Depends(ge
         raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Template not found")
 
 
-@router.post("/{template_id}/clone", status_code=status.HTTP_201_CREATED)
+@router.post("/{template_id}/clone", status_code=status.HTTP_201_CREATED, dependencies=[require_permission("templates", "write")])
 async def clone_template(template_id: int, current_user: TokenData = Depends(get_current_user)):
     service = TemplateService()
     try:
@@ -131,7 +132,7 @@ async def clone_template(template_id: int, current_user: TokenData = Depends(get
         raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Template not found")
 
 
-@router.post("/{template_id}/publish", status_code=status.HTTP_201_CREATED)
+@router.post("/{template_id}/publish", status_code=status.HTTP_201_CREATED, dependencies=[require_permission("templates", "manage")])
 async def publish_template(template_id: int, current_user: TokenData = Depends(get_current_user)):
     service = TemplateService()
     try:
@@ -145,13 +146,13 @@ async def publish_template(template_id: int, current_user: TokenData = Depends(g
 # --- Comments ---
 
 
-@router.get("/{template_id}/comments")
+@router.get("/{template_id}/comments", dependencies=[require_permission("templates", "read")])
 async def list_comments(template_id: int, current_user: TokenData = Depends(get_current_user)):
     service = TemplateService()
     return service.list_comments(template_id)
 
 
-@router.post("/{template_id}/comments", status_code=status.HTTP_201_CREATED)
+@router.post("/{template_id}/comments", status_code=status.HTTP_201_CREATED, dependencies=[require_permission("templates", "write")])
 async def add_comment(template_id: int, req: CommentCreate, current_user: TokenData = Depends(get_current_user)):
     service = TemplateService()
     try:
@@ -161,7 +162,7 @@ async def add_comment(template_id: int, req: CommentCreate, current_user: TokenD
         raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Template not found")
 
 
-@router.delete("/{template_id}/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{template_id}/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[require_permission("templates", "write")])
 async def delete_comment(template_id: int, comment_id: int, current_user: TokenData = Depends(get_current_user)):
     service = TemplateService()
     try:
@@ -173,7 +174,7 @@ async def delete_comment(template_id: int, comment_id: int, current_user: TokenD
 # --- Ratings ---
 
 
-@router.get("/{template_id}/ratings")
+@router.get("/{template_id}/ratings", dependencies=[require_permission("templates", "read")])
 async def get_ratings(template_id: int, current_user: TokenData = Depends(get_current_user)):
     service = TemplateService()
     summary = service.get_ratings(template_id)
@@ -181,7 +182,7 @@ async def get_ratings(template_id: int, current_user: TokenData = Depends(get_cu
     return {"summary": summary, "reviews": reviews}
 
 
-@router.post("/{template_id}/ratings")
+@router.post("/{template_id}/ratings", dependencies=[require_permission("templates", "write")])
 async def rate_template(template_id: int, req: RatingCreate, current_user: TokenData = Depends(get_current_user)):
     service = TemplateService()
     try:

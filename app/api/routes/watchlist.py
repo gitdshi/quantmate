@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
+from app.api.dependencies.permissions import require_permission
 from app.api.services.auth_service import get_current_user
 from app.api.models.user import TokenData
 from app.api.errors import ErrorCode
@@ -36,10 +37,22 @@ def _ensure_owner(watchlist: dict, user_id: int) -> None:
         raise APIError(status_code=403, code=ErrorCode.FORBIDDEN, message="Not your watchlist")
 
 
+def _watchlist_owner_matches(request: Request, current_user: TokenData) -> bool:
+    from app.domains.market.dao.watchlist_dao import WatchlistDao
+
+    watchlist_id = request.path_params.get("watchlist_id")
+    if watchlist_id is None:
+        return True
+
+    dao = WatchlistDao()
+    watchlist = dao.get(int(watchlist_id))
+    return bool(watchlist and watchlist["user_id"] == current_user.user_id)
+
+
 # --- Watchlist CRUD ---
 
 
-@router.get("")
+@router.get("", dependencies=[require_permission("data", "read")])
 async def list_watchlists(current_user: TokenData = Depends(get_current_user)):
     """List all watchlists for the current user."""
     from app.domains.market.dao.watchlist_dao import WatchlistDao
@@ -48,7 +61,7 @@ async def list_watchlists(current_user: TokenData = Depends(get_current_user)):
     return {"data": dao.list_for_user(current_user.user_id)}
 
 
-@router.post("")
+@router.post("", dependencies=[require_permission("data", "write")])
 async def create_watchlist(
     body: WatchlistCreate,
     current_user: TokenData = Depends(get_current_user),
@@ -60,7 +73,7 @@ async def create_watchlist(
     return {"id": wid, "name": body.name}
 
 
-@router.put("/{watchlist_id}")
+@router.put("/{watchlist_id}", dependencies=[require_permission("data", "write", scope="own", owner_resolver=_watchlist_owner_matches)])
 async def update_watchlist(
     watchlist_id: int,
     body: WatchlistUpdate,
@@ -77,7 +90,7 @@ async def update_watchlist(
     return {"id": watchlist_id, "updated": True}
 
 
-@router.delete("/{watchlist_id}")
+@router.delete("/{watchlist_id}", dependencies=[require_permission("data", "write", scope="own", owner_resolver=_watchlist_owner_matches)])
 async def delete_watchlist(
     watchlist_id: int,
     current_user: TokenData = Depends(get_current_user),
@@ -96,7 +109,7 @@ async def delete_watchlist(
 # --- Watchlist items ---
 
 
-@router.post("/{watchlist_id}/items")
+@router.post("/{watchlist_id}/items", dependencies=[require_permission("data", "write", scope="own", owner_resolver=_watchlist_owner_matches)])
 async def add_item(
     watchlist_id: int,
     body: WatchlistItemAdd,
@@ -113,7 +126,7 @@ async def add_item(
     return {"id": item_id, "symbol": body.symbol}
 
 
-@router.delete("/{watchlist_id}/items/{symbol}")
+@router.delete("/{watchlist_id}/items/{symbol}", dependencies=[require_permission("data", "write", scope="own", owner_resolver=_watchlist_owner_matches)])
 async def remove_item(
     watchlist_id: int,
     symbol: str,

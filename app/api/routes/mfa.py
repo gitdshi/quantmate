@@ -6,6 +6,7 @@ import secrets
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel
 
+from app.api.dependencies.permissions import require_permission
 from app.api.services.auth_service import get_current_user
 from app.api.models.user import TokenData
 from app.api.errors import ErrorCode
@@ -78,7 +79,7 @@ def _verify_totp_code(secret: str, code: str) -> bool:
     return False
 
 
-@router.post("/setup", response_model=MfaSetupResponse)
+@router.post("/setup", response_model=MfaSetupResponse, dependencies=[require_permission("account", "write", scope="self")])
 async def mfa_setup(current_user: TokenData = Depends(get_current_user)):
     """Set up MFA for the current user. Returns secret and recovery codes."""
     secret = _generate_totp_secret()
@@ -108,7 +109,7 @@ async def mfa_setup(current_user: TokenData = Depends(get_current_user)):
     )
 
 
-@router.post("/verify")
+@router.post("/verify", dependencies=[require_permission("account", "write", scope="self")])
 async def mfa_verify(req: MfaVerifyRequest, current_user: TokenData = Depends(get_current_user)):
     """Verify MFA code and enable MFA."""
     dao = MfaDao()
@@ -131,7 +132,7 @@ async def mfa_verify(req: MfaVerifyRequest, current_user: TokenData = Depends(ge
     return {"message": "MFA enabled successfully"}
 
 
-@router.post("/disable")
+@router.post("/disable", dependencies=[require_permission("account", "write", scope="self")])
 async def mfa_disable(req: MfaDisableRequest, current_user: TokenData = Depends(get_current_user)):
     """Disable MFA for the current user."""
     dao = MfaDao()
@@ -154,7 +155,7 @@ async def mfa_disable(req: MfaDisableRequest, current_user: TokenData = Depends(
     return {"message": "MFA disabled successfully"}
 
 
-@router.post("/recovery")
+@router.post("/recovery", dependencies=[require_permission("account", "write", scope="self")])
 async def mfa_recovery(req: MfaRecoveryRequest, current_user: TokenData = Depends(get_current_user)):
     """Use a recovery code to bypass MFA."""
     import json

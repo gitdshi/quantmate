@@ -11,6 +11,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 
+from app.api.dependencies.permissions import require_permission
 from app.api.services.auth_service import get_current_user
 from app.api.models.user import TokenData
 from app.api.pagination import PaginationParams, paginate
@@ -18,7 +19,7 @@ from app.api.pagination import PaginationParams, paginate
 router = APIRouter(prefix="/reports/trade-logs", tags=["Reports"])
 
 
-@router.get("")
+@router.get("", dependencies=[require_permission("reports", "read")])
 async def query_trade_logs(
     symbol: Optional[str] = Query(None),
     event_type: Optional[str] = Query(None),
@@ -53,7 +54,7 @@ async def query_trade_logs(
     return paginate(items, total, pagination)
 
 
-@router.get("/export")
+@router.get("/export", dependencies=[require_permission("reports", "read")])
 async def export_trade_logs(
     format: str = Query("csv", description="csv or json"),
     symbol: Optional[str] = Query(None),

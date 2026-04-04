@@ -5,6 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel
 
+from app.api.dependencies.permissions import require_permission
 from app.api.services.auth_service import get_current_user
 from app.api.models.user import TokenData
 from app.api.errors import ErrorCode
@@ -37,7 +38,7 @@ class EvaluationRun(BaseModel):
     end_date: str
 
 
-@router.get("")
+@router.get("", dependencies=[require_permission("strategies", "read")])
 async def list_factors(
     category: Optional[str] = None,
     pagination: PaginationParams = Depends(),
@@ -54,7 +55,7 @@ async def list_factors(
     return paginate(rows, total, pagination)
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED, dependencies=[require_permission("strategies", "write")])
 async def create_factor(req: FactorCreate, current_user: TokenData = Depends(get_current_user)):
     service = FactorService()
     return service.create_factor(
@@ -67,7 +68,7 @@ async def create_factor(req: FactorCreate, current_user: TokenData = Depends(get
     )
 
 
-@router.get("/{factor_id}")
+@router.get("/{factor_id}", dependencies=[require_permission("strategies", "read")])
 async def get_factor(factor_id: int, current_user: TokenData = Depends(get_current_user)):
     service = FactorService()
     try:
@@ -76,7 +77,7 @@ async def get_factor(factor_id: int, current_user: TokenData = Depends(get_curre
         raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Factor not found")
 
 
-@router.put("/{factor_id}")
+@router.put("/{factor_id}", dependencies=[require_permission("strategies", "write")])
 async def update_factor(factor_id: int, req: FactorUpdate, current_user: TokenData = Depends(get_current_user)):
     service = FactorService()
     try:
@@ -85,7 +86,7 @@ async def update_factor(factor_id: int, req: FactorUpdate, current_user: TokenDa
         raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Factor not found")
 
 
-@router.delete("/{factor_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{factor_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[require_permission("strategies", "write")])
 async def delete_factor(factor_id: int, current_user: TokenData = Depends(get_current_user)):
     service = FactorService()
     try:
@@ -97,7 +98,7 @@ async def delete_factor(factor_id: int, current_user: TokenData = Depends(get_cu
 # --- Evaluations ---
 
 
-@router.get("/{factor_id}/evaluations")
+@router.get("/{factor_id}/evaluations", dependencies=[require_permission("strategies", "read")])
 async def list_evaluations(factor_id: int, current_user: TokenData = Depends(get_current_user)):
     service = FactorService()
     try:
@@ -106,7 +107,7 @@ async def list_evaluations(factor_id: int, current_user: TokenData = Depends(get
         raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Factor not found")
 
 
-@router.post("/{factor_id}/evaluations", status_code=status.HTTP_201_CREATED)
+@router.post("/{factor_id}/evaluations", status_code=status.HTTP_201_CREATED, dependencies=[require_permission("strategies", "write")])
 async def run_evaluation(factor_id: int, req: EvaluationRun, current_user: TokenData = Depends(get_current_user)):
     service = FactorService()
     try:
@@ -115,7 +116,7 @@ async def run_evaluation(factor_id: int, req: EvaluationRun, current_user: Token
         raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Factor not found")
 
 
-@router.delete("/{factor_id}/evaluations/{eval_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{factor_id}/evaluations/{eval_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[require_permission("strategies", "write")])
 async def delete_evaluation(factor_id: int, eval_id: int, current_user: TokenData = Depends(get_current_user)):
     service = FactorService()
     try:
@@ -134,7 +135,7 @@ class QlibFactorRequest(BaseModel):
     end_date: str = "2024-12-31"
 
 
-@router.get("/qlib/factor-sets")
+@router.get("/qlib/factor-sets", dependencies=[require_permission("data", "read")])
 async def list_qlib_factor_sets(current_user: TokenData = Depends(get_current_user)):
     """List available Qlib factor sets (Alpha158, Alpha360)."""
     from app.infrastructure.qlib.qlib_config import SUPPORTED_DATASETS
@@ -142,7 +143,7 @@ async def list_qlib_factor_sets(current_user: TokenData = Depends(get_current_us
     return [{"name": k, "class": v} for k, v in SUPPORTED_DATASETS.items()]
 
 
-@router.post("/qlib/compute")
+@router.post("/qlib/compute", dependencies=[require_permission("data", "write")])
 async def compute_qlib_factors(
     req: QlibFactorRequest,
     current_user: TokenData = Depends(get_current_user),

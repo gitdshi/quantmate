@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from pydantic import BaseModel, Field
 
+from app.api.dependencies.permissions import require_permission
 from app.api.errors import ErrorCode
 from app.api.exception_handlers import APIError
 from app.api.models.user import TokenData
@@ -41,7 +42,7 @@ class DataConvertRequest(BaseModel):
 # ── Status check ────────────────────────────────────────────────────────
 
 
-@router.get("/status")
+@router.get("/status", dependencies=[require_permission("system", "read")])
 async def qlib_status(current_user: TokenData = Depends(get_current_user)):
     """Check if Qlib is available and configured."""
     available = is_qlib_available()
@@ -51,7 +52,7 @@ async def qlib_status(current_user: TokenData = Depends(get_current_user)):
 # ── Supported models / datasets ─────────────────────────────────────────
 
 
-@router.get("/supported-models")
+@router.get("/supported-models", dependencies=[require_permission("system", "read")])
 async def list_supported_models(current_user: TokenData = Depends(get_current_user)):
     """List available Qlib model types."""
     from app.domains.ai.qlib_model_service import QlibModelService
@@ -59,7 +60,7 @@ async def list_supported_models(current_user: TokenData = Depends(get_current_us
     return QlibModelService().list_supported_models()
 
 
-@router.get("/supported-datasets")
+@router.get("/supported-datasets", dependencies=[require_permission("system", "read")])
 async def list_supported_datasets(current_user: TokenData = Depends(get_current_user)):
     """List available factor datasets."""
     from app.domains.ai.qlib_model_service import QlibModelService
@@ -70,7 +71,7 @@ async def list_supported_datasets(current_user: TokenData = Depends(get_current_
 # ── Training runs ────────────────────────────────────────────────────────
 
 
-@router.post("/train")
+@router.post("/train", dependencies=[require_permission("system", "manage")])
 async def train_model(
     req: TrainModelRequest,
     background_tasks: BackgroundTasks,
@@ -100,7 +101,7 @@ async def train_model(
     return {"status": "queued", "message": f"Training {req.model_type} model submitted"}
 
 
-@router.get("/training-runs")
+@router.get("/training-runs", dependencies=[require_permission("system", "read")])
 async def list_training_runs(
     status: Optional[str] = None,
     limit: int = Query(20, ge=1, le=100),
@@ -118,7 +119,7 @@ async def list_training_runs(
     )
 
 
-@router.get("/training-runs/{run_id}")
+@router.get("/training-runs/{run_id}", dependencies=[require_permission("system", "read")])
 async def get_training_run(run_id: int, current_user: TokenData = Depends(get_current_user)):
     """Get details of a training run."""
     from app.domains.ai.qlib_model_service import QlibModelService
@@ -129,7 +130,7 @@ async def get_training_run(run_id: int, current_user: TokenData = Depends(get_cu
     return run
 
 
-@router.get("/training-runs/{run_id}/predictions")
+@router.get("/training-runs/{run_id}/predictions", dependencies=[require_permission("system", "read")])
 async def get_predictions(
     run_id: int,
     trade_date: Optional[str] = None,
@@ -149,7 +150,7 @@ async def get_predictions(
 # ── Data conversion ─────────────────────────────────────────────────────
 
 
-@router.post("/data/convert")
+@router.post("/data/convert", dependencies=[require_permission("system", "manage")])
 async def convert_data(
     req: DataConvertRequest,
     background_tasks: BackgroundTasks,

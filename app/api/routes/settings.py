@@ -8,6 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 
+from app.api.dependencies.permissions import require_permission
 from app.api.services.auth_service import get_current_user
 from app.api.models.user import TokenData
 from app.api.errors import ErrorCode
@@ -34,7 +35,7 @@ class DataSourceConfigUpdate(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@router.get("/datasource-items")
+@router.get("/datasource-items", dependencies=[require_permission("system", "read")])
 async def list_datasource_items(
     source: Optional[str] = Query(None, description="Filter by source: tushare or akshare"),
     current_user: TokenData = Depends(get_current_user),
@@ -47,7 +48,7 @@ async def list_datasource_items(
     return {"data": items}
 
 
-@router.put("/datasource-items/batch")
+@router.put("/datasource-items/batch", dependencies=[require_permission("system", "manage")])
 async def batch_update_datasource_items(
     body: DataSourceBatchUpdate,
     current_user: TokenData = Depends(get_current_user),
@@ -69,7 +70,7 @@ async def batch_update_datasource_items(
     return {"updated": updated}
 
 
-@router.put("/datasource-items/{item_key}")
+@router.put("/datasource-items/{item_key}", dependencies=[require_permission("system", "manage")])
 async def update_datasource_item(
     item_key: str,
     body: DataSourceItemUpdate,
@@ -100,7 +101,7 @@ async def update_datasource_item(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/datasource-configs")
+@router.get("/datasource-configs", dependencies=[require_permission("system", "read")])
 async def list_datasource_configs(
     current_user: TokenData = Depends(get_current_user),
 ):
@@ -112,7 +113,7 @@ async def list_datasource_configs(
     return {"data": configs}
 
 
-@router.put("/datasource-configs/{source_key}")
+@router.put("/datasource-configs/{source_key}", dependencies=[require_permission("system", "manage")])
 async def update_datasource_config(
     source_key: str,
     body: DataSourceConfigUpdate,
@@ -136,7 +137,7 @@ async def update_datasource_config(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/datasource-items/test/{source}")
+@router.post("/datasource-items/test/{source}", dependencies=[require_permission("system", "manage")])
 async def test_datasource_connection(
     source: str,
     current_user: TokenData = Depends(get_current_user),

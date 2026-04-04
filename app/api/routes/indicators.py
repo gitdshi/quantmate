@@ -5,6 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel
 
+from app.api.dependencies.permissions import require_permission
 from app.api.services.auth_service import get_current_user
 from app.api.models.user import TokenData
 from app.api.errors import ErrorCode
@@ -31,7 +32,7 @@ class IndicatorUpdateRequest(BaseModel):
     is_active: Optional[bool] = None
 
 
-@router.get("")
+@router.get("", dependencies=[require_permission("data", "read")])
 async def list_indicators(
     category: Optional[str] = None,
     current_user: TokenData = Depends(get_current_user),
@@ -42,7 +43,7 @@ async def list_indicators(
     return {"indicators": indicators}
 
 
-@router.get("/{indicator_id}")
+@router.get("/{indicator_id}", dependencies=[require_permission("data", "read")])
 async def get_indicator(indicator_id: int, current_user: TokenData = Depends(get_current_user)):
     """Get indicator detail."""
     dao = IndicatorConfigDao()
@@ -52,7 +53,7 @@ async def get_indicator(indicator_id: int, current_user: TokenData = Depends(get
     return indicator
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED, dependencies=[require_permission("data", "write")])
 async def create_indicator(req: IndicatorCreateRequest, current_user: TokenData = Depends(get_current_user)):
     """Create a custom indicator."""
     valid_categories = ("trend", "oscillator", "volume", "volatility", "custom")
@@ -70,7 +71,7 @@ async def create_indicator(req: IndicatorCreateRequest, current_user: TokenData 
     return {"id": indicator_id, "message": "Indicator created"}
 
 
-@router.put("/{indicator_id}")
+@router.put("/{indicator_id}", dependencies=[require_permission("data", "write")])
 async def update_indicator(
     indicator_id: int, req: IndicatorUpdateRequest, current_user: TokenData = Depends(get_current_user)
 ):
@@ -84,7 +85,7 @@ async def update_indicator(
     return {"message": "Indicator updated"}
 
 
-@router.delete("/{indicator_id}")
+@router.delete("/{indicator_id}", dependencies=[require_permission("data", "write")])
 async def delete_indicator(indicator_id: int, current_user: TokenData = Depends(get_current_user)):
     """Delete a custom indicator (cannot delete built-in)."""
     dao = IndicatorConfigDao()

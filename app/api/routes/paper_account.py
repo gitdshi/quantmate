@@ -10,6 +10,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel, Field
 
+from app.api.dependencies.permissions import require_permission
 from app.api.services.auth_service import get_current_user
 from app.api.models.user import TokenData
 from app.api.errors import ErrorCode
@@ -32,7 +33,7 @@ class CreateAccountRequest(BaseModel):
 # ── Endpoints ───────────────────────────────────────────────
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED, dependencies=[require_permission("trading", "write")])
 async def create_account(req: CreateAccountRequest, current_user: TokenData = Depends(get_current_user)):
     """Create a new paper trading account."""
     svc = PaperAccountService()
@@ -47,7 +48,7 @@ async def create_account(req: CreateAccountRequest, current_user: TokenData = De
     return result
 
 
-@router.get("")
+@router.get("", dependencies=[require_permission("trading", "read")])
 async def list_accounts(
     status_filter: Optional[str] = Query(None, alias="status"),
     current_user: TokenData = Depends(get_current_user),
@@ -58,7 +59,7 @@ async def list_accounts(
     return {"accounts": accounts}
 
 
-@router.get("/{account_id}")
+@router.get("/{account_id}", dependencies=[require_permission("trading", "read")])
 async def get_account(account_id: int, current_user: TokenData = Depends(get_current_user)):
     """Get detailed info for a specific paper account."""
     svc = PaperAccountService()
@@ -68,7 +69,7 @@ async def get_account(account_id: int, current_user: TokenData = Depends(get_cur
     return account
 
 
-@router.get("/{account_id}/equity-curve")
+@router.get("/{account_id}/equity-curve", dependencies=[require_permission("trading", "read")])
 async def get_equity_curve(account_id: int, current_user: TokenData = Depends(get_current_user)):
     """Get daily equity snapshots for a paper account (for charting)."""
     svc = PaperAccountService()
@@ -76,7 +77,7 @@ async def get_equity_curve(account_id: int, current_user: TokenData = Depends(ge
     return {"curve": curve}
 
 
-@router.get("/{account_id}/analytics")
+@router.get("/{account_id}/analytics", dependencies=[require_permission("trading", "read")])
 async def get_analytics(account_id: int, current_user: TokenData = Depends(get_current_user)):
     """Get comprehensive performance analytics for a paper account."""
     svc = PaperAnalyticsService()
@@ -86,7 +87,7 @@ async def get_analytics(account_id: int, current_user: TokenData = Depends(get_c
     return result
 
 
-@router.delete("/{account_id}")
+@router.delete("/{account_id}", dependencies=[require_permission("trading", "write")])
 async def close_account(account_id: int, current_user: TokenData = Depends(get_current_user)):
     """Close (soft-delete) a paper account."""
     svc = PaperAccountService()

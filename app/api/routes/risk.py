@@ -5,6 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel
 
+from app.api.dependencies.permissions import require_permission
 from app.api.services.auth_service import get_current_user
 from app.api.models.user import TokenData
 from app.api.errors import ErrorCode
@@ -31,7 +32,7 @@ class RiskRuleUpdateRequest(BaseModel):
     is_active: Optional[bool] = None
 
 
-@router.get("/rules")
+@router.get("/rules", dependencies=[require_permission("portfolios", "read")])
 async def list_risk_rules(current_user: TokenData = Depends(get_current_user)):
     """List all risk rules for the current user."""
     dao = RiskRuleDao()
@@ -39,7 +40,7 @@ async def list_risk_rules(current_user: TokenData = Depends(get_current_user)):
     return {"rules": rules}
 
 
-@router.post("/rules", status_code=status.HTTP_201_CREATED)
+@router.post("/rules", status_code=status.HTTP_201_CREATED, dependencies=[require_permission("portfolios", "write")])
 async def create_risk_rule(req: RiskRuleCreateRequest, current_user: TokenData = Depends(get_current_user)):
     """Create a new risk rule."""
     valid_types = ("position_limit", "drawdown", "concentration", "frequency", "custom")
@@ -64,7 +65,7 @@ async def create_risk_rule(req: RiskRuleCreateRequest, current_user: TokenData =
     return {"id": rule_id, "message": "Risk rule created"}
 
 
-@router.put("/rules/{rule_id}")
+@router.put("/rules/{rule_id}", dependencies=[require_permission("portfolios", "write")])
 async def update_risk_rule(
     rule_id: int, req: RiskRuleUpdateRequest, current_user: TokenData = Depends(get_current_user)
 ):
@@ -78,7 +79,7 @@ async def update_risk_rule(
     return {"message": "Risk rule updated"}
 
 
-@router.delete("/rules/{rule_id}")
+@router.delete("/rules/{rule_id}", dependencies=[require_permission("portfolios", "write")])
 async def delete_risk_rule(rule_id: int, current_user: TokenData = Depends(get_current_user)):
     """Delete a risk rule."""
     dao = RiskRuleDao()
@@ -87,7 +88,7 @@ async def delete_risk_rule(rule_id: int, current_user: TokenData = Depends(get_c
     return {"message": "Risk rule deleted"}
 
 
-@router.post("/check")
+@router.post("/check", dependencies=[require_permission("portfolios", "write")])
 async def pre_trade_risk_check(
     symbol: str,
     direction: str,
@@ -138,7 +139,7 @@ class StressTestRequest(BaseModel):
     scenarios: list[dict] | None = None
 
 
-@router.post("/var/parametric")
+@router.post("/var/parametric", dependencies=[require_permission("reports", "read")])
 async def compute_parametric_var(req: VaRRequest, current_user: TokenData = Depends(get_current_user)):
     """Compute parametric (Gaussian) Value-at-Risk."""
     from app.domains.portfolio.risk_analysis_service import RiskAnalysisService
@@ -147,7 +148,7 @@ async def compute_parametric_var(req: VaRRequest, current_user: TokenData = Depe
     return svc.parametric_var(req.daily_returns, req.confidence, req.holding_period, req.portfolio_value)
 
 
-@router.post("/var/historical")
+@router.post("/var/historical", dependencies=[require_permission("reports", "read")])
 async def compute_historical_var(req: VaRRequest, current_user: TokenData = Depends(get_current_user)):
     """Compute historical Value-at-Risk and CVaR."""
     from app.domains.portfolio.risk_analysis_service import RiskAnalysisService
@@ -156,7 +157,7 @@ async def compute_historical_var(req: VaRRequest, current_user: TokenData = Depe
     return svc.historical_var(req.daily_returns, req.confidence, req.holding_period, req.portfolio_value)
 
 
-@router.post("/stress-test")
+@router.post("/stress-test", dependencies=[require_permission("reports", "read")])
 async def run_stress_test(req: StressTestRequest, current_user: TokenData = Depends(get_current_user)):
     """Run stress test scenarios against portfolio weights."""
     from app.domains.portfolio.risk_analysis_service import RiskAnalysisService

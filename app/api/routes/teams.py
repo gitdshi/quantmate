@@ -5,6 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel
 
+from app.api.dependencies.permissions import require_permission
 from app.api.services.auth_service import get_current_user
 from app.api.models.user import TokenData
 from app.api.errors import ErrorCode
@@ -40,19 +41,19 @@ class ShareCreate(BaseModel):
 # --- Workspace endpoints ---
 
 
-@router.get("/workspaces")
+@router.get("/workspaces", dependencies=[require_permission("teams", "read")])
 async def list_workspaces(current_user: TokenData = Depends(get_current_user)):
     service = CollaborationService()
     return service.list_workspaces(current_user.user_id)
 
 
-@router.post("/workspaces", status_code=status.HTTP_201_CREATED)
+@router.post("/workspaces", status_code=status.HTTP_201_CREATED, dependencies=[require_permission("teams", "write")])
 async def create_workspace(req: WorkspaceCreate, current_user: TokenData = Depends(get_current_user)):
     service = CollaborationService()
     return service.create_workspace(current_user.user_id, req.name, req.description)
 
 
-@router.get("/workspaces/{workspace_id}")
+@router.get("/workspaces/{workspace_id}", dependencies=[require_permission("teams", "read")])
 async def get_workspace(workspace_id: int, current_user: TokenData = Depends(get_current_user)):
     service = CollaborationService()
     try:
@@ -63,7 +64,7 @@ async def get_workspace(workspace_id: int, current_user: TokenData = Depends(get
         raise APIError(status_code=403, code=ErrorCode.FORBIDDEN, message="Not a member of this workspace")
 
 
-@router.put("/workspaces/{workspace_id}")
+@router.put("/workspaces/{workspace_id}", dependencies=[require_permission("teams", "manage")])
 async def update_workspace(
     workspace_id: int, req: WorkspaceUpdate, current_user: TokenData = Depends(get_current_user)
 ):
@@ -74,7 +75,7 @@ async def update_workspace(
         raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Workspace not found or not owner")
 
 
-@router.delete("/workspaces/{workspace_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/workspaces/{workspace_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[require_permission("teams", "manage")])
 async def delete_workspace(workspace_id: int, current_user: TokenData = Depends(get_current_user)):
     service = CollaborationService()
     try:
@@ -86,7 +87,7 @@ async def delete_workspace(workspace_id: int, current_user: TokenData = Depends(
 # --- Member endpoints ---
 
 
-@router.get("/workspaces/{workspace_id}/members")
+@router.get("/workspaces/{workspace_id}/members", dependencies=[require_permission("teams", "read")])
 async def list_members(workspace_id: int, current_user: TokenData = Depends(get_current_user)):
     service = CollaborationService()
     try:
@@ -95,7 +96,7 @@ async def list_members(workspace_id: int, current_user: TokenData = Depends(get_
         raise APIError(status_code=403, code=ErrorCode.FORBIDDEN, message="Access denied")
 
 
-@router.post("/workspaces/{workspace_id}/members", status_code=status.HTTP_201_CREATED)
+@router.post("/workspaces/{workspace_id}/members", status_code=status.HTTP_201_CREATED, dependencies=[require_permission("teams", "manage")])
 async def add_member(workspace_id: int, req: MemberAdd, current_user: TokenData = Depends(get_current_user)):
     service = CollaborationService()
     try:
@@ -109,7 +110,7 @@ async def add_member(workspace_id: int, req: MemberAdd, current_user: TokenData 
         raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message=str(e))
 
 
-@router.delete("/workspaces/{workspace_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/workspaces/{workspace_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[require_permission("teams", "manage")])
 async def remove_member(workspace_id: int, user_id: int, current_user: TokenData = Depends(get_current_user)):
     service = CollaborationService()
     try:
@@ -123,13 +124,13 @@ async def remove_member(workspace_id: int, user_id: int, current_user: TokenData
 # --- Strategy sharing ---
 
 
-@router.get("/shares/received")
+@router.get("/shares/received", dependencies=[require_permission("teams", "read")])
 async def list_shared_with_me(current_user: TokenData = Depends(get_current_user)):
     service = CollaborationService()
     return service.list_shared_with_me(current_user.user_id)
 
 
-@router.post("/shares", status_code=status.HTTP_201_CREATED)
+@router.post("/shares", status_code=status.HTTP_201_CREATED, dependencies=[require_permission("teams", "write")])
 async def share_strategy(req: ShareCreate, current_user: TokenData = Depends(get_current_user)):
     service = CollaborationService()
     share_id = service.share_strategy(
@@ -142,7 +143,7 @@ async def share_strategy(req: ShareCreate, current_user: TokenData = Depends(get
     return {"id": share_id, "message": "Strategy shared"}
 
 
-@router.delete("/shares/{share_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/shares/{share_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[require_permission("teams", "write")])
 async def revoke_share(share_id: int, current_user: TokenData = Depends(get_current_user)):
     service = CollaborationService()
     try:

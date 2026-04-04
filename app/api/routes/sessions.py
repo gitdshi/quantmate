@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Depends, status
 
+from app.api.dependencies.permissions import require_permission
 from app.api.services.auth_service import get_current_user
 from app.api.models.user import TokenData
 from app.api.errors import ErrorCode
@@ -11,7 +12,7 @@ from app.domains.auth.dao.session_dao import SessionDao
 router = APIRouter(prefix="/auth/sessions", tags=["Sessions"])
 
 
-@router.get("/")
+@router.get("/", dependencies=[require_permission("account", "read", scope="self")])
 async def list_sessions(current_user: TokenData = Depends(get_current_user)):
     """List active sessions for the current user."""
     dao = SessionDao()
@@ -19,7 +20,7 @@ async def list_sessions(current_user: TokenData = Depends(get_current_user)):
     return {"sessions": sessions}
 
 
-@router.delete("/all")
+@router.delete("/all", dependencies=[require_permission("account", "write", scope="self")])
 async def revoke_all_sessions(current_user: TokenData = Depends(get_current_user)):
     """Force logout all sessions for the current user."""
     dao = SessionDao()
@@ -27,7 +28,7 @@ async def revoke_all_sessions(current_user: TokenData = Depends(get_current_user
     return {"message": f"{count} sessions revoked"}
 
 
-@router.delete("/{session_id}")
+@router.delete("/{session_id}", dependencies=[require_permission("account", "write", scope="self")])
 async def revoke_session(session_id: int, current_user: TokenData = Depends(get_current_user)):
     """Force logout a specific session."""
     dao = SessionDao()
