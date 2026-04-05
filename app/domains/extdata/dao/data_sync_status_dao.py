@@ -3,7 +3,6 @@
 from datetime import date, timedelta
 import os
 import logging
-from functools import lru_cache
 from typing import Dict, List, Tuple, Any
 
 from sqlalchemy import text
@@ -40,20 +39,23 @@ engine_ak = get_akshare_engine()
 
 DATA_SYNC_STATUS_SQL = """
 CREATE TABLE IF NOT EXISTS data_sync_status (
-    id INT PRIMARY KEY AUTO_INCREMENT,
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
     sync_date DATE NOT NULL,
-    step_name ENUM('akshare_index','tushare_stock_basic','tushare_stock_daily','tushare_adj_factor','tushare_dividend','tushare_top10_holders','vnpy_sync','tushare_stock_weekly','tushare_stock_monthly','tushare_index_daily','tushare_index_weekly') NOT NULL,
-    status ENUM('pending','running','success','partial','error') DEFAULT 'pending',
+    source VARCHAR(50) NOT NULL,
+    interface_key VARCHAR(100) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
     rows_synced INT DEFAULT 0,
     error_message TEXT,
+    retry_count INT DEFAULT 0,
     started_at TIMESTAMP NULL,
     finished_at TIMESTAMP NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_date_step (sync_date, step_name),
-    KEY idx_status_date (status, sync_date),
-    KEY idx_date (sync_date)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    UNIQUE KEY uq_date_source_interface (sync_date, source, interface_key),
+    INDEX idx_status (status),
+    INDEX idx_sync_date (sync_date),
+    INDEX idx_source_interface (source, interface_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Per-interface per-trading-day sync status tracking';
 """
 
 
@@ -65,23 +67,6 @@ CREATE TABLE IF NOT EXISTS trade_cal (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 """
-
-
-@lru_cache(maxsize=1)
-def _uses_legacy_step_schema() -> bool:
-    """Detect whether quantmate.data_sync_status still uses the legacy step_name schema."""
-    with engine_tm.connect() as conn:
-        rows = conn.execute(
-            text(
-                """
-                SELECT column_name
-                FROM information_schema.columns
-                WHERE table_schema = DATABASE() AND table_name = 'data_sync_status'
-                """
-            )
-        ).fetchall()
-    columns = {row[0] for row in rows}
-    return "step_name" in columns and "source" not in columns and "interface_key" not in columns
 
 
 def _step_to_source_interface(step_name: str) -> tuple[str, str]:
@@ -190,19 +175,11 @@ def bulk_upsert_status(rows: List[Tuple[Any, ...]], chunk_size: int = 1000) -> i
     `rows` is a list of tuples matching (sync_date, step_name, status, rows_synced, error_message, started_at, finished_at)
     Returns number of rows processed.
     """
-    legacy_schema = _uses_legacy_step_schema()
-    if legacy_schema:
-        insert_sql = (
-            "INSERT INTO data_sync_status "
-            "(sync_date, step_name, status, rows_synced, error_message, started_at, finished_at) VALUES (%s, %s, %s, %s, %s, %s, %s) "
-            "ON DUPLICATE KEY UPDATE status=VALUES(status), rows_synced=VALUES(rows_synced), error_message=VALUES(error_message), finished_at=VALUES(finished_at), updated_at=CURRENT_TIMESTAMP"
-        )
-    else:
-        insert_sql = (
-            "INSERT INTO data_sync_status "
-            "(sync_date, source, interface_key, status, rows_synced, error_message, started_at, finished_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) "
-            "ON DUPLICATE KEY UPDATE status=VALUES(status), rows_synced=VALUES(rows_synced), error_message=VALUES(error_message), finished_at=VALUES(finished_at), updated_at=CURRENT_TIMESTAMP"
-        )
+    insert_sql = (
+        "INSERT INTO data_sync_status "
+        "(sync_date, source, interface_key, status, rows_synced, error_message, started_at, finished_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) "
+        "ON DUPLICATE KEY UPDATE status=VALUES(status), rows_synced=VALUES(rows_synced), error_message=VALUES(error_message), finished_at=VALUES(finished_at), updated_at=CURRENT_TIMESTAMP"
+    )
 
     processed = 0
     raw_conn = engine_tm.raw_connection()
@@ -210,28 +187,22 @@ def bulk_upsert_status(rows: List[Tuple[Any, ...]], chunk_size: int = 1000) -> i
         cursor = raw_conn.cursor()
         for i in range(0, len(rows), chunk_size):
             chunk = rows[i : i + chunk_size]
-            if legacy_schema:
-                params = [
-                    (r[0].strftime("%Y-%m-%d") if hasattr(r[0], "strftime") else r[0], r[1], r[2], r[3], r[4], r[5], r[6])
-                    for r in chunk
-                ]
-            else:
-                params = []
-                for r in chunk:
-                    sync_date, step_name, status, rows_synced, error_message, started_at, finished_at = r
-                    source, interface_key = _step_to_source_interface(step_name)
-                    params.append(
-                        (
-                            sync_date.strftime("%Y-%m-%d") if hasattr(sync_date, "strftime") else sync_date,
-                            source,
-                            interface_key,
-                            status,
-                            rows_synced,
-                            error_message,
-                            started_at,
-                            finished_at,
-                        )
+            params = []
+            for r in chunk:
+                sync_date, step_name, status, rows_synced, error_message, started_at, finished_at = r
+                source, interface_key = _step_to_source_interface(step_name)
+                params.append(
+                    (
+                        sync_date.strftime("%Y-%m-%d") if hasattr(sync_date, "strftime") else sync_date,
+                        source,
+                        interface_key,
+                        status,
+                        rows_synced,
+                        error_message,
+                        started_at,
+                        finished_at,
                     )
+                )
             cursor.executemany(insert_sql, params)
             raw_conn.commit()
             processed += len(chunk)
@@ -252,59 +223,37 @@ def bulk_upsert_status(rows: List[Tuple[Any, ...]], chunk_size: int = 1000) -> i
 def write_step_status(sync_date: date, step_name: str, status: str, rows_synced: int = 0, error_message: Any = None):
     """Insert or update a single step status row."""
     with engine_tm.begin() as conn:
-        if _uses_legacy_step_schema():
-            conn.execute(
-                text("""
-                INSERT INTO data_sync_status 
-                    (sync_date, step_name, status, rows_synced, error_message, started_at, finished_at)
-                VALUES (:sd, :step, :status, :rows, :err, NOW(), NOW())
-                ON DUPLICATE KEY UPDATE
-                    status = VALUES(status),
-                    rows_synced = VALUES(rows_synced),
-                    error_message = VALUES(error_message),
-                    finished_at = VALUES(finished_at),
-                    updated_at = CURRENT_TIMESTAMP
-            """),
-                {"sd": sync_date, "step": step_name, "status": status, "rows": rows_synced, "err": error_message},
-            )
-        else:
-            source, interface_key = _step_to_source_interface(step_name)
-            conn.execute(
-                text("""
-                INSERT INTO data_sync_status 
-                    (sync_date, source, interface_key, status, rows_synced, error_message, started_at, finished_at)
-                VALUES (:sd, :src, :ik, :status, :rows, :err, NOW(), NOW())
-                ON DUPLICATE KEY UPDATE
-                    status = VALUES(status),
-                    rows_synced = VALUES(rows_synced),
-                    error_message = VALUES(error_message),
-                    finished_at = VALUES(finished_at),
-                    updated_at = CURRENT_TIMESTAMP
-            """),
-                {
-                    "sd": sync_date,
-                    "src": source,
-                    "ik": interface_key,
-                    "status": status,
-                    "rows": rows_synced,
-                    "err": error_message,
-                },
-            )
+        source, interface_key = _step_to_source_interface(step_name)
+        conn.execute(
+            text("""
+            INSERT INTO data_sync_status 
+                (sync_date, source, interface_key, status, rows_synced, error_message, started_at, finished_at)
+            VALUES (:sd, :src, :ik, :status, :rows, :err, NOW(), NOW())
+            ON DUPLICATE KEY UPDATE
+                status = VALUES(status),
+                rows_synced = VALUES(rows_synced),
+                error_message = VALUES(error_message),
+                finished_at = VALUES(finished_at),
+                updated_at = CURRENT_TIMESTAMP
+        """),
+            {
+                "sd": sync_date,
+                "src": source,
+                "ik": interface_key,
+                "status": status,
+                "rows": rows_synced,
+                "err": error_message,
+            },
+        )
 
 
 def get_step_status(sync_date: date, step_name: str) -> Any:
     with engine_tm.connect() as conn:
-        if _uses_legacy_step_schema():
-            res = conn.execute(
-                text("SELECT status FROM data_sync_status WHERE sync_date = :sd AND step_name = :step"),
-                {"sd": sync_date, "step": step_name},
-            )
-        else:
-            source, interface_key = _step_to_source_interface(step_name)
-            res = conn.execute(
-                text("SELECT status FROM data_sync_status WHERE sync_date = :sd AND source = :src AND interface_key = :ik"),
-                {"sd": sync_date, "src": source, "ik": interface_key},
-            )
+        source, interface_key = _step_to_source_interface(step_name)
+        res = conn.execute(
+            text("SELECT status FROM data_sync_status WHERE sync_date = :sd AND source = :src AND interface_key = :ik"),
+            {"sd": sync_date, "src": source, "ik": interface_key},
+        )
         row = res.fetchone()
         return row[0] if row else None
 
@@ -313,18 +262,6 @@ def get_failed_steps(lookback_days: int = 60) -> List[Tuple[date, str]]:
     end = date.today() - timedelta(days=1)
     start = end - timedelta(days=lookback_days)
     with engine_tm.connect() as conn:
-        if _uses_legacy_step_schema():
-            res = conn.execute(
-                text("""
-                SELECT sync_date, step_name FROM data_sync_status
-                WHERE sync_date >= :start AND sync_date <= :end
-                  AND status IN ('error', 'partial', 'pending')
-                ORDER BY sync_date ASC, step_name
-            """),
-                {"start": start, "end": end},
-            )
-            return [(row[0], row[1]) for row in res.fetchall()]
-
         res = conn.execute(
             text("""
             SELECT sync_date, source, interface_key FROM data_sync_status
