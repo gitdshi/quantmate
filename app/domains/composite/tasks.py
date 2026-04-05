@@ -3,8 +3,7 @@
 import json
 import logging
 import sys
-import traceback
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -25,7 +24,6 @@ def _load_market_data(
 
     Returns: date_str → symbol → {open, high, low, close, volume, prev_close}
     """
-    from datetime import date as date_type
     from app.domains.market.service import MarketService
 
     market_svc = MarketService()
@@ -82,7 +80,6 @@ def _load_benchmark_data(
         from app.domains.backtests.dao.akshare_benchmark_dao import AkshareBenchmarkDao
 
         dao = AkshareBenchmarkDao()
-        from datetime import date as date_type
 
         s = datetime.strptime(start_date, "%Y-%m-%d").date()
         e = datetime.strptime(end_date, "%Y-%m-%d").date()

@@ -3,7 +3,7 @@
 Tracks positions, cash, trades, and equity curve during a composite backtest run.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date
 from typing import Any, Dict, List, Optional
 

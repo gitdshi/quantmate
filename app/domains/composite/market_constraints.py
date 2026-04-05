@@ -5,7 +5,7 @@ Handles A-share market rules: T+1, lot size, price limits, suspension, commissio
 
 from dataclasses import dataclass
 from datetime import date
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
