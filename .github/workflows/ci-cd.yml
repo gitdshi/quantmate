@@ -187,8 +187,14 @@ jobs:
             echo "==> Rolling restart"
             if ! GITHUB_OWNER=$GITHUB_OWNER IMAGE_TAG=$IMAGE_TAG \
               docker compose -f docker-compose.staging.yml up -d api worker datasync; then
-              echo "Compose restart hit a stale container reference, cleaning datasync and retrying once"
-              docker rm -f quantmate-datasync-1 >/dev/null 2>&1 || true
+              echo "Compose restart hit a stale container reference, cleaning api/worker/datasync and retrying once"
+              for name in \
+                quantmate-api-1 \
+                quantmate-worker-1 \
+                quantmate-datasync-1; do
+                docker rm -f "$name" >/dev/null 2>&1 || true
+              done
+              docker compose -f docker-compose.staging.yml rm -sf api worker datasync >/dev/null 2>&1 || true
               GITHUB_OWNER=$GITHUB_OWNER IMAGE_TAG=$IMAGE_TAG \
                 docker compose -f docker-compose.staging.yml up -d api worker datasync
             fi
