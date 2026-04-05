@@ -27,7 +27,6 @@ class MarketService:
         codes = self._index_dao.list_index_codes()
         name_map = {
             "399300.SZ": "HS300 (沪深300)",
-            "000300.SH": "HS300 (沪深300)",
             "000016.SH": "SSE50 (上证50)",
             "000905.SH": "CSI500 (中证500)",
             "399006.SZ": "ChiNext (创业板指)",
@@ -37,7 +36,12 @@ class MarketService:
             "000688.SH": "STAR Market (科创板)",
             "399005.SZ": "Small/Mid Cap Index (中小板指)",
         }
-        return [{"value": c, "label": name_map.get(c, c)} for c in codes]
+        canonical_codes: list[str] = []
+        for code in codes:
+            normalized = "399300.SZ" if code == "000300.SH" else code
+            if normalized not in canonical_codes:
+                canonical_codes.append(normalized)
+        return [{"value": c, "label": name_map.get(c, c)} for c in canonical_codes]
 
     # ----- Data API helpers (tushare DB) -----
 

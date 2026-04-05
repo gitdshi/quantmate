@@ -181,7 +181,7 @@ class DataService:
     def get_index_overview(self) -> Dict[str, Any]:
         """Fetch realtime index overview (CN indices)."""
         indexes = {
-            "csi300": {"symbol": "000300.SH", "market": "CN_INDEX", "name": "CSI 300"},
+            "csi300": {"symbol": "399300.SZ", "market": "CN_INDEX", "name": "CSI 300"},
             "sse": {"symbol": "000001.SH", "market": "CN_INDEX", "name": "SSE Composite"},
             "szse": {"symbol": "399001.SZ", "market": "CN_INDEX", "name": "SZSE Component"},
             "chinext": {"symbol": "399006.SZ", "market": "CN_INDEX", "name": "ChiNext"},

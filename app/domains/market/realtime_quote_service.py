@@ -166,6 +166,9 @@ class RealtimeQuoteService:
 
     def _fetch_tencent_quote(self, code: str) -> list[str]:
         prefix = "sh" if code.startswith(("6", "9", "5", "68")) else "sz"
+        return self._fetch_tencent_quote_with_prefix(code, prefix)
+
+    def _fetch_tencent_quote_with_prefix(self, code: str, prefix: str) -> list[str]:
         url = f"https://qt.gtimg.cn/q={prefix}{code}"
         return self._tencent_request_with_retry(url, code)
 

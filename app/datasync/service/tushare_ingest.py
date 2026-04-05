@@ -4,7 +4,20 @@ import logging
 import random
 import re
 import pandas as pd
-import tushare as ts
+
+try:
+    import tushare as ts
+except ModuleNotFoundError:  # pragma: no cover - exercised in lightweight test envs
+    class _MissingTushareModule:
+        @staticmethod
+        def pro_api(*args, **kwargs):
+            class _MissingPro:
+                def __getattr__(self, name):
+                    raise ModuleNotFoundError("tushare is required for live datasync operations")
+
+            return _MissingPro()
+
+    ts = _MissingTushareModule()
 
 logging.basicConfig(level=logging.INFO)
 

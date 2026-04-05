@@ -9,8 +9,14 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from app.infrastructure.db.connections import connection
+
+
+def _is_missing_table(exc: Exception, table_name: str) -> bool:
+    message = str(getattr(exc, "orig", exc)).lower()
+    return table_name.lower() in message and ("doesn't exist" in message or "no such table" in message)
 
 
 class SessionDao:
@@ -30,14 +36,19 @@ class SessionDao:
 
     def list_by_user(self, user_id: int) -> list[dict]:
         with connection("quantmate") as conn:
-            rows = conn.execute(
-                text("""
-                    SELECT id, user_id, device_info, ip_address, login_at, last_active_at, expires_at
-                    FROM user_sessions WHERE user_id = :uid AND expires_at > NOW()
-                    ORDER BY last_active_at DESC
-                """),
-                {"uid": user_id},
-            ).fetchall()
+            try:
+                rows = conn.execute(
+                    text("""
+                        SELECT id, user_id, device_info, ip_address, login_at, last_active_at, expires_at
+                        FROM user_sessions WHERE user_id = :uid AND expires_at > NOW()
+                        ORDER BY last_active_at DESC
+                    """),
+                    {"uid": user_id},
+                ).fetchall()
+            except (ProgrammingError, OperationalError) as exc:
+                if _is_missing_table(exc, "user_sessions"):
+                    return []
+                raise
             return [
                 {
                     "id": r.id,

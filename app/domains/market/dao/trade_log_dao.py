@@ -6,7 +6,12 @@ from datetime import date, datetime
 from typing import Any, Optional
 
 from sqlalchemy import text
-from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.exc import OperationalError, ProgrammingError
+
+
+def _is_missing_table(exc: Exception, table_name: str) -> bool:
+    message = str(getattr(exc, "orig", exc)).lower()
+    return table_name.lower() in message and ("doesn't exist" in message or "no such table" in message)
 
 from app.infrastructure.db.connections import connection
 
@@ -62,7 +67,12 @@ class TradeLogDao:
         where = " AND ".join(conditions) if conditions else "1=1"
         sql = f"SELECT * FROM trade_logs WHERE {where} ORDER BY timestamp DESC LIMIT :limit OFFSET :offset"
         with connection("quantmate") as conn:
-            rows = conn.execute(text(sql), params).fetchall()
+            try:
+                rows = conn.execute(text(sql), params).fetchall()
+            except (ProgrammingError, OperationalError) as exc:
+                if _is_missing_table(exc, "trade_logs"):
+                    return []
+                raise
             return [dict(r._mapping) for r in rows]
 
     def count(self, **filters) -> int:
@@ -79,6 +89,8 @@ class TradeLogDao:
                     text(f"SELECT COUNT(*) AS cnt FROM trade_logs WHERE {where}"),
                     params,
                 ).fetchone()
-            except ProgrammingError:
-                return 0
+            except (ProgrammingError, OperationalError) as exc:
+                if _is_missing_table(exc, "trade_logs"):
+                    return 0
+                raise
             return row._mapping["cnt"] if row else 0

@@ -10,29 +10,45 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from app.infrastructure.db.connections import connection
+
+
+def _is_missing_table(exc: Exception, table_name: str) -> bool:
+    message = str(getattr(exc, "orig", exc)).lower()
+    return table_name.lower() in message and ("doesn't exist" in message or "no such table" in message)
 
 
 class ApiKeyDao:
     def list_by_user(self, user_id: int) -> list[dict]:
         with connection("quantmate") as conn:
-            rows = conn.execute(
-                text("""
-                    SELECT id, user_id, key_id, name, permissions, expires_at,
-                           ip_whitelist, rate_limit, is_active, created_at, last_used_at
-                    FROM api_keys WHERE user_id = :uid ORDER BY created_at DESC
-                """),
-                {"uid": user_id},
-            ).fetchall()
+            try:
+                rows = conn.execute(
+                    text("""
+                        SELECT id, user_id, key_id, name, permissions, expires_at,
+                               ip_whitelist, rate_limit, is_active, created_at, last_used_at
+                        FROM api_keys WHERE user_id = :uid ORDER BY created_at DESC
+                    """),
+                    {"uid": user_id},
+                ).fetchall()
+            except (ProgrammingError, OperationalError) as exc:
+                if _is_missing_table(exc, "api_keys"):
+                    return []
+                raise
             return [self._row_to_dict(r) for r in rows]
 
     def count_by_user(self, user_id: int) -> int:
         with connection("quantmate") as conn:
-            row = conn.execute(
-                text("SELECT COUNT(*) as cnt FROM api_keys WHERE user_id = :uid"),
-                {"uid": user_id},
-            ).fetchone()
+            try:
+                row = conn.execute(
+                    text("SELECT COUNT(*) as cnt FROM api_keys WHERE user_id = :uid"),
+                    {"uid": user_id},
+                ).fetchone()
+            except (ProgrammingError, OperationalError) as exc:
+                if _is_missing_table(exc, "api_keys"):
+                    return 0
+                raise
             return row.cnt
 
     def get_by_key_id(self, key_id: str) -> Optional[dict]:
