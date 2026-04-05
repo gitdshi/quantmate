@@ -19,7 +19,7 @@ async def get_trade_days(
     current_user: Optional[TokenData] = Depends(get_current_user_optional),
 ):
     """Get trade-day calendar for an exchange."""
-    from datetime import date as date_type, datetime
+    from datetime import datetime
     from app.domains.market.calendar_service import CalendarService
 
     svc = CalendarService()

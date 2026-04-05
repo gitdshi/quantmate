@@ -7,9 +7,7 @@ Runs isolated backtests for individual strategy components
 from __future__ import annotations
 
 import importlib
-import json
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 
 def run_component_backtest(

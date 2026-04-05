@@ -17,7 +17,6 @@ from app.api.models.composite import (
     StrategyComponentCreate,
     StrategyComponentUpdate,
     StrategyComponentListItem,
-    CompositeStrategy,
     CompositeStrategyCreate,
     CompositeStrategyUpdate,
     CompositeStrategyDetail,
