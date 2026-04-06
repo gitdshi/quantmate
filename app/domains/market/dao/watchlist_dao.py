@@ -5,8 +5,16 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from app.infrastructure.db.connections import connection
+
+
+def _is_missing_schema_artifact(exc: Exception, name: str) -> bool:
+    message = str(getattr(exc, "orig", exc)).lower()
+    return name.lower() in message and (
+        "unknown column" in message or "doesn't exist" in message or "no such table" in message
+    )
 
 
 class WatchlistDao:
@@ -16,10 +24,21 @@ class WatchlistDao:
 
     def list_for_user(self, user_id: int) -> list[dict[str, Any]]:
         with connection("quantmate") as conn:
-            rows = conn.execute(
-                text("SELECT * FROM watchlists WHERE user_id = :uid ORDER BY sort_order, id"),
-                {"uid": user_id},
-            ).fetchall()
+            try:
+                rows = conn.execute(
+                    text("SELECT * FROM watchlists WHERE user_id = :uid ORDER BY sort_order, id"),
+                    {"uid": user_id},
+                ).fetchall()
+            except (ProgrammingError, OperationalError) as exc:
+                if _is_missing_schema_artifact(exc, "sort_order"):
+                    rows = conn.execute(
+                        text("SELECT * FROM watchlists WHERE user_id = :uid ORDER BY id"),
+                        {"uid": user_id},
+                    ).fetchall()
+                elif _is_missing_schema_artifact(exc, "watchlists"):
+                    return []
+                else:
+                    raise
             return [dict(r._mapping) for r in rows]
 
     def get(self, watchlist_id: int) -> Optional[dict[str, Any]]:
