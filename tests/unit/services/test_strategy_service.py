@@ -4,7 +4,7 @@ Unit tests for Strategy validation service.
 Tests the StrategyValidation logic for code parsing and security checks.
 """
 import pytest
-from app.api.services.strategy_service import validate_strategy_code
+from app.api.services.strategy_service import compile_strategy, parse_strategy_file, validate_strategy_code
 from app.api.models.strategy import StrategyValidation
 
 
@@ -157,3 +157,72 @@ class MyStrategy:
         assert result.valid is False
         # Empty code results in class not found (no syntax error due to empty AST)
         assert any("Class 'MyStrategy' not found" in e for e in result.errors)
+
+
+@pytest.mark.unit
+class TestCompileStrategy:
+    def test_compile_strategy_returns_class(self):
+        code = """
+class MyStrategy:
+    pass
+"""
+        compiled = compile_strategy(code, "MyStrategy")
+        assert compiled.__name__ == "MyStrategy"
+
+    def test_compile_strategy_raises_when_class_missing(self):
+        code = "x = 1"
+        with pytest.raises(RuntimeError, match="did not expose class"):
+            compile_strategy(code, "MissingStrategy")
+
+
+@pytest.mark.unit
+class TestParseStrategyFile:
+    def test_parse_strategy_file_extracts_class_defaults_and_parameter_order(self):
+        content = """
+DEFAULT_WINDOW = 20
+parameters = ["global_threshold"]
+
+class DemoStrategy:
+    parameters = ["window", ("threshold", 1.5)]
+    window = 10
+    mode = "fast"
+
+    def __init__(self):
+        self.dynamic = 3
+"""
+        result = parse_strategy_file(content)
+
+        assert result["classes"][0]["name"] == "DemoStrategy"
+        assert result["classes"][0]["defaults"] == {"window": 10, "threshold": 1.5}
+        assert result["classes"][0]["parameter_order"] == ["window", "threshold"]
+
+    def test_parse_strategy_file_uses_module_parameters_when_class_missing(self):
+        content = """
+parameters = {"window": 5, "threshold": 2}
+threshold = 9
+
+class DemoStrategy:
+    window = 7
+"""
+        result = parse_strategy_file(content)
+
+        assert result["classes"][0]["defaults"] == {"window": 5, "threshold": 2}
+        assert result["classes"][0]["parameter_order"] == ["window", "threshold"]
+
+    def test_parse_strategy_file_falls_back_to_all_defaults_without_parameters_list(self):
+        content = """
+GLOBAL_LIMIT = 8
+
+class DemoStrategy:
+    alpha = 1
+
+    def setup(self):
+        self.beta = 2
+"""
+        result = parse_strategy_file(content)
+
+        assert result["classes"][0]["defaults"] == {"alpha": 1, "GLOBAL_LIMIT": 8, "beta": 2}
+        assert result["classes"][0]["parameter_order"] == ["alpha", "beta", "GLOBAL_LIMIT"]
+
+    def test_parse_strategy_file_returns_empty_on_syntax_error(self):
+        assert parse_strategy_file("class Broken(:") == {"classes": []}
