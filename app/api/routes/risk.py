@@ -1,5 +1,6 @@
 """Risk rule routes (P2 Issue: Risk Budget, Pre-trade Risk Check)."""
 
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, status
@@ -30,6 +31,17 @@ class RiskRuleUpdateRequest(BaseModel):
     action: Optional[str] = None
     condition_expr: Optional[str] = None
     is_active: Optional[bool] = None
+
+
+class RiskCheckRequest(BaseModel):
+    scope_type: Optional[str] = None
+    scope_id: Optional[int] = None
+    strategy_id: Optional[int] = None
+    version_id: Optional[int] = None
+    projected_action: Optional[str] = None
+    symbol: Optional[str] = None
+    direction: Optional[str] = None
+    quantity: Optional[int] = None
 
 
 @router.get("/rules", dependencies=[require_permission("portfolios", "read")])
@@ -90,37 +102,94 @@ async def delete_risk_rule(rule_id: int, current_user: TokenData = Depends(get_c
 
 @router.post("/check", dependencies=[require_permission("portfolios", "write")])
 async def pre_trade_risk_check(
-    symbol: str,
-    direction: str,
-    quantity: int,
+    body: Optional[RiskCheckRequest] = None,
+    symbol: Optional[str] = None,
+    direction: Optional[str] = None,
+    quantity: Optional[int] = None,
     current_user: TokenData = Depends(get_current_user),
 ):
-    """Run pre-trade risk checks against active rules.
+    """Run pre-trade / pre-deployment risk checks.
 
-    Returns a list of check results: pass/warn/block for each active rule.
+    Supports both the legacy query-param form and the new structured request body.
+    Returns a unified `pass|warn|block` result envelope for deployment workflows.
     """
+    payload = body or RiskCheckRequest()
+    effective_symbol = payload.symbol or symbol
+    effective_direction = payload.direction or direction
+    effective_quantity = payload.quantity if payload.quantity is not None else quantity
+
     dao = RiskRuleDao()
     active_rules = dao.list_by_user(current_user.user_id, active_only=True)
 
-    results = []
+    triggered_rules = []
     overall = "pass"
+
     for rule in active_rules:
-        # Simplified risk checking logic
-        check_result = "pass"  # In production, evaluate rule conditions
-        results.append(
-            {
-                "rule_id": rule["id"],
-                "name": rule["name"],
-                "rule_type": rule["rule_type"],
-                "result": check_result,
-            }
-        )
-        if check_result == "block":
+        threshold = float(rule.get("threshold") or 0)
+        rule_result = "pass"
+        message = "Rule passed"
+
+        if rule.get("rule_type") == "position_limit" and effective_quantity is not None and threshold > 0 and effective_quantity > threshold:
+            rule_result = "block" if rule.get("action") == "block" else "warn"
+            message = f"Projected quantity {effective_quantity} exceeds threshold {threshold:g}"
+        elif rule.get("rule_type") == "frequency" and payload.projected_action == "prepare_live_upgrade":
+            rule_result = "warn"
+            message = "Live upgrade preparation requires manual confirmation"
+
+        if rule_result != "pass":
+            triggered_rules.append(
+                {
+                    "rule_id": rule["id"],
+                    "rule_name": rule["name"],
+                    "rule_type": rule["rule_type"],
+                    "severity": rule_result,
+                    "message": message,
+                }
+            )
+
+        if rule_result == "block":
             overall = "block"
-        elif check_result == "warn" and overall != "block":
+        elif rule_result == "warn" and overall != "block":
             overall = "warn"
 
-    return {"overall": overall, "checks": results}
+    summary = {
+        "pass": "No blocking risk rules triggered",
+        "warn": "Risk check completed with warnings",
+        "block": "Risk check blocked by active rules",
+    }[overall]
+
+    # Audit: log risk check for pre-live upgrade scenarios
+    if payload.projected_action == "prepare_live_upgrade":
+        from app.domains.audit.service import get_audit_service
+        audit_svc = get_audit_service()
+        audit_svc.log_risk_check(
+            user_id=current_user.user_id,
+            username=current_user.username or "",
+            result=overall,
+            strategy_id=payload.strategy_id,
+            version_id=payload.version_id,
+            deployment_id=payload.scope_id,
+            triggered_rules=triggered_rules,
+        )
+
+    return {
+        "result": overall,
+        "overall": overall,
+        "summary": summary,
+        "triggered_rules": triggered_rules,
+        "checked_at": datetime.utcnow().isoformat() + "Z",
+        "context": {
+            "scope_type": payload.scope_type,
+            "scope_id": payload.scope_id,
+            "strategy_id": payload.strategy_id,
+            "version_id": payload.version_id,
+            "projected_action": payload.projected_action,
+            "symbol": effective_symbol,
+            "direction": effective_direction,
+            "quantity": effective_quantity,
+        },
+        "checks": triggered_rules,
+    }
 
 
 # ── VaR & Stress Testing endpoints ───────────────────────────────────

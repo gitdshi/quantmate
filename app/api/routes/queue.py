@@ -133,6 +133,8 @@ async def submit_backtest_to_queue(request: Dict[str, Any], current_user: TokenD
     job_id = service.submit_backtest(
         user_id=current_user.user_id,
         strategy_id=request.get("strategy_id"),
+        version_id=request.get("version_id"),
+        source=request.get("source"),
         strategy_class_name=request.get("strategy_class"),
         symbol=symbol,
         start_date=start_date,
@@ -147,6 +149,18 @@ async def submit_backtest_to_queue(request: Dict[str, Any], current_user: TokenD
         strategy_name=request.get("strategy_name", ""),
         benchmark=request.get("benchmark", "399300.SZ"),
     )
+
+    # Audit: log backtest submission from version if version_id provided
+    if request.get("version_id"):
+        from app.domains.audit.service import get_audit_service
+        audit_svc = get_audit_service()
+        audit_svc.log_backtest_submit(
+            user_id=current_user.user_id,
+            username=current_user.username or "",
+            strategy_id=request.get("strategy_id"),
+            version_id=request.get("version_id"),
+            job_id=job_id,
+        )
 
     return {"job_id": job_id, "status": "queued", "message": "Backtest job submitted to queue"}
 
@@ -168,6 +182,8 @@ async def submit_bulk_backtest(request: Dict[str, Any], current_user: TokenData 
     job_id = service.submit_batch_backtest(
         user_id=current_user.user_id,
         strategy_id=request.get("strategy_id"),
+        version_id=request.get("version_id"),
+        source=request.get("source"),
         strategy_class_name=request.get("strategy_class"),
         symbols=symbols,
         start_date=start_date,

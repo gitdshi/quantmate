@@ -39,6 +39,8 @@ class DeployRequest(BaseModel):
     parameters: dict = {}
     paper_account_id: Optional[int] = None
     execution_mode: str = "auto"  # auto/semi_auto
+    source_backtest_job_id: Optional[str] = None
+    source_version_id: Optional[int] = None
 
 
 class PaperOrderRequest(BaseModel):
@@ -77,6 +79,8 @@ async def deploy_strategy(req: DeployRequest, current_user: TokenData = Depends(
         parameters=req.parameters,
         paper_account_id=req.paper_account_id,
         execution_mode=req.execution_mode,
+        source_backtest_job_id=req.source_backtest_job_id,
+        source_version_id=req.source_version_id,
     )
     if not result.get("success"):
         raise APIError(
@@ -101,6 +105,19 @@ async def deploy_strategy(req: DeployRequest, current_user: TokenData = Depends(
         )
         if not exec_result.get("success"):
             result["executor_warning"] = exec_result.get("error", "Executor failed to start")
+
+    # Audit: log paper deployment from backtest
+    if req.source_backtest_job_id or req.source_version_id:
+        from app.domains.audit.service import get_audit_service
+        audit_svc = get_audit_service()
+        audit_svc.log_paper_deploy(
+            user_id=current_user.user_id,
+            username=current_user.username or "",
+            deployment_id=result["deployment_id"],
+            strategy_id=req.strategy_id,
+            source_backtest_job_id=req.source_backtest_job_id,
+            source_version_id=req.source_version_id,
+        )
 
     return result
 

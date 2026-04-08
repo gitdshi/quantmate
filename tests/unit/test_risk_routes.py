@@ -113,3 +113,29 @@ class TestPreTradeRiskCheck:
         assert resp.status_code == 200
         assert resp.json()["overall"] == "pass"
 
+    @patch("app.api.routes.risk.RiskRuleDao")
+    def test_risk_check_warn_and_block_with_structured_body(self, MockDao, client):
+        instance = MockDao.return_value
+        instance.list_by_user.return_value = [
+            {"id": 1, "name": "Warn Upgrade", "rule_type": "frequency", "action": "warn", "threshold": 0},
+            {"id": 2, "name": "Max Qty", "rule_type": "position_limit", "action": "block", "threshold": 10},
+        ]
+        resp = client.post(
+            "/api/v1/risk/check",
+            json={
+                "scope_type": "paper_deployment",
+                "scope_id": 3,
+                "strategy_id": 5,
+                "version_id": 7,
+                "projected_action": "prepare_live_upgrade",
+                "symbol": "000001.SZ",
+                "direction": "buy",
+                "quantity": 100,
+            },
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["result"] == "block"
+        assert len(body["triggered_rules"]) == 2
+        assert body["context"]["version_id"] == 7
+

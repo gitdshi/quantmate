@@ -20,6 +20,8 @@ class BacktestRequest(BaseModel):
     """Single backtest request."""
 
     strategy_id: Optional[int] = None
+    version_id: Optional[int] = None
+    source: Optional[str] = None
     strategy_class: Optional[str] = None  # Use built-in strategy by class name
     vt_symbol: str = Field(..., description="Symbol in format '000001.SZSE'")
     start_date: date
@@ -37,6 +39,8 @@ class BatchBacktestRequest(BaseModel):
     """Batch backtest request."""
 
     strategy_id: Optional[int] = None
+    version_id: Optional[int] = None
+    source: Optional[str] = None
     strategy_class: Optional[str] = None
     symbols: List[str] = Field(..., description="List of vt_symbols")
     start_date: date

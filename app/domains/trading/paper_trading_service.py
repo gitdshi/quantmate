@@ -30,6 +30,8 @@ class PaperTradingService:
         parameters: Optional[Dict[str, Any]] = None,
         paper_account_id: Optional[int] = None,
         execution_mode: str = "auto",
+        source_backtest_job_id: Optional[str] = None,
+        source_version_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Deploy a strategy to paper trading mode."""
         with connection("quantmate") as conn:
@@ -44,8 +46,10 @@ class PaperTradingService:
             result = conn.execute(
                 text("""
                     INSERT INTO paper_deployments (user_id, paper_account_id, strategy_id, strategy_name,
-                                                   vt_symbol, parameters, status, execution_mode)
-                    VALUES (:uid, :paid, :sid, :sname, :sym, :params, 'running', :emode)
+                                                   vt_symbol, parameters, status, execution_mode,
+                                                   source_backtest_job_id, source_version_id)
+                    VALUES (:uid, :paid, :sid, :sname, :sym, :params, 'running', :emode,
+                            :source_backtest_job_id, :source_version_id)
                 """),
                 {
                     "uid": user_id,
@@ -55,6 +59,8 @@ class PaperTradingService:
                     "sym": vt_symbol,
                     "params": json.dumps(parameters or {}),
                     "emode": execution_mode,
+                    "source_backtest_job_id": source_backtest_job_id,
+                    "source_version_id": source_version_id,
                 },
             )
             conn.commit()
@@ -69,7 +75,8 @@ class PaperTradingService:
             rows = conn.execute(
                 text("""
                     SELECT id, strategy_id, strategy_name, vt_symbol, parameters,
-                           status, started_at, stopped_at
+                           status, started_at, stopped_at, source_backtest_job_id, source_version_id,
+                           risk_check_status, risk_check_summary
                     FROM paper_deployments
                     WHERE user_id = :uid
                     ORDER BY started_at DESC
@@ -86,6 +93,10 @@ class PaperTradingService:
                     "status": r.status,
                     "started_at": str(r.started_at) if r.started_at else None,
                     "stopped_at": str(r.stopped_at) if r.stopped_at else None,
+                    "source_backtest_job_id": getattr(r, "source_backtest_job_id", None),
+                    "source_version_id": getattr(r, "source_version_id", None),
+                    "risk_check_status": getattr(r, "risk_check_status", None),
+                    "risk_check_summary": json.loads(r.risk_check_summary) if getattr(r, "risk_check_summary", None) else None,
                     "pnl": 0.0,  # TODO: compute from paper orders linked to deployment
                 }
                 for r in rows

@@ -130,6 +130,8 @@ class BacktestServiceV2:
         self,
         user_id: int,
         strategy_id: Optional[int],
+        version_id: Optional[int],
+        source: Optional[str],
         strategy_class_name: Optional[str],
         symbol: str,
         start_date: date,
@@ -146,9 +148,10 @@ class BacktestServiceV2:
     ) -> str:
         job_id = f"bt_{uuid.uuid4().hex[:16]}"
         strategy_code = None
-        strategy_version = None
+        strategy_version = version_id
         if strategy_id:
-            strategy_code, strategy_class_name, strategy_version = self._get_strategy_from_db(strategy_id, user_id)
+            strategy_code, strategy_class_name, current_strategy_version = self._get_strategy_from_db(strategy_id, user_id)
+            strategy_version = strategy_version or current_strategy_version
 
         if not symbol_name:
             symbol_name = MarketService().resolve_symbol_name(symbol) or ""
@@ -162,6 +165,8 @@ class BacktestServiceV2:
             "strategy_class": strategy_class_name,
             "strategy_name": strategy_name,
             "strategy_version": strategy_version,
+            "version_id": strategy_version,
+            "source": source,
             "symbol": symbol,
             "symbol_name": symbol_name,
             "start_date": start_date.isoformat(),
@@ -204,6 +209,8 @@ class BacktestServiceV2:
         self,
         user_id: int,
         strategy_id: Optional[int],
+        version_id: Optional[int],
+        source: Optional[str],
         strategy_class_name: Optional[str],
         symbols: List[str],
         start_date: date,
@@ -219,9 +226,10 @@ class BacktestServiceV2:
     ) -> str:
         job_id = f"bulk_{uuid.uuid4().hex[:16]}"
         strategy_code = None
-        strategy_version = None
+        strategy_version = version_id
         if strategy_id:
-            strategy_code, strategy_class_name, strategy_version = self._get_strategy_from_db(strategy_id, user_id)
+            strategy_code, strategy_class_name, current_strategy_version = self._get_strategy_from_db(strategy_id, user_id)
+            strategy_version = strategy_version or current_strategy_version
 
         metadata = {
             "job_id": job_id,
@@ -232,6 +240,8 @@ class BacktestServiceV2:
             "strategy_class": strategy_class_name,
             "strategy_name": strategy_name,
             "strategy_version": strategy_version,
+            "version_id": strategy_version,
+            "source": source,
             "symbols": symbols,
             "total_symbols": len(symbols),
             "start_date": start_date.isoformat(),

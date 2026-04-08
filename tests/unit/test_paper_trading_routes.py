@@ -33,10 +33,17 @@ class TestDeploy:
             "success": True, "deployment_id": 10, "status": "running",
         }
         resp = client.post("/api/v1/paper-trade/deploy", json={
-            "strategy_id": 1, "vt_symbol": "IF2406.CFFEX", "parameters": {"fast": 10},
+            "strategy_id": 1,
+            "vt_symbol": "IF2406.CFFEX",
+            "parameters": {"fast": 10},
+            "source_backtest_job_id": "job-123",
+            "source_version_id": 7,
         })
         assert resp.status_code == 201
         assert resp.json()["deployment_id"] == 10
+        _, kwargs = MockSvc.return_value.deploy.call_args
+        assert kwargs["source_backtest_job_id"] == "job-123"
+        assert kwargs["source_version_id"] == 7
 
     @patch("app.api.routes.paper_trading.PaperTradingService")
     def test_deploy_strategy_not_found(self, MockSvc, client):

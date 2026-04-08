@@ -9,6 +9,7 @@ import json
 from app.api.services.strategy_service import validate_strategy_code
 from app.domains.strategies.dao.strategy_dao import StrategyDao
 from app.domains.strategies.dao.strategy_history_dao import StrategyHistoryDao
+from app.domains.audit.service import get_audit_service
 
 
 class StrategiesService:
@@ -141,6 +142,16 @@ class StrategiesService:
             )
             self._history.rotate_keep_latest(strategy_id, keep=5)
 
+            # Audit: log version creation
+            audit_svc = get_audit_service()
+            audit_svc.log_version_create(
+                user_id=user_id,
+                username="",  # Username not available in service layer
+                strategy_id=strategy_id,
+                version_id=0,  # Version ID not available at this point
+                version_number=existing.get("version", 0) + 1,
+            )
+
         # Build update clause
         updates: list[str] = []
         params: dict[str, Any] = {}
@@ -242,6 +253,17 @@ class StrategiesService:
                 code=current.get("code"),
                 created_at=datetime.utcnow(),
             )
+
+        # Audit: log version restore (creates new version)
+        audit_svc = get_audit_service()
+        audit_svc.log_version_restore(
+            user_id=user_id,
+            username="",
+            strategy_id=strategy_id,
+            source_version_id=history_id,
+            new_version_id=0,  # Not available at this point
+            new_version_number=current.get("version", 0) + 1,
+        )
 
         # Apply history values
         hist_params = history.get("parameters")
