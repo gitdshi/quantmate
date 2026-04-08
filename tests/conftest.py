@@ -41,6 +41,12 @@ def setup_test_env() -> None:
     os.environ["REDIS_URL"] = "redis://localhost:6379/1"
     # Disable external API calls by default
     os.environ["TUSHARE_TOKEN"] = "test_token_placeholder"
+    # Required settings for Settings class validation
+    os.environ.setdefault("SECRET_KEY", "test-secret-key-for-unit-tests-only-0123456789abcdef")
+    os.environ.setdefault("MYSQL_PASSWORD", "test-password")
+    # Clear cached settings so tests get fresh instances
+    from app.infrastructure.config.config import get_settings
+    get_settings.cache_clear()
     logger.info("Test environment configured")
 
 
@@ -201,7 +207,10 @@ def caplog_handler(caplog):
     logger.remove()
     handler_id = logger.add(lambda msg: caplog.info(msg), level="DEBUG")
     yield
-    logger.remove(handler_id)
+    try:
+        logger.remove(handler_id)
+    except ValueError:
+        pass
 
 
 @pytest.fixture(scope="function", autouse=True)
