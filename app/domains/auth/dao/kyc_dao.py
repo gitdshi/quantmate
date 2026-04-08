@@ -5,8 +5,14 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from app.infrastructure.db.connections import connection
+
+
+def _is_missing_table(exc: Exception, table_name: str) -> bool:
+    message = str(getattr(exc, "orig", exc)).lower()
+    return table_name.lower() in message and ("doesn't exist" in message or "no such table" in message)
 
 
 class KycDao:
@@ -14,10 +20,15 @@ class KycDao:
 
     def get_latest(self, user_id: int) -> Optional[dict[str, Any]]:
         with connection("quantmate") as conn:
-            row = conn.execute(
-                text("SELECT * FROM kyc_submissions WHERE user_id = :uid ORDER BY created_at DESC LIMIT 1"),
-                {"uid": user_id},
-            ).fetchone()
+            try:
+                row = conn.execute(
+                    text("SELECT * FROM kyc_submissions WHERE user_id = :uid ORDER BY created_at DESC LIMIT 1"),
+                    {"uid": user_id},
+                ).fetchone()
+            except (ProgrammingError, OperationalError) as exc:
+                if _is_missing_table(exc, "kyc_submissions"):
+                    return None
+                raise
             return dict(row._mapping) if row else None
 
     def insert(self, user_id: int, **fields) -> int:
@@ -56,17 +67,28 @@ class KycDao:
 
     def list_pending(self, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
         with connection("quantmate") as conn:
-            rows = conn.execute(
-                text(
-                    "SELECT id, user_id, status, real_name, id_type, created_at "
-                    "FROM kyc_submissions WHERE status = 'pending' "
-                    "ORDER BY created_at ASC LIMIT :lim OFFSET :off"
-                ),
-                {"lim": limit, "off": offset},
-            ).fetchall()
+            try:
+                rows = conn.execute(
+                    text(
+                        "SELECT id, user_id, status, real_name, id_type, created_at "
+                        "FROM kyc_submissions WHERE status = 'pending' "
+                        "ORDER BY created_at ASC LIMIT :lim OFFSET :off"
+                    ),
+                    {"lim": limit, "off": offset},
+                ).fetchall()
+            except (ProgrammingError, OperationalError) as exc:
+                if _is_missing_table(exc, "kyc_submissions"):
+                    return []
+                raise
             return [dict(r._mapping) for r in rows]
 
     def count_pending(self) -> int:
         with connection("quantmate") as conn:
-            row = conn.execute(text("SELECT COUNT(*) AS cnt FROM kyc_submissions WHERE status = 'pending'")).fetchone()
+            try:
+                row = conn.execute(text("SELECT COUNT(*) AS cnt FROM kyc_submissions WHERE status = 'pending'"))
+                row = row.fetchone()
+            except (ProgrammingError, OperationalError) as exc:
+                if _is_missing_table(exc, "kyc_submissions"):
+                    return 0
+                raise
             return row._mapping["cnt"] if row else 0
