@@ -321,7 +321,8 @@ class TestBacktestServiceV2:
         monkeypatch.setattr(_bs, "MarketService", lambda: mock_ms)
 
         job_id = svc.submit_backtest(
-            user_id=1, strategy_id=None, strategy_class_name="TripleMAStrategy",
+            user_id=1, strategy_id=None, version_id=None, source=None,
+            strategy_class_name="TripleMAStrategy",
             symbol="000001.SZ", start_date=date(2024, 1, 1), end_date=date(2024, 12, 31),
         )
         assert job_id.startswith("bt_")
@@ -337,7 +338,8 @@ class TestBacktestServiceV2:
         monkeypatch.setattr(_bs, "StrategySourceDao", lambda: mock_dao)
 
         job_id = svc.submit_backtest(
-            user_id=1, strategy_id=42, strategy_class_name=None,
+            user_id=1, strategy_id=42, version_id=None, source=None,
+            strategy_class_name=None,
             symbol="000001.SZ", start_date=date(2024, 1, 1), end_date=date(2024, 12, 31),
         )
         assert job_id.startswith("bt_")
@@ -349,7 +351,8 @@ class TestBacktestServiceV2:
         monkeypatch.setattr(_bs, "BulkBacktestDao", lambda: mock_dao)
 
         job_id = svc.submit_batch_backtest(
-            user_id=1, strategy_id=None, strategy_class_name="TripleMAStrategy",
+            user_id=1, strategy_id=None, version_id=None, source=None,
+            strategy_class_name="TripleMAStrategy",
             symbols=["000001.SZ", "600000.SH"],
             start_date=date(2024, 1, 1), end_date=date(2024, 12, 31),
         )
@@ -364,7 +367,8 @@ class TestBacktestServiceV2:
 
         # Should not raise — logs exception internally
         job_id = svc.submit_batch_backtest(
-            user_id=1, strategy_id=None, strategy_class_name="TripleMAStrategy",
+            user_id=1, strategy_id=None, version_id=None, source=None,
+            strategy_class_name="TripleMAStrategy",
             symbols=["000001.SZ"], start_date=date(2024, 1, 1), end_date=date(2024, 12, 31),
         )
         assert job_id.startswith("bulk_")

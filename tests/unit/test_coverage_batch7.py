@@ -1131,6 +1131,7 @@ class TestStrategiesServiceUpdate:
         monkeypatch.setattr(svc._dao, "update_strategy", lambda *a, **kw: None)
         monkeypatch.setattr(svc._history, "insert_history", lambda **kw: None)
         monkeypatch.setattr(svc._history, "rotate_keep_latest", lambda *a, **kw: None)
+        monkeypatch.setattr(self.svc_mod, "get_audit_service", lambda: MagicMock())
         # Change name → should bump version
         svc.update_strategy(user_id=1, strategy_id=1, name="NewName")
 
@@ -1159,6 +1160,7 @@ class TestStrategiesServiceUpdate:
         monkeypatch.setattr(svc._dao, "update_strategy", lambda *a, **kw: None)
         monkeypatch.setattr(svc._history, "insert_history", lambda **kw: None)
         monkeypatch.setattr(svc._history, "rotate_keep_latest", lambda *a, **kw: None)
+        monkeypatch.setattr(self.svc_mod, "get_audit_service", lambda: MagicMock())
         svc.update_strategy(user_id=1, strategy_id=1, parameters={"a": 2})
 
     def test_restore_code_history(self, monkeypatch):
@@ -1177,6 +1179,7 @@ class TestStrategiesServiceUpdate:
         monkeypatch.setattr(svc._history, "get_history", lambda sid, hid: history)
         monkeypatch.setattr(svc._history, "insert_history", lambda **kw: None)
         monkeypatch.setattr(svc._dao, "update_strategy", lambda *a, **kw: None)
+        monkeypatch.setattr(self.svc_mod, "get_audit_service", lambda: MagicMock())
         svc.restore_code_history(user_id=1, strategy_id=1, history_id=10)
 
 

@@ -27,8 +27,9 @@ def client(mock_user):
 
 
 class TestDeploy:
+    @patch("app.domains.audit.service.get_audit_service", return_value=MagicMock())
     @patch("app.api.routes.paper_trading.PaperTradingService")
-    def test_deploy_strategy(self, MockSvc, client):
+    def test_deploy_strategy(self, MockSvc, _mock_audit, client):
         MockSvc.return_value.deploy.return_value = {
             "success": True, "deployment_id": 10, "status": "running",
         }

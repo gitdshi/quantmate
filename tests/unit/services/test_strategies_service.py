@@ -21,7 +21,8 @@ class _ValidationResult:
 @pytest.fixture
 def svc():
     with patch("app.domains.strategies.service.StrategyDao") as DaoCls, \
-         patch("app.domains.strategies.service.StrategyHistoryDao") as HistCls:
+         patch("app.domains.strategies.service.StrategyHistoryDao") as HistCls, \
+         patch("app.domains.strategies.service.get_audit_service"):
         s = StrategiesService()
         s._dao = DaoCls.return_value
         s._history = HistCls.return_value

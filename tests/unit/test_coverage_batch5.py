@@ -1669,7 +1669,8 @@ class TestBacktestServiceV2:
         mock_market.return_value.resolve_symbol_name.return_value = "平安银行"
         svc = BacktestServiceV2()
         job_id = svc.submit_backtest(
-            user_id=1, strategy_id=None, strategy_class_name="TestStrategy",
+            user_id=1, strategy_id=None, version_id=None, source=None,
+            strategy_class_name="TestStrategy",
             symbol="000001.SZ", start_date=date(2024, 1, 1), end_date=date(2024, 6, 30),
         )
         assert job_id.startswith("bt_")

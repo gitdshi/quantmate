@@ -1047,7 +1047,8 @@ class TestStrategiesServiceUpdate:
 
     def _make_svc(self):
         with patch("app.domains.strategies.service.StrategyDao"), \
-             patch("app.domains.strategies.service.StrategyHistoryDao"):
+             patch("app.domains.strategies.service.StrategyHistoryDao"), \
+             patch("app.domains.strategies.service.get_audit_service"):
             svc = self.mod.StrategiesService()
         svc._dao = MagicMock()
         svc._history = MagicMock()
@@ -1065,6 +1066,7 @@ class TestStrategiesServiceUpdate:
         }
         monkeypatch.setattr("app.domains.strategies.service.validate_strategy_code",
                             lambda code, cn: SimpleNamespace(valid=True, errors=[]))
+        monkeypatch.setattr("app.domains.strategies.service.get_audit_service", lambda: MagicMock())
 
         svc.update_strategy(user_id=1, strategy_id=1, code="new code")
         svc._history.insert_history.assert_called_once()
@@ -1095,6 +1097,7 @@ class TestStrategiesServiceUpdate:
             "id": 1, "name": "old", "class_name": "Old", "version": 2,
             "code": "code", "parameters": '{"a": 2}', "description": "desc",
         }
+        monkeypatch.setattr("app.domains.strategies.service.get_audit_service", lambda: MagicMock())
 
         svc.update_strategy(user_id=1, strategy_id=1, parameters={"a": 2})
         svc._history.insert_history.assert_called_once()
@@ -1109,6 +1112,7 @@ class TestStrategiesServiceUpdate:
             "id": 1, "code": "old code", "parameters": '{"a": 0}',
             "class_name": "Old", "strategy_name": "old", "description": "d",
         }
+        monkeypatch.setattr("app.domains.strategies.service.get_audit_service", lambda: MagicMock())
 
         svc.restore_code_history(user_id=1, strategy_id=1, history_id=1)
         svc._history.insert_history.assert_called_once()

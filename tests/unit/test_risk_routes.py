@@ -1,6 +1,6 @@
 """Tests for P2: Risk management routes."""
 import pytest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -113,8 +113,9 @@ class TestPreTradeRiskCheck:
         assert resp.status_code == 200
         assert resp.json()["overall"] == "pass"
 
+    @patch("app.domains.audit.service.get_audit_service", return_value=MagicMock())
     @patch("app.api.routes.risk.RiskRuleDao")
-    def test_risk_check_warn_and_block_with_structured_body(self, MockDao, client):
+    def test_risk_check_warn_and_block_with_structured_body(self, MockDao, _mock_audit, client):
         instance = MockDao.return_value
         instance.list_by_user.return_value = [
             {"id": 1, "name": "Warn Upgrade", "rule_type": "frequency", "action": "warn", "threshold": 0},

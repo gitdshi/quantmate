@@ -8,8 +8,11 @@ sys.modules.setdefault("vnpy", types.ModuleType("vnpy"))
 sys.modules.setdefault("vnpy.trader", types.ModuleType("vnpy.trader"))
 sys.modules.setdefault("vnpy.trader.constant", types.SimpleNamespace(Interval=object()))
 sys.modules.setdefault("vnpy.trader.optimize", types.SimpleNamespace(OptimizationSetting=object()))
+sys.modules.setdefault("vnpy.trader.setting", types.SimpleNamespace(SETTINGS={}))
 sys.modules.setdefault("vnpy_ctastrategy", types.ModuleType("vnpy_ctastrategy"))
-sys.modules.setdefault("vnpy_ctastrategy.backtesting", types.SimpleNamespace(BacktestingEngine=object, BacktestingMode=object))
+sys.modules.setdefault("vnpy_ctastrategy.backtesting", types.SimpleNamespace(BacktestingEngine=object, BacktestingMode=object, evaluate=lambda *a, **kw: {}))
+
+from unittest.mock import MagicMock, patch
 
 from app.api.exception_handlers import register_exception_handlers
 from app.api.routes import queue
@@ -38,6 +41,7 @@ class TestQueueBacktestRoutes:
                 return "job-1"
 
         monkeypatch.setattr(queue, "get_backtest_service", lambda: FakeService())
+        monkeypatch.setattr("app.domains.audit.service.get_audit_service", lambda: MagicMock())
 
         resp = client.post(
             "/api/v1/queue/backtest",

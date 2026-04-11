@@ -54,7 +54,9 @@ class TestPaperTradingService:
             fetchall=MagicMock(return_value=[_row(
                 id=1, strategy_id=1, strategy_name="MA", vt_symbol="000001.SZ",
                 parameters='{"fast": 5}', status="running",
-                started_at="2024-01-01", stopped_at=None
+                started_at="2024-01-01", stopped_at=None,
+                source_backtest_job_id=None, source_version_id=None,
+                risk_check_status=None, risk_check_summary=None,
             )])
         )
         result = _mod.PaperTradingService().list_deployments(user_id=1)
