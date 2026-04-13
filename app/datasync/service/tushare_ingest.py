@@ -47,8 +47,11 @@ from app.domains.extdata.dao.tushare_dao import (
     get_max_trade_date as dao_get_max_trade_date,
 )
 
-# Tushare pro API
-pro = ts.pro_api(TS_TOKEN) if TS_TOKEN else ts.pro_api()
+# Tushare pro API — wrapped so import succeeds in test/CI environments without a valid token
+try:
+    pro = ts.pro_api(TS_TOKEN) if TS_TOKEN else ts.pro_api()
+except Exception:
+    pro = None  # API calls will raise at runtime; tests patch this via unittest.mock
 
 # DAO for Tushare DB operations
 # DAO imports are above (engine included)
