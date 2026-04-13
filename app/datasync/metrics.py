@@ -4,28 +4,56 @@ from collections import defaultdict
 from typing import Optional
 from prometheus_client import Counter, Gauge, generate_latest, REGISTRY
 
+
+def _get_or_create_counter(name: str, description: str, labels: list) -> Counter:
+    """Create a Counter, or return the existing one if already registered.
+
+    Prometheus raises ValueError when the same metric name is registered twice,
+    which happens when this module is deleted from sys.modules and re-imported
+    (common in test suites). Returning the existing collector avoids that.
+    """
+    try:
+        return Counter(name, description, labels)
+    except ValueError:
+        return REGISTRY._names_to_collectors.get(name)  # type: ignore[return-value]
+
+
+def _get_or_create_gauge(name: str, description: str) -> Gauge:
+    """Create a Gauge, or return the existing one if already registered."""
+    try:
+        return Gauge(name, description)
+    except ValueError:
+        return REGISTRY._names_to_collectors.get(name)  # type: ignore[return-value]
+
+
 # Define metrics according to monitoring/datasync.rules.yml
 
 # API call counters
-datasync_api_calls_total = Counter("datasync_api_calls_total", "Total number of Tushare API calls", ["api_name"])
+datasync_api_calls_total = _get_or_create_counter(
+    "datasync_api_calls_total", "Total number of Tushare API calls", ["api_name"]
+)
 
-datasync_api_errors_total = Counter("datasync_api_errors_total", "Total number of Tushare API errors", ["api_name"])
+datasync_api_errors_total = _get_or_create_counter(
+    "datasync_api_errors_total", "Total number of Tushare API errors", ["api_name"]
+)
 
 # Rate limit hits counter
-datasync_rate_limit_hits_total = Counter(
+datasync_rate_limit_hits_total = _get_or_create_counter(
     "datasync_rate_limit_hits_total", "Number of times rate limit was hit", ["api_name"]
 )
 
 # Rows ingested counter (by table name)
-datasync_rows_ingested_total = Counter(
+datasync_rows_ingested_total = _get_or_create_counter(
     "datasync_rows_ingested_total", "Total number of rows successfully ingested into database tables", ["table"]
 )
 
 # Failed steps counter (by step/ingest function name)
-datasync_failed_steps_total = Counter("datasync_failed_steps_total", "Total number of failed ingestion steps", ["step"])
+datasync_failed_steps_total = _get_or_create_counter(
+    "datasync_failed_steps_total", "Total number of failed ingestion steps", ["step"]
+)
 
 # Backfill lock status gauge (0 = down/unavailable, 1 = up/available)
-datasync_backfill_lock_status = Gauge(
+datasync_backfill_lock_status = _get_or_create_gauge(
     "datasync_backfill_lock_status", "Status of datasync backfill lock (0 = cannot acquire, 1 = healthy)"
 )
 # Avoid false-red on fresh process before the first lock check runs.
