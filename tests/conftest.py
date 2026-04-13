@@ -24,8 +24,18 @@ sys.path.insert(0, str(project_root))
 def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
     """Create an instance of the default event loop for the test session."""
     loop = asyncio.get_event_loop_policy().new_event_loop()
+    asyncio.set_event_loop(loop)
     yield loop
     loop.close()
+    asyncio.set_event_loop(None)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def install_session_event_loop(event_loop: asyncio.AbstractEventLoop) -> Generator[None, None, None]:
+    """Keep a current event loop installed for sync tests that call get_event_loop()."""
+    asyncio.set_event_loop(event_loop)
+    yield
+    asyncio.set_event_loop(None)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
