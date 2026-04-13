@@ -90,7 +90,7 @@ jobs:
           SECRET_KEY: ci-test-secret-key
           MYSQL_PASSWORD: ci-test-mysql-password
           DATABASE_URL: sqlite:///test.db
-        run: pytest tests/unit/ -v --tb=short --junitxml=test-results.xml --timeout=300
+        run: pytest tests/unit/ -v --tb=short --junitxml=test-results.xml --timeout=300 -n 2 --dist loadfile
 
       - name: Upload test results
         if: always()
