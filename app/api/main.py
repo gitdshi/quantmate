@@ -65,6 +65,7 @@ from app.api.routes import ai_model as ai_model_routes
 from app.api.routes import datasync as datasync_routes
 from app.api.routes import calendar as calendar_routes
 from app.api.routes import sentiment as sentiment_routes
+from app.api.routes import rdagent as rdagent_routes
 from app.api.routes.composite import comp_router as composite_comp_routes, composite_router as composite_routes, backtest_router as composite_backtest_routes
 from app.api.exception_handlers import register_exception_handlers, APIError
 from app.api.errors import ErrorCode
@@ -258,6 +259,7 @@ app.include_router(ai_model_routes.router, prefix="/api/v1")
 app.include_router(datasync_routes.router, prefix="/api/v1")
 app.include_router(calendar_routes.router, prefix="/api/v1")
 app.include_router(sentiment_routes.router, prefix="/api/v1")
+app.include_router(rdagent_routes.router, prefix="/api/v1")
 app.include_router(composite_comp_routes, prefix="/api/v1")
 app.include_router(composite_routes, prefix="/api/v1")
 app.include_router(composite_backtest_routes, prefix="/api/v1")

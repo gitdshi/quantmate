@@ -20,6 +20,7 @@ QUEUE_DEFAULT = Queue("default", connection=redis_conn, default_timeout=1800)
 QUEUE_LOW = Queue("low", connection=redis_conn, default_timeout=3600)
 QUEUE_BACKTEST = Queue("backtest", connection=redis_conn, default_timeout=3600)
 QUEUE_OPTIMIZATION = Queue("optimization", connection=redis_conn, default_timeout=7200)
+QUEUE_RDAGENT = Queue("rdagent", connection=redis_conn, default_timeout=14400)
 
 # Queue registry
 QUEUES = {
@@ -28,6 +29,7 @@ QUEUES = {
     "low": QUEUE_LOW,
     "backtest": QUEUE_BACKTEST,
     "optimization": QUEUE_OPTIMIZATION,
+    "rdagent": QUEUE_RDAGENT,
 }
 
 

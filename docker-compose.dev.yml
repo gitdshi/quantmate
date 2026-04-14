@@ -38,3 +38,22 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  rdagent-service:
+    build:
+      context: ./rdagent-service
+      dockerfile: Dockerfile
+    container_name: quantmate_rdagent_dev
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      RDAGENT_WORKSPACE: /tmp/rdagent_workspace
+      CHAT_MODEL: ${RDAGENT_LLM_MODEL:-gpt-4o-mini}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./.data/rdagent:/tmp/rdagent_workspace
+    depends_on:
+      - mysql
+      - redis

@@ -37,6 +37,8 @@ class Settings(BaseSettings):
 
     cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"]
 
+    rdagent_sidecar_url: str = "http://rdagent-service:8001"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore",
