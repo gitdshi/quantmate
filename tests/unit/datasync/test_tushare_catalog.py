@@ -379,6 +379,8 @@ class TestDataSourceItemDaoCategories:
 
         assert count == 5
         conn.execute.assert_called_once()
+        sql = str(conn.execute.call_args.args[0])
+        assert "NOT IN ('1', 'true', 'yes', 'paid')" in sql
 
     def test_get_distinct_permissions(self):
         from app.domains.market.dao.data_source_item_dao import DataSourceItemDao
@@ -394,6 +396,8 @@ class TestDataSourceItemDaoCategories:
             perms = dao.get_distinct_permissions("tushare")
 
         assert perms == ["120积分", "2000积分"]
+        sql = str(conn.execute.call_args.args[0])
+        assert "NOT IN ('1', 'true', 'yes', 'paid')" in sql
 
 
 # ===========================================================================
@@ -494,7 +498,7 @@ class TestSettingsRoutes:
                 "item_key": "rt_daily",
                 "permission_points": "120积分",
                 "enabled": 0,
-                "requires_permission": "paid",
+                "requires_permission": "1",
                 "sync_supported": True,
             },
             {
@@ -533,7 +537,7 @@ class TestSettingsRoutes:
             {"permission_points": "2000积分", "requires_permission": None, "sync_supported": True},
             {"permission_points": "120积分", "requires_permission": None, "sync_supported": True},
             {"permission_points": "5000积分", "requires_permission": None, "sync_supported": False},
-            {"permission_points": "需单独权限", "requires_permission": "paid", "sync_supported": True},
+            {"permission_points": "需单独权限", "requires_permission": "1", "sync_supported": True},
         ]
 
         with patch(f"{_ROUTES_MOD}._list_items_with_sync_support", return_value=items):

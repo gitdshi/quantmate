@@ -10,6 +10,9 @@ from app.infrastructure.db.connections import connection
 
 
 _ITEM_SELECT = "SELECT dsi.*, dsi.item_name AS display_name FROM data_source_items dsi"
+_UNRESTRICTED_PERMISSION_SQL = (
+    "LOWER(TRIM(COALESCE(requires_permission, ''))) NOT IN ('1', 'true', 'yes', 'paid')"
+)
 
 
 class DataSourceItemDao:
@@ -109,7 +112,7 @@ class DataSourceItemDao:
                 text(
                     "UPDATE data_source_items SET enabled = :en "
                     "WHERE source = :src AND permission_points = :pp "
-                    "AND (requires_permission IS NULL OR requires_permission != 'paid')"
+                    f"AND {_UNRESTRICTED_PERMISSION_SQL}"
                 ),
                 {"en": int(enabled), "src": source, "pp": permission_points},
             )
@@ -123,7 +126,7 @@ class DataSourceItemDao:
                 text(
                     "SELECT DISTINCT permission_points FROM data_source_items "
                     "WHERE source = :src AND permission_points IS NOT NULL "
-                    "AND (requires_permission IS NULL OR requires_permission != 'paid') "
+                    f"AND {_UNRESTRICTED_PERMISSION_SQL} "
                     "ORDER BY permission_points"
                 ),
                 {"src": source},

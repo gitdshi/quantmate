@@ -63,7 +63,7 @@ async def list_permission_levels(
             str(item["permission_points"])
             for item in items
             if item.get("permission_points")
-            and item.get("requires_permission") != "paid"
+            and not _requires_paid_access(item.get("requires_permission"))
             and item.get("sync_supported")
         },
         key=_permission_sort_key,
@@ -129,7 +129,7 @@ async def batch_update_by_permission(
 ):
     """Enable/disable all items matching a specific permission_points value.
 
-    Items requiring paid access (requires_permission='paid') are excluded.
+    Items requiring paid access are excluded.
     """
     from app.domains.market.dao.data_source_item_dao import DataSourceItemDao
 
@@ -142,7 +142,7 @@ async def batch_update_by_permission(
     for item in items:
         if item.get("permission_points") != body.permission_points:
             continue
-        if item.get("requires_permission") == "paid":
+        if _requires_paid_access(item.get("requires_permission")):
             continue
 
         item_key = item["item_key"]
@@ -362,6 +362,13 @@ def _get_sync_support_map(source: Optional[str] = None) -> set[tuple[str, str]]:
 
 def _is_item_sync_supported(support_map: set[tuple[str, str]], source: str, item_key: str) -> bool:
     return (source, item_key) in support_map
+
+
+def _requires_paid_access(value: object) -> bool:
+    if value is None:
+        return False
+    normalized = str(value).strip().lower()
+    return normalized in {"1", "true", "yes", "paid"}
 
 
 def _permission_sort_key(permission_points: str) -> tuple[int, int, str]:
