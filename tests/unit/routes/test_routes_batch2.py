@@ -660,7 +660,7 @@ class TestWebSocketHelpers:
         mgr = ConnectionManager()
         ws = MagicMock()
         ws.send_json = AsyncMock()
-        asyncio.get_event_loop().run_until_complete(mgr.connect(ws, "market:test"))
+        asyncio.run(mgr.connect(ws, "market:test"))
         assert mgr.active_count == 1
         mgr.disconnect_all(ws)
         assert mgr.active_count == 0
@@ -671,8 +671,8 @@ class TestWebSocketHelpers:
         mgr = ConnectionManager()
         ws = MagicMock()
         ws.send_json = AsyncMock()
-        asyncio.get_event_loop().run_until_complete(mgr.connect(ws, "ch1"))
-        asyncio.get_event_loop().run_until_complete(mgr.broadcast("ch1", {"data": 1}))
+        asyncio.run(mgr.connect(ws, "ch1"))
+        asyncio.run(mgr.broadcast("ch1", {"data": 1}))
         ws.send_json.assert_called_once_with({"data": 1})
 
     def test_connection_manager_disconnect_channel(self):
@@ -681,8 +681,8 @@ class TestWebSocketHelpers:
         mgr = ConnectionManager()
         ws = MagicMock()
         ws.send_json = AsyncMock()
-        asyncio.get_event_loop().run_until_complete(mgr.connect(ws, "ch1"))
-        asyncio.get_event_loop().run_until_complete(mgr.connect(ws, "ch2"))
+        asyncio.run(mgr.connect(ws, "ch1"))
+        asyncio.run(mgr.connect(ws, "ch2"))
         assert mgr.active_count == 2
         mgr.disconnect(ws, "ch1")
         assert mgr.active_count == 1
@@ -693,8 +693,8 @@ class TestWebSocketHelpers:
         mgr = ConnectionManager()
         ws = MagicMock()
         ws.send_json = AsyncMock(side_effect=RuntimeError("closed"))
-        asyncio.get_event_loop().run_until_complete(mgr.connect(ws, "ch1"))
-        asyncio.get_event_loop().run_until_complete(mgr.broadcast("ch1", {"data": 1}))
+        asyncio.run(mgr.connect(ws, "ch1"))
+        asyncio.run(mgr.broadcast("ch1", {"data": 1}))
         # dead ws should be removed
         assert mgr.active_count == 0
 
@@ -702,4 +702,4 @@ class TestWebSocketHelpers:
         from app.api.routes.websocket import ConnectionManager
         import asyncio
         mgr = ConnectionManager()
-        asyncio.get_event_loop().run_until_complete(mgr.broadcast("nonexistent", {}))
+        asyncio.run(mgr.broadcast("nonexistent", {}))

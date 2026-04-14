@@ -328,16 +328,14 @@ class TestApiMain:
         req = MagicMock()
         req.url.path = "/api/v1/auth/login"
         # Should not raise
-        asyncio.get_event_loop().run_until_complete(
-            ensure_password_changed(req, None))
+        asyncio.run(ensure_password_changed(req, None))
 
     def test_ensure_password_changed_no_creds(self):
         from app.api.main import ensure_password_changed
         import asyncio
         req = MagicMock()
         req.url.path = "/api/v1/strategies"
-        asyncio.get_event_loop().run_until_complete(
-            ensure_password_changed(req, None))
+        asyncio.run(ensure_password_changed(req, None))
 
     def test_ensure_password_changed_bad_token(self):
         from app.api.main import ensure_password_changed
@@ -348,8 +346,7 @@ class TestApiMain:
         creds = MagicMock()
         creds.credentials = "invalid_token"
         with pytest.raises(APIError):
-            asyncio.get_event_loop().run_until_complete(
-                ensure_password_changed(req, creds))
+            asyncio.run(ensure_password_changed(req, creds))
 
     def test_ensure_password_changed_must_change(self):
         from app.api.main import ensure_password_changed
@@ -364,8 +361,7 @@ class TestApiMain:
                       must_change_password=True)
         with patch("app.api.services.auth_service.decode_token", return_value=td):
             with pytest.raises(APIError) as exc_info:
-                asyncio.get_event_loop().run_until_complete(
-                    ensure_password_changed(req, creds))
+                asyncio.run(ensure_password_changed(req, creds))
             assert "Password change required" in str(exc_info.value.message)
 
     def test_ensure_password_changed_admin_exempt_from_change(self):
@@ -381,8 +377,7 @@ class TestApiMain:
         with patch("app.api.services.auth_service.decode_token", return_value=td), \
              patch.dict(os.environ, {"ADMIN_USERNAME": "admin"}):
             # Should not raise — admin is exempt
-            asyncio.get_event_loop().run_until_complete(
-                ensure_password_changed(req, creds))
+            asyncio.run(ensure_password_changed(req, creds))
 
 
 # ═══════════════════════════════════════════════════════════════════════
