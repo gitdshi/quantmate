@@ -3,6 +3,8 @@ import time
 import logging
 import random
 import re
+import threading
+
 import pandas as pd
 
 try:
@@ -131,6 +133,8 @@ def call_pro(api_name: str, max_retries: int = None, backoff_base: int = 5, **kw
     """Wrapper around `pro.<api_name>(**kwargs)` that enforces a simple per-minute rate limit
     (spacing calls by at least `_MIN_INTERVAL`) and retries on transient errors including
     Tushare rate-limit responses. Returns the DataFrame from the API call or raises on final failure.
+
+    Thread-safe: uses a lock for per-endpoint timestamp tracking.
     """
     if max_retries is None:
         max_retries = int(os.getenv("MAX_RETRIES", "3"))
@@ -138,21 +142,27 @@ def call_pro(api_name: str, max_retries: int = None, backoff_base: int = 5, **kw
     if not hasattr(call_pro, "_metrics_hook"):
         call_pro._metrics_hook = None
 
-    # per-endpoint last-call timestamps
+    # per-endpoint last-call timestamps (thread-safe)
     if not hasattr(call_pro, "_last_call"):
         call_pro._last_call = {}
+    if not hasattr(call_pro, "_lock"):
+        call_pro._lock = threading.Lock()
 
     start_time = None
     attempt = 0
     while attempt < max_retries:
-        # enforce per-endpoint spacing between calls
+        # Reserve the next per-endpoint slot without holding the lock while sleeping.
         min_interval = _min_interval_for(api_name)
-        last = call_pro._last_call.get(api_name, 0.0)
-        elapsed = time.time() - last
-        if elapsed < min_interval:
-            to_sleep = min_interval - elapsed
+        now = time.monotonic()
+        with call_pro._lock:
+            reserved_at = max(now, call_pro._last_call.get(api_name, 0.0))
+            call_pro._last_call[api_name] = reserved_at + min_interval
+
+        to_sleep = reserved_at - now
+        if to_sleep > 0:
             logging.debug("Sleeping %.3fs to respect %s rate limit", to_sleep, api_name)
             time.sleep(to_sleep)
+
         try:
             start_time = time.time()
             func = getattr(pro, api_name, None)
@@ -161,7 +171,6 @@ def call_pro(api_name: str, max_retries: int = None, backoff_base: int = 5, **kw
             # filter out None kwargs to avoid sending empty params
             call_kwargs = {k: v for k, v in kwargs.items() if v is not None}
             df = func(**call_kwargs)
-            call_pro._last_call[api_name] = time.time()
             duration = time.time() - start_time
             rows = 0
             if df is not None:

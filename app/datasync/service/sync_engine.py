@@ -2,12 +2,17 @@
 
 Reads enabled interfaces from DB, dispatches to registered plugins,
 tracks per-interface per-trading-day status.
+
+Supports parallel execution via ThreadPoolExecutor, with a per-source
+semaphore to respect rate limits (e.g. Tushare max 3 concurrent).
 """
 
 from __future__ import annotations
 
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Semaphore
 from datetime import date, timedelta
 from typing import Optional
 
@@ -22,6 +27,24 @@ logger = logging.getLogger(__name__)
 
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", "3"))
 LOOKBACK_DAYS = int(os.getenv("LOOKBACK_DAYS", "60"))
+PARALLEL_WORKERS = int(os.getenv("SYNC_PARALLEL_WORKERS", "4"))
+
+# Maximum concurrent API calls per data source (respects Tushare rate limits)
+SOURCE_CONCURRENCY: dict[str, int] = {
+    "tushare": int(os.getenv("TUSHARE_CONCURRENCY", "3")),
+}
+
+_source_semaphores: dict[str, Semaphore] = {}
+
+
+def _get_source_semaphore(source: str) -> Semaphore | None:
+    """Return a semaphore for the given source, or None for unlimited."""
+    limit = SOURCE_CONCURRENCY.get(source)
+    if limit is None:
+        return None
+    if source not in _source_semaphores:
+        _source_semaphores[source] = Semaphore(limit)
+    return _source_semaphores[source]
 
 
 # ---------------------------------------------------------------------------
@@ -139,91 +162,104 @@ def get_previous_trade_date(offset: int = 1) -> date:
 # ---------------------------------------------------------------------------
 
 
-def daily_sync(
+def _sync_one_item(
     registry: DataSourceRegistry,
-    target_date: Optional[date] = None,
-    continue_on_error: bool = True,
-) -> dict[str, dict]:
-    """Run daily sync for all enabled interfaces on a given trading day.
+    item: dict,
+    target_date: date,
+    idx: int,
+    total: int,
+) -> tuple[str, dict]:
+    """Sync a single item. Called from daily_sync threads."""
+    source = item["source"]
+    item_key = item["item_key"]
+    label = f"{source}/{item_key}"
 
-    1. Read enabled items from DB
-    2. For each item, find the plugin interface
-    3. Skip if already success
-    4. Ensure table exists
-    5. Run sync_date()
-    6. Record status
-    """
-    if target_date is None:
-        target_date = get_previous_trade_date()
+    sem = _get_source_semaphore(source)
 
-    logger.info("=" * 80)
-    logger.info("Daily sync starting for %s", target_date)
-    logger.info("=" * 80)
+    try:
+        if sem:
+            sem.acquire()
 
-    enabled_items = _get_enabled_items()
-    results: dict[str, dict] = {}
-
-    for idx, item in enumerate(enabled_items, 1):
-        source = item["source"]
-        item_key = item["item_key"]
-        label = f"{source}/{item_key}"
-
-        logger.info("[%d/%d] %s", idx, len(enabled_items), label)
-
-        # Find interface in registry
         iface = registry.get_interface(source, item_key)
         if iface is None:
             logger.warning("No interface registered for %s, skipping", label)
-            results[label] = {"status": "skipped", "reason": "no plugin"}
-            continue
+            return label, {"status": "skipped", "reason": "no plugin"}
 
-        # Skip if already success
         existing = _get_status(target_date, source, item_key)
         if existing == SyncStatus.SUCCESS.value:
-            logger.info("[%d/%d] %s already synced, skipping", idx, len(enabled_items), label)
-            results[label] = {"status": "success", "skipped": True}
-            continue
+            logger.info("[%d/%d] %s already synced, skipping", idx, total, label)
+            return label, {"status": "success", "skipped": True}
 
-        # Ensure table exists
         if not item["table_created"]:
             try:
                 ensure_table(item["target_database"], item["target_table"], iface.get_ddl())
             except Exception as e:
                 logger.exception("Failed to create table for %s: %s", label, e)
                 _write_status(target_date, source, item_key, SyncStatus.ERROR.value, 0, f"DDL failed: {e}")
-                results[label] = {"status": "error", "error": f"DDL failed: {e}"}
-                if not continue_on_error:
-                    return results
-                continue
+                return label, {"status": "error", "error": f"DDL failed: {e}"}
 
-        # Mark running
         _write_status(target_date, source, item_key, SyncStatus.RUNNING.value)
 
-        # Execute sync
         try:
             result: SyncResult = iface.sync_date(target_date)
             _write_status(
-                target_date,
-                source,
-                item_key,
-                result.status.value,
-                result.rows_synced,
-                result.error_message,
+                target_date, source, item_key,
+                result.status.value, result.rows_synced, result.error_message,
             )
-            results[label] = {
-                "status": result.status.value,
-                "rows": result.rows_synced,
-                "error": result.error_message,
-            }
-            logger.info(
-                "[%d/%d] %s: %s (%d rows)", idx, len(enabled_items), label, result.status.value, result.rows_synced
-            )
+            logger.info("[%d/%d] %s: %s (%d rows)", idx, total, label, result.status.value, result.rows_synced)
+            return label, {"status": result.status.value, "rows": result.rows_synced, "error": result.error_message}
         except Exception as e:
-            logger.exception("[%d/%d] %s failed: %s", idx, len(enabled_items), label, e)
+            logger.exception("[%d/%d] %s failed: %s", idx, total, label, e)
             _write_status(target_date, source, item_key, SyncStatus.ERROR.value, 0, str(e))
-            results[label] = {"status": "error", "rows": 0, "error": str(e)}
-            if not continue_on_error:
-                return results
+            return label, {"status": "error", "rows": 0, "error": str(e)}
+    finally:
+        if sem:
+            sem.release()
+
+
+def daily_sync(
+    registry: DataSourceRegistry,
+    target_date: Optional[date] = None,
+    continue_on_error: bool = True,
+    max_workers: int | None = None,
+) -> dict[str, dict]:
+    """Run daily sync for all enabled interfaces on a given trading day.
+
+    Uses a thread pool with per-source semaphores to respect rate limits
+    while maximizing throughput across sources.
+    """
+    if target_date is None:
+        target_date = get_previous_trade_date()
+
+    if max_workers is None:
+        max_workers = PARALLEL_WORKERS
+
+    logger.info("=" * 80)
+    logger.info("Daily sync starting for %s (workers=%d)", target_date, max_workers)
+    logger.info("=" * 80)
+
+    enabled_items = _get_enabled_items()
+    results: dict[str, dict] = {}
+    total = len(enabled_items)
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(_sync_one_item, registry, item, target_date, idx, total): f"{item['source']}/{item['item_key']}"
+            for idx, item in enumerate(enabled_items, 1)
+        }
+        for future in as_completed(futures):
+            label = futures[future]
+            try:
+                lbl, res = future.result()
+                results[lbl] = res
+            except Exception as e:
+                logger.exception("Unexpected error in sync thread for %s: %s", label, e)
+                results[label] = {"status": "error", "error": str(e)}
+                if not continue_on_error:
+                    # Cancel remaining futures
+                    for f in futures:
+                        f.cancel()
+                    break
 
     logger.info("=" * 80)
     logger.info("Daily sync finished for %s", target_date)

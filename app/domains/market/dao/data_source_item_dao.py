@@ -9,6 +9,9 @@ from sqlalchemy import text
 from app.infrastructure.db.connections import connection
 
 
+_ITEM_SELECT = "SELECT dsi.*, dsi.item_name AS display_name FROM data_source_items dsi"
+
+
 class DataSourceItemDao:
     """CRUD for data_source_items configuration table."""
 
@@ -16,19 +19,19 @@ class DataSourceItemDao:
         with connection("quantmate") as conn:
             if source:
                 rows = conn.execute(
-                    text("SELECT * FROM data_source_items WHERE source = :src ORDER BY sync_priority, id"),
+                    text(f"{_ITEM_SELECT} WHERE dsi.source = :src ORDER BY dsi.sync_priority, dsi.id"),
                     {"src": source},
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    text("SELECT * FROM data_source_items ORDER BY source, sync_priority, id")
+                    text(f"{_ITEM_SELECT} ORDER BY dsi.source, dsi.sync_priority, dsi.id")
                 ).fetchall()
             return [dict(r._mapping) for r in rows]
 
     def get_by_key(self, source: str, item_key: str) -> Optional[dict[str, Any]]:
         with connection("quantmate") as conn:
             row = conn.execute(
-                text("SELECT * FROM data_source_items WHERE source = :src AND item_key = :key"),
+                text(f"{_ITEM_SELECT} WHERE dsi.source = :src AND dsi.item_key = :key"),
                 {"src": source, "key": item_key},
             ).fetchone()
             return dict(row._mapping) if row else None
@@ -71,15 +74,61 @@ class DataSourceItemDao:
             if source:
                 rows = conn.execute(
                     text(
-                        "SELECT * FROM data_source_items WHERE enabled = 1 AND source = :src ORDER BY sync_priority, id"
+                        f"{_ITEM_SELECT} WHERE dsi.enabled = 1 AND dsi.source = :src ORDER BY dsi.sync_priority, dsi.id"
                     ),
                     {"src": source},
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    text("SELECT * FROM data_source_items WHERE enabled = 1 ORDER BY source, sync_priority, id")
+                    text(f"{_ITEM_SELECT} WHERE dsi.enabled = 1 ORDER BY dsi.source, dsi.sync_priority, dsi.id")
                 ).fetchall()
             return [dict(r._mapping) for r in rows]
+
+    def list_with_categories(
+        self, source: Optional[str] = None, category: Optional[str] = None
+    ) -> list[dict[str, Any]]:
+        """List items with category/sub_category/api_name/permission_points columns."""
+        clauses: list[str] = []
+        params: dict[str, Any] = {}
+        if source:
+            clauses.append("dsi.source = :src")
+            params["src"] = source
+        if category:
+            clauses.append("dsi.category = :cat")
+            params["cat"] = category
+        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+        sql = f"{_ITEM_SELECT} {where} ORDER BY dsi.category, dsi.sub_category, dsi.sync_priority, dsi.id"
+        with connection("quantmate") as conn:
+            rows = conn.execute(text(sql), params).fetchall()
+            return [dict(r._mapping) for r in rows]
+
+    def batch_update_by_permission(self, source: str, permission_points: str, enabled: bool) -> int:
+        """Enable/disable all items matching a specific permission_points value."""
+        with connection("quantmate") as conn:
+            result = conn.execute(
+                text(
+                    "UPDATE data_source_items SET enabled = :en "
+                    "WHERE source = :src AND permission_points = :pp "
+                    "AND (requires_permission IS NULL OR requires_permission != 'paid')"
+                ),
+                {"en": int(enabled), "src": source, "pp": permission_points},
+            )
+            conn.commit()
+            return result.rowcount  # type: ignore[union-attr]
+
+    def get_distinct_permissions(self, source: str) -> list[str]:
+        """Return distinct non-null permission_points values for a source."""
+        with connection("quantmate") as conn:
+            rows = conn.execute(
+                text(
+                    "SELECT DISTINCT permission_points FROM data_source_items "
+                    "WHERE source = :src AND permission_points IS NOT NULL "
+                    "AND (requires_permission IS NULL OR requires_permission != 'paid') "
+                    "ORDER BY permission_points"
+                ),
+                {"src": source},
+            ).fetchall()
+            return [r[0] for r in rows]
 
 
 class DataSourceConfigDao:
