@@ -267,9 +267,7 @@ class TestRunBackfillTask:
         registry.get_interface.return_value = None
 
         with patch("rq.get_current_job", return_value=None), \
-             patch("app.datasync.registry.DataSourceRegistry") as mock_cls:
-            mock_cls.return_value = registry
-            registry.discover.return_value = None
+               patch("app.datasync.registry.build_default_registry", return_value=registry):
             result = run_backfill_task("tushare", "nonexistent")
 
         assert result["status"] == "skipped"
@@ -295,10 +293,8 @@ class TestRunBackfillTask:
         ]
 
         with patch("rq.get_current_job", return_value=None), \
-             patch("app.datasync.registry.DataSourceRegistry") as mock_cls, \
+             patch("app.datasync.registry.build_default_registry", return_value=registry), \
              patch("app.infrastructure.db.connections.get_quantmate_engine", return_value=engine):
-            mock_cls.return_value = registry
-            registry.discover.return_value = None
             result = run_backfill_task("tushare", "stock_daily")
 
         assert result["status"] == "complete"
@@ -324,10 +320,8 @@ class TestRunBackfillTask:
         ]
 
         with patch("rq.get_current_job", return_value=None), \
-             patch("app.datasync.registry.DataSourceRegistry") as mock_cls, \
+             patch("app.datasync.registry.build_default_registry", return_value=registry), \
              patch("app.infrastructure.db.connections.get_quantmate_engine", return_value=engine):
-            mock_cls.return_value = registry
-            registry.discover.return_value = None
             result = run_backfill_task("tushare", "stock_daily")
 
         assert result["status"] == "failed"

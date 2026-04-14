@@ -25,7 +25,7 @@ def run_backfill_task(source: str, item_key: str, batch_size: int = 30) -> dict:
     """
     from rq import get_current_job
 
-    from app.datasync.registry import DataSourceRegistry
+    from app.datasync.registry import build_default_registry
     from app.datasync.service.sync_engine import MAX_RETRIES, _get_source_semaphore, _write_status
     from app.datasync.base import SyncStatus, SyncResult
     from app.datasync.table_manager import ensure_table
@@ -38,8 +38,7 @@ def run_backfill_task(source: str, item_key: str, batch_size: int = 30) -> dict:
         job.meta["item_key"] = item_key
         job.save_meta()
 
-    registry = DataSourceRegistry()
-    registry.discover()
+    registry = build_default_registry()
 
     iface = registry.get_interface(source, item_key)
     if iface is None:
