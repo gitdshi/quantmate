@@ -64,7 +64,7 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - DEBUG=false
-    command: ["rq", "worker", "--url", "redis://redis:6379", "backtest", "optimization"]
+    command: ["python", "-m", "app.worker.service.run_worker"]
     networks:
       - quantmate_network
     deploy:

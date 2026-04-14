@@ -24,6 +24,34 @@ class TestRunWorker:
             mock_worker_cls.assert_called_once()
             worker_instance.work.assert_called_once()
 
+    def test_main_uses_low_queue_by_default(self):
+        """Verify the default worker queue set includes the datasync low queue."""
+        import app.worker.service.run_worker as _mod
+
+        queue_map = {
+            "backtest": MagicMock(name="backtest_queue"),
+            "optimization": MagicMock(name="optimization_queue"),
+            "default": MagicMock(name="default_queue"),
+            "low": MagicMock(name="low_queue"),
+        }
+        worker_instance = MagicMock()
+        mock_worker_cls = MagicMock(return_value=worker_instance)
+
+        with patch.object(_mod, "QUEUES", queue_map), \
+             patch("sys.argv", ["run_worker"]), \
+             patch.dict("sys.modules", {"rq": MagicMock(Worker=mock_worker_cls)}):
+            _mod.main()
+
+        args, kwargs = mock_worker_cls.call_args
+        assert args[0] == [
+            queue_map["backtest"],
+            queue_map["optimization"],
+            queue_map["default"],
+            queue_map["low"],
+        ]
+        assert kwargs["connection"] is _mod.redis_conn
+        worker_instance.work.assert_called_once_with(with_scheduler=True)
+
     def test_module_imports(self):
         try:
             import app.worker.service.run_worker as _mod

@@ -13,7 +13,7 @@ PID_FILE="$LOG_DIR/worker.pid"
 OUT_FILE="$LOG_DIR/worker.out"
 
 WORKER_PATTERN="app.worker.service.run_worker"
-DEFAULT_QUEUES=(backtest optimization default)
+DEFAULT_QUEUES=(backtest optimization default low)
 
 read_pid() {
   if [ -f "$PID_FILE" ]; then

@@ -31,10 +31,13 @@ from app.worker.service import tasks  # noqa
 from app.worker.service.config import redis_conn, QUEUES
 
 
+DEFAULT_QUEUE_NAMES = ["backtest", "optimization", "default", "low"]
+
+
 def main():
     from rq import Worker
 
-    queue_names = sys.argv[1:] if len(sys.argv) > 1 else ["backtest", "optimization", "default"]
+    queue_names = sys.argv[1:] if len(sys.argv) > 1 else DEFAULT_QUEUE_NAMES
     queues = [QUEUES[name] for name in queue_names if name in QUEUES]
     if not queues:
         logger.error("No valid queues specified. Available queues: %s", list(QUEUES.keys()))
