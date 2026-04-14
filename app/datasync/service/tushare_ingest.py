@@ -3,6 +3,7 @@ import time
 import logging
 import random
 import re
+import numbers
 import threading
 
 import pandas as pd
@@ -153,9 +154,21 @@ def call_pro(api_name: str, max_retries: int = None, backoff_base: int = 5, **kw
     while attempt < max_retries:
         # Reserve the next per-endpoint slot without holding the lock while sleeping.
         min_interval = _min_interval_for(api_name)
-        now = time.monotonic()
+        try:
+            raw_now = time.monotonic()
+        except Exception:
+            raw_now = None
+        if not isinstance(raw_now, numbers.Real):
+            try:
+                raw_now = time.time()
+            except Exception:
+                raw_now = 0.0
+        now = float(raw_now)
         with call_pro._lock:
-            reserved_at = max(now, call_pro._last_call.get(api_name, 0.0))
+            previous_slot = call_pro._last_call.get(api_name, 0.0)
+            if not isinstance(previous_slot, numbers.Real):
+                previous_slot = 0.0
+            reserved_at = max(now, float(previous_slot))
             call_pro._last_call[api_name] = reserved_at + min_interval
 
         to_sleep = reserved_at - now

@@ -253,7 +253,7 @@ class TestCallProThreadSafe:
             call_pro("test_api", max_retries=1)
         assert hasattr(call_pro, "_lock")
         import threading
-        assert isinstance(call_pro._lock, threading.Lock)
+        assert isinstance(call_pro._lock, type(threading.Lock()))
 
 
 # ===========================================================================
