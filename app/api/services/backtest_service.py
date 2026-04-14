@@ -13,6 +13,7 @@ from pathlib import Path
 import numpy as np
 import json
 import logging
+from importlib import import_module
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +22,15 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from vnpy.trader.constant import Interval
-from vnpy_ctastrategy.backtesting import BacktestingEngine, BacktestingMode
+try:
+    from vnpy.trader.constant import Interval
+    from vnpy_ctastrategy.backtesting import BacktestingEngine, BacktestingMode
+    _VNPY_IMPORT_ERROR = None
+except Exception as exc:
+    Interval = None
+    BacktestingEngine = None
+    BacktestingMode = None
+    _VNPY_IMPORT_ERROR = exc
 
 from app.api.models.backtest import BacktestResult
 from app.worker.service.config import get_queue
@@ -44,6 +52,25 @@ from app.domains.backtests.dao.backtest_history_dao import BacktestHistoryDao
 from app.domains.backtests.dao.bulk_backtest_dao import BulkBacktestDao
 from app.domains.backtests.dao.strategy_source_dao import StrategySourceDao
 from app.domains.market.service import MarketService
+
+
+def _require_vnpy_backtesting():
+    """Load vn.py backtesting symbols on demand to avoid import-time side effects."""
+    global Interval, BacktestingEngine, BacktestingMode, _VNPY_IMPORT_ERROR
+
+    if Interval is not None and BacktestingEngine is not None and BacktestingMode is not None:
+        return Interval, BacktestingEngine, BacktestingMode
+
+    try:
+        Interval = import_module("vnpy.trader.constant").Interval
+        backtesting_module = import_module("vnpy_ctastrategy.backtesting")
+        BacktestingEngine = backtesting_module.BacktestingEngine
+        BacktestingMode = backtesting_module.BacktestingMode
+        _VNPY_IMPORT_ERROR = None
+        return Interval, BacktestingEngine, BacktestingMode
+    except Exception as exc:
+        _VNPY_IMPORT_ERROR = exc
+        raise RuntimeError("vn.py backtesting dependencies are unavailable") from exc
 
 
 def calculate_alpha_beta(strategy_returns: np.ndarray, benchmark_returns: np.ndarray) -> tuple:
@@ -539,15 +566,16 @@ class BacktestService(BacktestServiceV2):
         benchmark: Optional[str] = None,
         period: str = "daily",
     ) -> Optional[BacktestResult]:
+        interval_enum, backtesting_engine_cls, backtesting_mode_enum = _require_vnpy_backtesting()
         strategy_cls = self._get_strategy_class(strategy_id, strategy_class)
         interval_map = {
-            "daily": Interval.DAILY,
-            "weekly": Interval.WEEKLY,
-            "minute": Interval.MINUTE,
-            "hour": Interval.HOUR,
+            "daily": interval_enum.DAILY,
+            "weekly": interval_enum.WEEKLY,
+            "minute": interval_enum.MINUTE,
+            "hour": interval_enum.HOUR,
         }
-        interval = interval_map.get(period, Interval.DAILY)
-        engine = BacktestingEngine()
+        interval = interval_map.get(period, interval_enum.DAILY)
+        engine = backtesting_engine_cls()
         engine.set_parameters(
             vt_symbol=vt_symbol,
             interval=interval,
@@ -558,7 +586,7 @@ class BacktestService(BacktestServiceV2):
             size=size,
             pricetick=0.01,
             capital=capital,
-            mode=BacktestingMode.BAR,
+            mode=backtesting_mode_enum.BAR,
         )
         setting = strategy_cls.get_class_parameters()
         setting.update(parameters)
