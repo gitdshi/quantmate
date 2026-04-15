@@ -5,7 +5,7 @@ ingest_dividend, ingest_top10_holders, ingest_margin, ingest_block_trade,
 ingest_repo, ingest_all_other_data, _fetch_existing_keys,
 ingest_dividend_by_date_range, ingest_top10_holders_by_date_range,
 ingest_adj_factor_by_date_range, ingest_all_daily, get_failed_ts_codes,
-retry_failed_daily, _env_rate, error paths.
+retry_failed_daily, error paths.
 """
 
 from __future__ import annotations
@@ -32,24 +32,6 @@ def _reset_call_pro_state():
     if hasattr(mod.call_pro, "_last_call"):
         mod.call_pro._last_call.clear()
     yield
-
-
-# ═══ _env_rate ═══════════════════════════════════════════════════════════
-
-class TestEnvRate:
-    def test_default(self):
-        from app.datasync.service.tushare_ingest import _env_rate
-        assert _env_rate("nonexistent", 42) == 42
-
-    def test_from_env(self, monkeypatch):
-        from app.datasync.service.tushare_ingest import _env_rate
-        monkeypatch.setenv("TUSHARE_RATE_daily", "100")
-        assert _env_rate("daily", 42) == 100
-
-    def test_invalid_env(self, monkeypatch):
-        from app.datasync.service.tushare_ingest import _env_rate
-        monkeypatch.setenv("TUSHARE_RATE_bad", "notanint")
-        assert _env_rate("bad", 42) == 42
 
 
 # ═══ store_financial_statement ═══════════════════════════════════════════

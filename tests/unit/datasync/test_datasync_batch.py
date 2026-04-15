@@ -80,15 +80,15 @@ class TestIsRateLimitError:
 class TestMinIntervalFor:
     def test_known_endpoint(self):
         interval = _ti._min_interval_for("daily")
-        assert interval > 0
+        assert interval == 0.0
 
     def test_unknown_endpoint(self):
         interval = _ti._min_interval_for("unknown_api")
-        assert interval > 0
+        assert interval == 0.0
 
     def test_stock_basic(self):
         interval = _ti._min_interval_for("stock_basic")
-        assert interval == 60.0 / 5  # 12 seconds
+        assert interval == 0.0
 
 
 @pytest.mark.unit

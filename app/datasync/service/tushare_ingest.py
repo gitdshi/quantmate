@@ -3,8 +3,6 @@ import time
 import logging
 import random
 import re
-import numbers
-import threading
 
 import pandas as pd
 
@@ -59,38 +57,13 @@ except Exception:
 # DAO for Tushare DB operations
 # DAO imports are above (engine included)
 
-# Rate limiting configuration: max calls per minute to Tushare API
-DEFAULT_CALLS_PER_MIN = int(os.getenv("TUSHARE_CALLS_PER_MIN", "50"))
-
-
-# Per-endpoint calls-per-minute overrides. Adjust as needed via env vars if desired.
-# Example: TUSHARE_RATE_daily=60
-def _env_rate(name, default):
-    try:
-        return int(os.getenv(f"TUSHARE_RATE_{name}", str(default)))
-    except Exception:
-        return default
-
-
-RATE_LIMITS = {
-    "daily": _env_rate("daily", 60),
-    "weekly": _env_rate("weekly", 60),
-    "monthly": _env_rate("monthly", 60),
-    "index_daily": _env_rate("index_daily", 30),
-    "index_weekly": _env_rate("index_weekly", 30),
-    "stock_basic": _env_rate("stock_basic", 5),
-    "adj_factor": _env_rate("adj_factor", 10),
-    "dividend": _env_rate("dividend", 10),
-    "top10_holders": _env_rate("top10_holders", 10),
-    "daily_basic": _env_rate("daily_basic", 60),
-    # fallback default
-    "__default__": DEFAULT_CALLS_PER_MIN,
-}
-
-
 def _min_interval_for(api_name: str) -> float:
-    calls = RATE_LIMITS.get(api_name, RATE_LIMITS.get("__default__", DEFAULT_CALLS_PER_MIN))
-    return 60.0 / max(1, int(calls))
+    """Compatibility helper for tests and older callers.
+
+    Tushare throttling is now reactive: sleep duration is derived from API rate-limit
+    responses instead of a locally enforced global/per-endpoint interval.
+    """
+    return 0.0
 
 
 def parse_retry_after(error_msg: str):
@@ -131,11 +104,10 @@ def _is_rate_limit_error(error_msg: str) -> bool:
 
 
 def call_pro(api_name: str, max_retries: int = None, backoff_base: int = 5, **kwargs):
-    """Wrapper around `pro.<api_name>(**kwargs)` that enforces a simple per-minute rate limit
-    (spacing calls by at least `_MIN_INTERVAL`) and retries on transient errors including
-    Tushare rate-limit responses. Returns the DataFrame from the API call or raises on final failure.
+    """Wrapper around `pro.<api_name>(**kwargs)` with retry handling.
 
-    Thread-safe: uses a lock for per-endpoint timestamp tracking.
+    Rate-limit wait time is determined from API responses when available; successful calls
+    are not proactively delayed by a local global/per-endpoint pacing rule.
     """
     if max_retries is None:
         max_retries = int(os.getenv("MAX_RETRIES", "3"))
@@ -143,39 +115,9 @@ def call_pro(api_name: str, max_retries: int = None, backoff_base: int = 5, **kw
     if not hasattr(call_pro, "_metrics_hook"):
         call_pro._metrics_hook = None
 
-    # per-endpoint last-call timestamps (thread-safe)
-    if not hasattr(call_pro, "_last_call"):
-        call_pro._last_call = {}
-    if not hasattr(call_pro, "_lock"):
-        call_pro._lock = threading.Lock()
-
     start_time = None
     attempt = 0
     while attempt < max_retries:
-        # Reserve the next per-endpoint slot without holding the lock while sleeping.
-        min_interval = _min_interval_for(api_name)
-        try:
-            raw_now = time.monotonic()
-        except Exception:
-            raw_now = None
-        if not isinstance(raw_now, numbers.Real):
-            try:
-                raw_now = time.time()
-            except Exception:
-                raw_now = 0.0
-        now = float(raw_now)
-        with call_pro._lock:
-            previous_slot = call_pro._last_call.get(api_name, 0.0)
-            if not isinstance(previous_slot, numbers.Real):
-                previous_slot = 0.0
-            reserved_at = max(now, float(previous_slot))
-            call_pro._last_call[api_name] = reserved_at + min_interval
-
-        to_sleep = reserved_at - now
-        if to_sleep > 0:
-            logging.debug("Sleeping %.3fs to respect %s rate limit", to_sleep, api_name)
-            time.sleep(to_sleep)
-
         try:
             start_time = time.time()
             func = getattr(pro, api_name, None)

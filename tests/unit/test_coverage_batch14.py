@@ -572,7 +572,7 @@ class TestSchedulerCoverage:
 
 
 class TestTushareIngestHelpersCoverage:
-    """Cover parse_retry_after patterns, _env_rate fallback, _is_rate_limit_error edge cases."""
+    """Cover parse_retry_after patterns and _is_rate_limit_error edge cases."""
 
     def test_parse_retry_after_seconds(self):
         from app.datasync.service.tushare_ingest import parse_retry_after
@@ -613,13 +613,6 @@ class TestTushareIngestHelpersCoverage:
         assert _is_rate_limit_error("每分钟最多访问200次") is True
         assert _is_rate_limit_error("接口访问太频繁") is True
         assert _is_rate_limit_error("some random error") is False
-
-    def test_env_rate_fallback(self):
-        from app.datasync.service.tushare_ingest import _env_rate
-
-        # Non-existent env var → returns default
-        result = _env_rate("nonexistent_test_var_xyz", 99)
-        assert result == 99
 
     def test_call_pro_exhausted_retries(self):
         """Cover call_pro raising after max retries."""

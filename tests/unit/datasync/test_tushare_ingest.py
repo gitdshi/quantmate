@@ -364,12 +364,13 @@ class TestMinIntervalFor:
         from app.datasync.service.tushare_ingest import _min_interval_for
         result = _min_interval_for("daily")
         assert isinstance(result, float)
-        assert result >= 0
+        assert result == 0.0
 
     def test_unknown_api(self):
         from app.datasync.service.tushare_ingest import _min_interval_for
         result = _min_interval_for("unknown_api_xyz")
         assert isinstance(result, float)
+        assert result == 0.0
 
 
 class TestGetFailedTsCodes:
