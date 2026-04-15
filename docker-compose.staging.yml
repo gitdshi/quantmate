@@ -23,6 +23,7 @@ services:
       - MYSQL_PASSWORD=${MYSQL_PASSWORD}
       # Tushare Settings
       - TUSHARE_TOKEN=${TUSHARE_TOKEN}
+      - TUSHARE_DATABASE=tushare
       # Redis Settings
       - REDIS_HOST=redis
       - REDIS_PORT=6379

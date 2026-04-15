@@ -5,7 +5,7 @@ This module is a copy of `app.api.config` moved to
 """
 
 from functools import lru_cache
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     app_name: str = "QuantMate API"
     app_version: str = "1.0.0"
     debug: bool = False
-    environment: str = Field(default="development", validation_alias="QUANTMATE_ENV")
+    environment: str = Field(default="development", validation_alias=AliasChoices("QUANTMATE_ENV", "APP_ENV"))
 
     secret_key: str  # JWT 密钥，必须从环境变量 SECRET_KEY 读取
     algorithm: str = "HS256"
@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     mysql_port: int = 3306
     mysql_user: str = "root"
     mysql_password: str  # 必须从环境变量 MYSQL_PASSWORD 读取
-    tushare_db: str = "tushare"
+    tushare_db: str = Field(default="tushare", validation_alias=AliasChoices("TUSHARE_DATABASE", "TUSHARE_DB"))
     quantmate_db: str = "quantmate"
 
     redis_host: str = "127.0.0.1"

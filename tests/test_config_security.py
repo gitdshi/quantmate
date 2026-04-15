@@ -65,6 +65,33 @@ def test_valid_env_loading():
                 del os.environ[k]
 
 
+def test_env_alias_loading():
+    """Test that staging-style environment variable aliases are honored."""
+    test_env = {
+        'SECRET_KEY': 'alias-secret-key-1234567890',
+        'MYSQL_PASSWORD': 'alias-mysql-password',
+        'APP_ENV': 'staging',
+        'TUSHARE_DATABASE': 'tushare_alias',
+    }
+    original_env = {}
+    for key, value in test_env.items():
+        original_env[key] = os.environ.get(key)
+        os.environ[key] = value
+
+    try:
+        settings = Settings(_env_file=None)
+
+        assert settings.environment == 'staging'
+        assert settings.tushare_db == 'tushare_alias'
+        assert settings.tushare_db_url.endswith('/tushare_alias?charset=utf8mb4')
+    finally:
+        for key in test_env:
+            if original_env[key] is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = original_env[key]
+
+
 def test_no_hardcoded_defaults():
     """Verify that sensitive fields have no default values."""
     from pydantic_core import PydanticUndefined
