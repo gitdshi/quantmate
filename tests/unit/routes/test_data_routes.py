@@ -71,3 +71,49 @@ class TestDataRoutes:
         MockSvc.return_value.get_overview.return_value = {"total": 5000}
         resp = client.get("/api/v1/data/overview")
         assert resp.status_code in (200, 500)
+
+    @patch(f"{_ROUTE}.DataService")
+    def test_list_tushare_tables(self, MockSvc, client):
+        MockSvc.return_value.list_tushare_tables.return_value = [{"name": "stock_daily", "column_count": 5, "primary_keys": ["id"]}]
+        resp = client.get("/api/v1/data/tushare/tables?keyword=daily")
+        assert resp.status_code == 200
+        assert resp.json()["data"][0]["name"] == "stock_daily"
+
+    @patch(f"{_ROUTE}.DataService")
+    def test_get_tushare_table_schema(self, MockSvc, client):
+        MockSvc.return_value.get_tushare_table_schema.return_value = {
+            "table": "stock_daily",
+            "columns": [{"name": "trade_date", "data_type": "DATE", "nullable": False, "primary_key": False, "indexed": True}],
+        }
+        resp = client.get("/api/v1/data/tushare/tables/stock_daily/schema")
+        assert resp.status_code == 200
+        assert resp.json()["table"] == "stock_daily"
+
+    @patch(f"{_ROUTE}.DataService")
+    def test_query_tushare_rows(self, MockSvc, client):
+        MockSvc.return_value.query_tushare_rows.return_value = {
+            "table": "stock_daily",
+            "data": [{"ts_code": "000001.SZ", "trade_date": "2024-01-03"}],
+            "meta": {"page": 1, "page_size": 50, "total": 1, "total_pages": 1, "sort_by": "trade_date", "sort_dir": "desc"},
+        }
+        resp = client.post(
+            "/api/v1/data/tushare/tables/stock_daily/rows",
+            json={
+                "page": 1,
+                "page_size": 50,
+                "sort_by": "trade_date",
+                "sort_dir": "desc",
+                "filters": [{"column": "ts_code", "operator": "eq", "value": "000001.SZ"}],
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["meta"]["total"] == 1
+
+    @patch(f"{_ROUTE}.DataService")
+    def test_query_tushare_rows_validation_error(self, MockSvc, client):
+        MockSvc.return_value.query_tushare_rows.side_effect = ValueError("bad filter")
+        resp = client.post(
+            "/api/v1/data/tushare/tables/stock_daily/rows",
+            json={"page": 1, "page_size": 50, "filters": []},
+        )
+        assert resp.status_code == 400

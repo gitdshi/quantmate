@@ -1,9 +1,9 @@
 """Data and history routes."""
 
 from datetime import date, datetime
-from typing import List, Optional
+from typing import Any, List, Literal, Optional
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.api.dependencies.permissions import require_permission
 from app.api.services.auth_service import get_current_user, get_current_user_optional
@@ -45,6 +45,21 @@ class IndicatorData(BaseModel):
     datetime: datetime
     value: float
     name: str
+
+
+class TushareTableFilter(BaseModel):
+    column: str
+    operator: Literal["eq", "ne", "gt", "gte", "lt", "lte", "like", "in", "between", "is_null", "is_not_null"]
+    value: Optional[Any] = None
+    values: Optional[list[Any]] = None
+
+
+class TushareTableRowsRequest(BaseModel):
+    page: int = Field(1, ge=1)
+    page_size: int = Field(50, ge=1, le=100)
+    sort_by: Optional[str] = None
+    sort_dir: Literal["asc", "desc"] = "desc"
+    filters: list[TushareTableFilter] = Field(default_factory=list)
 
 
 @router.get("/symbols", response_model=List[SymbolInfo])
@@ -180,6 +195,64 @@ async def get_realtime_quote_series(
             status_code=500,
             code=ErrorCode.DATA_FETCH_FAILED,
             message="Failed to fetch realtime series",
+            detail=str(e),
+        )
+
+
+@router.get("/tushare/tables")
+async def list_tushare_tables(
+    keyword: Optional[str] = Query(None, description="Optional table-name keyword filter"),
+    current_user: Optional[TokenData] = Depends(get_current_user_optional),
+):
+    """List physical tables in the Tushare database."""
+    service = DataService()
+    return {"data": service.list_tushare_tables(keyword=keyword)}
+
+
+@router.get("/tushare/tables/{table_name}/schema")
+async def get_tushare_table_schema(
+    table_name: str,
+    current_user: Optional[TokenData] = Depends(get_current_user_optional),
+):
+    """Return column metadata for a Tushare table."""
+    service = DataService()
+    try:
+        return service.get_tushare_table_schema(table_name)
+    except ValueError as e:
+        raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message=str(e))
+    except Exception as e:
+        raise APIError(
+            status_code=500,
+            code=ErrorCode.DATA_FETCH_FAILED,
+            message="Failed to fetch Tushare table schema",
+            detail=str(e),
+        )
+
+
+@router.post("/tushare/tables/{table_name}/rows")
+async def query_tushare_table_rows(
+    table_name: str,
+    body: TushareTableRowsRequest,
+    current_user: Optional[TokenData] = Depends(get_current_user_optional),
+):
+    """Return paginated rows from a Tushare table with structured filters."""
+    service = DataService()
+    try:
+        return service.query_tushare_rows(
+            table_name,
+            page=body.page,
+            page_size=body.page_size,
+            sort_by=body.sort_by,
+            sort_dir=body.sort_dir,
+            filters=[item.model_dump(exclude_none=True) for item in body.filters],
+        )
+    except ValueError as e:
+        raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message=str(e))
+    except Exception as e:
+        raise APIError(
+            status_code=500,
+            code=ErrorCode.DATA_FETCH_FAILED,
+            message="Failed to query Tushare table rows",
             detail=str(e),
         )
 

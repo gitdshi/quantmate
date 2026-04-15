@@ -7,6 +7,7 @@ import pandas as pd
 from app.infrastructure.config import get_settings
 from app.utils.ts_utils import moving_average, pct_change
 
+from app.domains.extdata.tushare_browser_service import TushareBrowserService
 from app.domains.market.service import MarketService
 from app.domains.market.realtime_quote_service import RealtimeQuoteService
 from app.domains.market.realtime_quote_cache import RealtimeQuoteCache
@@ -20,6 +21,7 @@ class DataService:
 
     def __init__(self) -> None:
         self._market = MarketService()
+        self._tushare_browser = TushareBrowserService()
         self._realtime = RealtimeQuoteService()
         self._realtime_cache = RealtimeQuoteCache()
         self._system_config = SystemConfigDao()
@@ -195,3 +197,31 @@ class DataService:
             except Exception as e:
                 result[key] = {"error": str(e), "display_name": meta["name"], "symbol": meta["symbol"]}
         return result
+
+    def list_tushare_tables(self, keyword: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List physical Tushare tables for browser UI."""
+        return self._tushare_browser.list_tables(keyword=keyword)
+
+    def get_tushare_table_schema(self, table_name: str) -> Dict[str, Any]:
+        """Return Tushare table schema for browser UI."""
+        return self._tushare_browser.get_schema(table_name)
+
+    def query_tushare_rows(
+        self,
+        table_name: str,
+        *,
+        page: int = 1,
+        page_size: int = 50,
+        sort_by: Optional[str] = None,
+        sort_dir: str = "desc",
+        filters: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        """Query paginated, filtered Tushare rows for browser UI."""
+        return self._tushare_browser.query_rows(
+            table_name,
+            page=page,
+            page_size=page_size,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+            filters=filters,
+        )
