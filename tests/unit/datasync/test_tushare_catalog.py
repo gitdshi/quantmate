@@ -240,20 +240,24 @@ class TestDailySyncParallel:
 
 
 # ===========================================================================
-# Thread-safe call_pro tests
+# call_pro local pacing state tests
 # ===========================================================================
 
 class TestCallProThreadSafe:
-    def test_has_lock_attribute(self):
+    def test_does_not_initialize_local_pacing_state(self):
         from app.datasync.service.tushare_ingest import call_pro
-        # Trigger initialization
+
+        for attr in ("_lock", "_last_call"):
+            if hasattr(call_pro, attr):
+                delattr(call_pro, attr)
+
         mock_pro = MagicMock()
         mock_pro.test_api.return_value = MagicMock()
         with patch(f"{_INGEST_MOD}.pro", mock_pro):
             call_pro("test_api", max_retries=1)
-        assert hasattr(call_pro, "_lock")
-        import threading
-        assert isinstance(call_pro._lock, type(threading.Lock()))
+
+        assert not hasattr(call_pro, "_lock")
+        assert not hasattr(call_pro, "_last_call")
 
 
 # ===========================================================================
