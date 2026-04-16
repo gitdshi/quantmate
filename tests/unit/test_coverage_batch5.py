@@ -652,12 +652,15 @@ class TestInitService:
         with patch.object(m, "_get_env", return_value="production"):
             assert m._lookback_days() == 365 * 30
 
-    @patch("app.datasync.service.init_service._generate_pending_records", return_value=100)
+    @patch("app.datasync.service.init_service._reconcile_pending_records", return_value={"pending_records": 100, "items_reconciled": 5, "skipped_unsupported": []})
     @patch("app.datasync.service.init_service._ensure_tables", return_value=3)
     @patch("app.datasync.service.init_service._seed_items")
     @patch("app.datasync.service.init_service._seed_configs")
+    @patch("app.datasync.service.init_service.ensure_sync_status_init_table")
+    @patch("app.datasync.service.init_service.ensure_backfill_lock_table")
+    @patch("app.datasync.service.init_service.ensure_tables")
     @patch("app.datasync.service.init_service.get_quantmate_engine")
-    def test_initialize(self, mock_engine, mock_sc, mock_si, mock_et, mock_gp):
+    def test_initialize(self, mock_engine, mock_et0, mock_ebl, mock_essi, mock_sc, mock_si, mock_et, mock_gp):
         m = self._m()
         registry = MagicMock()
         result = m.initialize(registry)

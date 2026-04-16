@@ -352,9 +352,7 @@ class TestDataSyncStatusDaoBatch11:
     def test_release_stale_backfill_lock(self, mock_eng):
         eng, ctx, _ = _fake_engine()
         mock_eng.begin = eng.begin
-        ctx.execute.return_value.first.return_value = SimpleNamespace(
-            locked_at=datetime.utcnow() - timedelta(hours=10)
-        )
+        ctx.execute.return_value.rowcount = 0
         from app.domains.extdata.dao.data_sync_status_dao import release_stale_backfill_lock
         release_stale_backfill_lock(max_age_hours=6)
 

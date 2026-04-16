@@ -474,9 +474,7 @@ class TestDataSyncStatusDao:
                 assert result is False
 
     def test_release_stale_backfill_lock(self):
-        row = MagicMock()
-        row.__getitem__ = lambda s, i: {0: True, 1: datetime(2020, 1, 1)}[i]
-        self.ctx_tm.execute.return_value.fetchone.return_value = row
+        self.ctx_tm.execute.return_value.rowcount = 0
         with patch.object(self.mod, "ensure_backfill_lock_table"):
             self.mod.release_stale_backfill_lock(max_age_hours=1)
 

@@ -329,7 +329,7 @@ class TestDataSyncStatusDaoCoverage:
         conn = MagicMock()
         mock_engine.begin.return_value.__enter__ = MagicMock(return_value=conn)
         mock_engine.begin.return_value.__exit__ = MagicMock(return_value=False)
-        conn.execute.return_value.fetchone.return_value = (0, None)
+        conn.execute.return_value.rowcount = 0
 
         from app.domains.extdata.dao.data_sync_status_dao import release_stale_backfill_lock
 
@@ -342,7 +342,7 @@ class TestDataSyncStatusDaoCoverage:
         conn = MagicMock()
         mock_engine.begin.return_value.__enter__ = MagicMock(return_value=conn)
         mock_engine.begin.return_value.__exit__ = MagicMock(return_value=False)
-        conn.execute.return_value.fetchone.return_value = None
+        conn.execute.return_value.rowcount = 0
 
         from app.domains.extdata.dao.data_sync_status_dao import release_stale_backfill_lock
 
@@ -356,8 +356,7 @@ class TestDataSyncStatusDaoCoverage:
         conn = MagicMock()
         mock_engine.begin.return_value.__enter__ = MagicMock(return_value=conn)
         mock_engine.begin.return_value.__exit__ = MagicMock(return_value=False)
-        old_time = datetime.utcnow() - timedelta(hours=10)
-        conn.execute.return_value.fetchone.return_value = (1, old_time)
+        conn.execute.return_value.rowcount = 1
 
         from app.domains.extdata.dao.data_sync_status_dao import release_stale_backfill_lock
 
@@ -367,12 +366,11 @@ class TestDataSyncStatusDaoCoverage:
     @patch("app.domains.extdata.dao.data_sync_status_dao.engine_tm")
     @patch("app.domains.extdata.dao.data_sync_status_dao.ensure_backfill_lock_table")
     def test_release_stale_lock_string_timestamp(self, mock_ensure, mock_engine):
-        """Cover branch where locked_at is a string (fromisoformat parse)."""
+        """SQL-level TIMESTAMPDIFF handles the age check; lock is stale → released."""
         conn = MagicMock()
         mock_engine.begin.return_value.__enter__ = MagicMock(return_value=conn)
         mock_engine.begin.return_value.__exit__ = MagicMock(return_value=False)
-        old_time_str = (datetime.utcnow() - timedelta(hours=10)).isoformat()
-        conn.execute.return_value.fetchone.return_value = (1, old_time_str)
+        conn.execute.return_value.rowcount = 1
 
         from app.domains.extdata.dao.data_sync_status_dao import release_stale_backfill_lock
 
@@ -382,11 +380,11 @@ class TestDataSyncStatusDaoCoverage:
     @patch("app.domains.extdata.dao.data_sync_status_dao.engine_tm")
     @patch("app.domains.extdata.dao.data_sync_status_dao.ensure_backfill_lock_table")
     def test_release_stale_lock_bad_string_timestamp(self, mock_ensure, mock_engine):
-        """Cover branch where fromisoformat fails."""
+        """SQL-level check; no stale lock found → rowcount=0."""
         conn = MagicMock()
         mock_engine.begin.return_value.__enter__ = MagicMock(return_value=conn)
         mock_engine.begin.return_value.__exit__ = MagicMock(return_value=False)
-        conn.execute.return_value.fetchone.return_value = (1, "not-a-date")
+        conn.execute.return_value.rowcount = 0
 
         from app.domains.extdata.dao.data_sync_status_dao import release_stale_backfill_lock
 

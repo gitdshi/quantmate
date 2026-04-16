@@ -779,6 +779,7 @@ class TestTableManager:
         mock_eng.connect.return_value.__enter__ = lambda s: mock_conn
         mock_eng.connect.return_value.__exit__ = lambda s, *a: None
         monkeypatch.setattr(_tm, "_get_engine", lambda db: mock_eng)
+        monkeypatch.setattr(_tm, "_mark_table_created", lambda db, tbl: None)
         result = _tm.ensure_table("tushare", "test_tbl", "CREATE TABLE ...")
         assert result is False  # table already exists
 

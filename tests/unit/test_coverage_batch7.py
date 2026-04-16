@@ -1233,41 +1233,25 @@ class TestInitService:
 
     def test_generate_pending_records(self, monkeypatch):
         mod = self.mod
-        eng, ctx = _fake_engine()
-        raw = eng.raw_connection.return_value
-        cursor = MagicMock()
-        cursor.rowcount = 10
-        raw.cursor.return_value = cursor
-        # Items query
-        ctx.execute.return_value.fetchall.return_value = [
-            ("tushare", "stock_daily"),
-        ]
-        # Mock trade calendar
         monkeypatch.setattr(
-            "app.datasync.service.sync_engine.get_trade_calendar",
-            lambda s, e: [date(2025, 1, 2), date(2025, 1, 3)],
+            "app.datasync.service.init_service._reconcile_pending_records",
+            lambda registry: {"pending_records": 10, "items_reconciled": 2, "skipped_unsupported": []},
         )
         from app.datasync.service.init_service import DataSourceRegistry
         registry = MagicMock(spec=DataSourceRegistry)
+        eng = MagicMock()
         result = mod._generate_pending_records(eng, registry)
         assert result >= 0
 
     def test_generate_pending_records_no_calendar(self, monkeypatch):
         mod = self.mod
-        eng, ctx = _fake_engine()
-        raw = eng.raw_connection.return_value
-        cursor = MagicMock()
-        cursor.rowcount = 5
-        raw.cursor.return_value = cursor
-        ctx.execute.return_value.fetchall.return_value = [
-            ("tushare", "stock_daily"),
-        ]
         monkeypatch.setattr(
-            "app.datasync.service.sync_engine.get_trade_calendar",
-            MagicMock(side_effect=RuntimeError("no calendar")),
+            "app.datasync.service.init_service._reconcile_pending_records",
+            lambda registry: {"pending_records": 0, "items_reconciled": 0, "skipped_unsupported": []},
         )
         from app.datasync.service.init_service import DataSourceRegistry
         registry = MagicMock(spec=DataSourceRegistry)
+        eng = MagicMock()
         result = mod._generate_pending_records(eng, registry)
         assert result >= 0
 
@@ -1314,6 +1298,7 @@ class TestDataSyncStatusDaoExtra:
 
     def test_release_stale_backfill_lock(self, monkeypatch):
         eng, ctx = _fake_engine()
+        ctx.execute.return_value.rowcount = 0
         monkeypatch.setattr(self.mod, "engine_tm", eng)
         if hasattr(self.mod, "release_stale_backfill_lock"):
             self.mod.release_stale_backfill_lock(max_age_hours=6)

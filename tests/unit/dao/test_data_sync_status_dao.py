@@ -260,23 +260,17 @@ class TestBackfillLock:
 
     def test_release_stale_no_row(self):
         conn = _engine_conn(_mod.engine_tm)
-        conn.execute.return_value = MagicMock(fetchone=MagicMock(return_value=None))
+        conn.execute.return_value = MagicMock(rowcount=0)
         assert _mod.release_stale_backfill_lock(max_age_hours=6) is False
 
     def test_release_stale_fresh_lock(self):
         conn = _engine_conn(_mod.engine_tm)
-        row = MagicMock()
-        row.__getitem__ = lambda s, k: {0: 1, 1: datetime.utcnow()}[k]
-        conn.execute.return_value = MagicMock(fetchone=MagicMock(return_value=row))
+        conn.execute.return_value = MagicMock(rowcount=0)
         assert _mod.release_stale_backfill_lock(max_age_hours=6) is False
 
     def test_release_stale_old_lock(self):
         conn = _engine_conn(_mod.engine_tm)
-        old_time = datetime.utcnow() - timedelta(hours=10)
-        row = MagicMock()
-        row.__getitem__ = lambda s, k: {0: 1, 1: old_time}[k]
-        execute_mock = MagicMock(fetchone=MagicMock(return_value=row))
-        conn.execute.return_value = execute_mock
+        conn.execute.return_value = MagicMock(rowcount=1)
         result = _mod.release_stale_backfill_lock(max_age_hours=6)
         assert result is True
 
