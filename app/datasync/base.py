@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import date
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +25,7 @@ class SyncResult:
     status: SyncStatus
     rows_synced: int = 0
     error_message: Optional[str] = None
+    details: Optional[dict[str, Any]] = None
 
 
 @dataclass
@@ -57,6 +58,10 @@ class BaseIngestInterface(ABC):
     @abstractmethod
     def sync_date(self, trade_date: date) -> SyncResult:
         """Sync data for a single trading day."""
+
+    def supports_backfill(self) -> bool:
+        """Whether this interface should participate in historical backfill."""
+        return True
 
     def sync_range(self, start: date, end: date) -> SyncResult:
         """Sync data for a date range (default: iterate sync_date).

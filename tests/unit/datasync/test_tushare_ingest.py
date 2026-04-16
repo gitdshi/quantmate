@@ -105,6 +105,23 @@ class TestCallPro:
         with patch(f"{_MOD}.time.sleep"), pytest.raises(Exception, match="rate limit"):
             self.mod.call_pro("daily", max_retries=1, backoff_base=0)
 
+    def test_daily_quota_raises_resume_later_error(self):
+        self._mock_pro.daily.side_effect = Exception("抱歉，您每天最多访问该接口50次")
+        with patch(f"{_MOD}.time.sleep") as mock_sleep, \
+             pytest.raises(self.mod.TushareQuotaExceededError) as exc_info:
+            self.mod.call_pro("daily", max_retries=3, backoff_base=0)
+        assert exc_info.value.scope == "day"
+        mock_sleep.assert_not_called()
+
+    def test_minute_quota_raises_pause_after_retry_exhaustion(self):
+        self._mock_pro.daily.side_effect = Exception("抱歉，您每分钟最多访问该接口500次")
+        with patch(f"{_MOD}.time.sleep") as mock_sleep, \
+             patch(f"{_MOD}.random.uniform", return_value=0), \
+             pytest.raises(self.mod.TushareQuotaExceededError) as exc_info:
+            self.mod.call_pro("daily", max_retries=3, backoff_base=0)
+        assert exc_info.value.scope == "minute"
+        assert mock_sleep.call_count == 2
+
 
 class TestSetMetricsHook:
     def test_sets_hook(self):
@@ -181,6 +198,106 @@ class TestIngestDailyBasic:
         with patch.object(mod, "call_pro", return_value=df), \
              patch.object(mod, "upsert_daily_basic", return_value=1):
             mod.ingest_daily_basic(trade_date="20240115")
+
+
+class TestIngestBakDaily:
+    def test_success(self):
+        import pandas as pd
+        from app.datasync.service import tushare_ingest as mod
+        df = pd.DataFrame({"ts_code": ["000001.SZ"], "trade_date": ["20240115"], "close": [10.0]})
+        with patch.object(mod, "call_pro", return_value=df), \
+             patch.object(mod, "upsert_bak_daily", return_value=1):
+            result = mod.ingest_bak_daily(trade_date="20240115")
+            assert result == 1
+
+    def test_trade_dates_use_rate_limit_floor(self):
+        from app.datasync.service import tushare_ingest as mod
+        with patch.object(mod, "_ingest_marketwide_on_dates", return_value=1) as helper:
+            mod.ingest_bak_daily_by_trade_dates(["2024-01-15"], sleep_between=0.1)
+        assert helper.call_args.kwargs["sleep_between"] == mod.BAK_DAILY_MIN_SLEEP_SECONDS
+
+    def test_marketwide_loader_pauses_on_long_window_quota(self):
+        import pandas as pd
+        from app.datasync.service import tushare_ingest as mod
+
+        progress = MagicMock()
+        quota_error = mod.TushareQuotaExceededError("bak_daily", "daily quota", scope="day")
+        with patch.object(mod, "_fetch_existing_keys", return_value=set()), \
+             patch.object(mod, "call_pro", side_effect=[
+                 pd.DataFrame({"ts_code": ["000001.SZ"], "trade_date": ["2024-01-15"]}),
+                 quota_error,
+             ]), \
+             patch.object(mod, "upsert_bak_daily", return_value=1), \
+             patch.object(mod.time, "sleep"):
+            with pytest.raises(mod.TushareQuotaExceededError):
+                mod.ingest_bak_daily_by_trade_dates(
+                    ["2024-01-15", "2024-01-16"],
+                    progress_cb=progress,
+                )
+
+        assert progress.call_args_list[0].kwargs["cursor_date"] == "2024-01-15"
+        assert progress.call_args_list[1].kwargs["cursor_date"] == "2024-01-16"
+
+
+class TestPerSymbolLoaderQuotaPause:
+    def test_loader_pauses_on_quota(self):
+        import pandas as pd
+        from app.datasync.service import tushare_ingest as mod
+
+        progress = MagicMock()
+        quota_error = mod.TushareQuotaExceededError("income", "daily quota", scope="day")
+        with patch.object(mod, "_fetch_existing_keys", return_value=set()), \
+             patch.object(mod, "get_all_ts_codes", return_value=["000001.SZ", "000002.SZ"]), \
+             patch.object(mod, "call_pro", side_effect=[
+                 pd.DataFrame({"ts_code": ["000001.SZ"], "end_date": ["2024-01-15"]}),
+                 quota_error,
+             ]), \
+             patch.object(mod, "upsert_income", return_value=1), \
+             patch.object(mod.time, "sleep"):
+            with pytest.raises(mod.TushareQuotaExceededError):
+                mod.ingest_income_by_date_range(
+                    "2024-01-01",
+                    "2024-12-31",
+                    progress_cb=progress,
+                    batch_size=2,
+                )
+
+        assert progress.call_args_list[0].kwargs["ts_code"] == "000001.SZ"
+        assert progress.call_args_list[1].kwargs["ts_code"] == "000002.SZ"
+
+
+class TestIngestSuspendD:
+    def test_success(self):
+        import pandas as pd
+        from app.datasync.service import tushare_ingest as mod
+        df = pd.DataFrame({"ts_code": ["000001.SZ"], "trade_date": ["20240115"]})
+        with patch.object(mod, "call_pro", return_value=df), \
+             patch.object(mod, "upsert_suspend_d", return_value=1):
+            result = mod.ingest_suspend_d(trade_date="20240115")
+            assert result == 1
+
+
+class TestIngestSuspend:
+    def test_success(self):
+        import pandas as pd
+        from app.datasync.service import tushare_ingest as mod
+        df = pd.DataFrame({"ts_code": ["000001.SZ"], "suspend_date": ["20240115"]})
+        with patch.object(mod, "call_pro", return_value=df), \
+             patch.object(mod, "upsert_suspend", return_value=1):
+            result = mod.ingest_suspend(suspend_date="20240115")
+            assert result == 1
+
+    def test_normalizes_and_deduplicates_resume_date(self):
+        import pandas as pd
+        from app.datasync.service import tushare_ingest as mod
+        df = pd.DataFrame([
+            {"ts_code": "000001.SZ", "suspend_date": "20240115", "resume_date": None},
+            {"ts_code": "000001.SZ", "suspend_date": "20240115", "resume_date": "19000101"},
+        ])
+        with patch.object(mod, "call_pro", return_value=df), \
+             patch.object(mod, "upsert_suspend", side_effect=lambda frame: len(frame)):
+            result = mod.ingest_suspend(suspend_date="20240115")
+            assert result == 1
 
 
 class TestIngestAdjFactor:
@@ -278,8 +395,142 @@ class TestIngestIncome:
         from app.datasync.service import tushare_ingest as mod
         df = pd.DataFrame({"ts_code": ["000001.SZ"], "revenue": [1e9]})
         with patch.object(mod, "call_pro", return_value=df), \
-             patch.object(mod, "store_financial_statement"):
-            mod.ingest_income("000001.SZ")
+             patch.object(mod, "upsert_income", return_value=1):
+            result = mod.ingest_income("000001.SZ")
+            assert result == 1
+
+
+class TestIngestStockCompany:
+    def test_success(self):
+        import pandas as pd
+        from app.datasync.service import tushare_ingest as mod
+        df = pd.DataFrame({"ts_code": ["000001.SZ"], "com_name": ["Ping An"]})
+        with patch.object(mod, "call_pro", return_value=df), \
+             patch.object(mod, "upsert_stock_company", return_value=1):
+            result = mod.ingest_stock_company(exchange="SSE")
+            assert result == 1
+
+    def test_snapshot(self):
+        from app.datasync.service import tushare_ingest as mod
+        progress = MagicMock()
+        with patch.object(mod, "ingest_stock_company", side_effect=[2, 3]):
+            result = mod.ingest_stock_company_snapshot(progress_cb=progress, sleep_between=0)
+        assert result == 5
+        assert progress.call_args_list[0].kwargs["ts_code"] == "SSE"
+        assert progress.call_args_list[1].kwargs["ts_code"] == "SZSE"
+
+    def test_snapshot_resume_reprocesses_saved_exchange(self):
+        from app.datasync.service import tushare_ingest as mod
+
+        with patch.object(mod, "ingest_stock_company", side_effect=[3]) as ingest_one:
+            result = mod.ingest_stock_company_snapshot(start_after_exchange="SZSE", sleep_between=0)
+
+        assert result == 3
+        ingest_one.assert_called_once_with(exchange="SZSE")
+
+    def test_quota_propagates(self):
+        from app.datasync.service import tushare_ingest as mod
+
+        quota_error = mod.TushareQuotaExceededError("stock_company", "daily quota", scope="day")
+        with patch.object(mod, "call_pro", side_effect=quota_error):
+            with pytest.raises(mod.TushareQuotaExceededError):
+                mod.ingest_stock_company(exchange="SSE")
+
+
+class TestIngestNewShare:
+    def test_success(self):
+        import pandas as pd
+        from app.datasync.service import tushare_ingest as mod
+        df = pd.DataFrame({"ts_code": ["920001.BJ"], "ipo_date": ["20240115"]})
+        with patch.object(mod, "call_pro", return_value=df), \
+             patch.object(mod, "upsert_new_share", return_value=1):
+            result = mod.ingest_new_share(start_date="20240101", end_date="20240131")
+            assert result == 1
+
+    def test_range(self):
+        import pandas as pd
+        from app.datasync.service import tushare_ingest as mod
+        df = pd.DataFrame({"ts_code": ["920001.BJ"], "ipo_date": ["2024-01-15"]})
+        with patch.object(mod, "_fetch_existing_keys", return_value=set()), \
+             patch.object(mod, "call_pro", return_value=df), \
+             patch.object(mod, "upsert_new_share", return_value=1):
+            result = mod.ingest_new_share_by_date_range("2024-01-01", "2024-01-31")
+            assert result == 1
+
+
+class TestFinancialAndStatementIngests:
+    def test_fina_indicator_success(self):
+        import pandas as pd
+        from app.datasync.service import tushare_ingest as mod
+        df = pd.DataFrame({"ts_code": ["000001.SZ"], "end_date": ["20240115"]})
+        with patch.object(mod, "call_pro", return_value=df), \
+             patch.object(mod, "upsert_fina_indicator", return_value=1):
+            result = mod.ingest_fina_indicator(ts_code="000001.SZ")
+            assert result == 1
+
+    def test_balancesheet_success(self):
+        import pandas as pd
+        from app.datasync.service import tushare_ingest as mod
+        df = pd.DataFrame({"ts_code": ["000001.SZ"], "end_date": ["20240115"]})
+        with patch.object(mod, "call_pro", return_value=df), \
+             patch.object(mod, "upsert_balancesheet", return_value=1):
+            result = mod.ingest_balancesheet(ts_code="000001.SZ")
+            assert result == 1
+
+    def test_cashflow_success(self):
+        import pandas as pd
+        from app.datasync.service import tushare_ingest as mod
+        df = pd.DataFrame({"ts_code": ["000001.SZ"], "end_date": ["20240115"]})
+        with patch.object(mod, "call_pro", return_value=df), \
+             patch.object(mod, "upsert_cashflow", return_value=1):
+            result = mod.ingest_cashflow(ts_code="000001.SZ")
+            assert result == 1
+
+    @pytest.mark.parametrize(
+        ("ingest_name", "kwargs"),
+        [
+            ("ingest_income", {"ts_code": "000001.SZ"}),
+            ("ingest_fina_indicator", {"ts_code": "000001.SZ"}),
+            ("ingest_balancesheet", {"ts_code": "000001.SZ"}),
+            ("ingest_cashflow", {"ts_code": "000001.SZ"}),
+        ],
+    )
+    def test_quota_propagates(self, ingest_name, kwargs):
+        from app.datasync.service import tushare_ingest as mod
+
+        quota_error = mod.TushareQuotaExceededError("quota_api", "daily quota", scope="day")
+        with patch.object(mod, "call_pro", side_effect=quota_error):
+            with pytest.raises(mod.TushareQuotaExceededError):
+                getattr(mod, ingest_name)(**kwargs)
+
+    def test_range_helpers_delegate(self):
+        from app.datasync.service import tushare_ingest as mod
+        with patch.object(mod, "_ingest_per_symbol_on_date_range", return_value=4) as helper:
+            assert mod.ingest_fina_indicator_by_date_range("2024-01-01", "2024-12-31") == 4
+            assert helper.call_args.args[0] == "fina_indicator"
+            assert mod.ingest_income_by_date_range("2024-01-01", "2024-12-31") == 4
+            assert helper.call_args.args[0] == "income"
+            assert mod.ingest_balancesheet_by_date_range("2024-01-01", "2024-12-31") == 4
+            assert helper.call_args.args[0] == "balancesheet"
+            assert mod.ingest_cashflow_by_date_range("2024-01-01", "2024-12-31") == 4
+            assert helper.call_args.args[0] == "cashflow"
+
+    def test_financial_range_enforces_min_sleep(self):
+        import pandas as pd
+        from app.datasync.service import tushare_ingest as mod
+
+        with patch.object(mod, "_fetch_existing_keys", return_value=set()), \
+             patch.object(mod, "get_all_ts_codes", return_value=["000001.SZ"]), \
+             patch.object(mod, "call_pro", return_value=pd.DataFrame()), \
+             patch.object(mod.time, "sleep") as mock_sleep:
+            mod.ingest_fina_indicator_by_date_range(
+                "2024-01-01",
+                "2024-12-31",
+                batch_size=1,
+                sleep_between=0,
+            )
+
+        mock_sleep.assert_called_once_with(0.15)
 
 
 class TestIngestMoneyflow:
@@ -289,7 +540,16 @@ class TestIngestMoneyflow:
         df = pd.DataFrame({"ts_code": ["000001.SZ"], "buy_sm_vol": [100]})
         with patch.object(mod, "call_pro", return_value=df), \
              patch.object(mod, "upsert_moneyflow", return_value=1):
-            mod.ingest_moneyflow(ts_code="000001.SZ")
+            result = mod.ingest_moneyflow(ts_code="000001.SZ")
+            assert result == 1
+
+    def test_trade_dates_loader(self):
+        from app.datasync.service import tushare_ingest as mod
+        with patch.object(mod, "_ingest_marketwide_on_dates", return_value=2) as helper:
+            result = mod.ingest_moneyflow_by_trade_dates(["2024-01-15"], sleep_between=0.2)
+        assert result == 2
+        assert helper.call_args.args[0] == "moneyflow"
+        assert helper.call_args.args[1] == "stock_moneyflow"
 
 
 class TestIngestMargin:
@@ -365,6 +625,12 @@ class TestMinIntervalFor:
         result = _min_interval_for("daily")
         assert isinstance(result, float)
         assert result == 0.0
+
+    def test_financial_api(self):
+        from app.datasync.service.tushare_ingest import _min_interval_for
+        result = _min_interval_for("fina_indicator")
+        assert isinstance(result, float)
+        assert result == 0.15
 
     def test_unknown_api(self):
         from app.datasync.service.tushare_ingest import _min_interval_for

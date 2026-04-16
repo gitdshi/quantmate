@@ -39,6 +39,7 @@ import pandas as pd
 sys.path.insert(0, str(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
 # Import ingest modules
+from app.infrastructure.logging.logging_setup import configure_logging
 from app.datasync.service.tushare_ingest import (
     ingest_daily,
     ingest_stock_basic,
@@ -80,7 +81,13 @@ from app.domains.extdata.dao.data_sync_status_dao import (
     get_adj_factor_count_for_date,
     truncate_trade_cal,
     get_stock_daily_counts,
+    get_bak_daily_counts,
+    get_moneyflow_counts,
+    get_suspend_d_counts,
+    get_suspend_counts,
     get_adj_factor_counts,
+    get_stock_weekly_counts,
+    get_stock_monthly_counts,
     get_vnpy_counts,
     bulk_upsert_status,
     acquire_backfill_lock,
@@ -110,7 +117,8 @@ except ImportError:
     AKSHARE_AVAILABLE = False
     ak = None
 
-logging.basicConfig(level=logging.INFO)
+LOG_LEVEL = getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO)
+configure_logging(LOG_LEVEL)
 logger = logging.getLogger(__name__)
 
 # Configuration
@@ -128,6 +136,7 @@ REQUIRED_ENDPOINTS = [
     "akshare_index",
     "tushare_stock_basic",
     "tushare_stock_daily",
+    "tushare_moneyflow",
     "tushare_adj_factor",
     "tushare_dividend",
     "tushare_top10_holders",
@@ -140,6 +149,10 @@ class SyncStep(str, Enum):
     AKSHARE_INDEX = "akshare_index"
     TUSHARE_STOCK_BASIC = "tushare_stock_basic"
     TUSHARE_STOCK_DAILY = "tushare_stock_daily"
+    TUSHARE_BAK_DAILY = "tushare_bak_daily"
+    TUSHARE_MONEYFLOW = "tushare_moneyflow"
+    TUSHARE_SUSPEND_D = "tushare_suspend_d"
+    TUSHARE_SUSPEND = "tushare_suspend"
     TUSHARE_ADJ_FACTOR = "tushare_adj_factor"
     TUSHARE_DIVIDEND = "tushare_dividend"
     TUSHARE_TOP10_HOLDERS = "tushare_top10_holders"
@@ -481,7 +494,7 @@ def run_tushare_stock_weekly_step(sync_date: date) -> Tuple[SyncStatus, int, Opt
     """Ingest Tushare stock_weekly using batch API (trade_date)."""
     target = sync_date.strftime("%Y%m%d")
     try:
-        rows = ingest_weekly(start_date=target, end_date=target)
+        rows = ingest_weekly(trade_date=target)
         return SyncStatus.SUCCESS, rows or 0, None
     except Exception as e:
         logger.exception("stock_weekly failed: %s", e)
@@ -492,7 +505,7 @@ def run_tushare_stock_monthly_step(sync_date: date) -> Tuple[SyncStatus, int, Op
     """Ingest Tushare stock_monthly using batch API (trade_date)."""
     target = sync_date.strftime("%Y%m%d")
     try:
-        rows = ingest_monthly(start_date=target, end_date=target)
+        rows = ingest_monthly(trade_date=target)
         return SyncStatus.SUCCESS, rows or 0, None
     except Exception as e:
         logger.exception("stock_monthly failed: %s", e)
@@ -1025,6 +1038,31 @@ def group_dates_by_month(dates: List[date]) -> List[Tuple[date, date]]:
     return ranges
 
 
+def _select_period_end_trade_dates(trade_days: List[date], period: str) -> List[date]:
+    """Return trade dates that close a trading week or month."""
+    if period not in {"weekly", "monthly"}:
+        raise ValueError(f"Unsupported period: {period}")
+
+    selected: List[date] = []
+    for index, trade_day in enumerate(trade_days):
+        next_day = trade_days[index + 1] if index + 1 < len(trade_days) else None
+        if next_day is None:
+            selected.append(trade_day)
+            continue
+
+        if period == "weekly":
+            current_week = trade_day.isocalendar()[:2]
+            next_week = next_day.isocalendar()[:2]
+            if current_week != next_week:
+                selected.append(trade_day)
+            continue
+
+        if (trade_day.year, trade_day.month) != (next_day.year, next_day.month):
+            selected.append(trade_day)
+
+    return selected
+
+
 def initialize_sync_status_table(lookback_years: int = 15):
     """Initialize data_sync_status table by scanning existing data."""
     logger.info("Initializing data_sync_status table (lookback=%d years)", lookback_years)
@@ -1046,8 +1084,16 @@ def initialize_sync_status_table(lookback_years: int = 15):
     # Get aggregated counts via DAO
     logger.info("Querying aggregated counts via DAO")
     stock_daily_counts = get_stock_daily_counts(s, e)
+    bak_daily_counts = get_bak_daily_counts(s, e)
+    moneyflow_counts = get_moneyflow_counts(s, e)
+    suspend_d_counts = get_suspend_d_counts(s, e)
+    suspend_counts = get_suspend_counts(s, e)
     adj_factor_counts = get_adj_factor_counts(s, e)
+    stock_weekly_counts = get_stock_weekly_counts(s, e)
+    stock_monthly_counts = get_stock_monthly_counts(s, e)
     vnpy_counts = get_vnpy_counts(s, e)
+    weekly_trade_days = set(_select_period_end_trade_dates(trade_days, period="weekly"))
+    monthly_trade_days = set(_select_period_end_trade_dates(trade_days, period="monthly"))
 
     # Build rows list
     rows_to_insert = []
@@ -1058,6 +1104,28 @@ def initialize_sync_status_table(lookback_years: int = 15):
             (td, SyncStep.TUSHARE_STOCK_DAILY.value, status_daily.value, daily_count, None, None, None)
         )
 
+        bak_count = bak_daily_counts.get(td, 0)
+        status_bak = SyncStatus.SUCCESS if bak_count > 0 else SyncStatus.PENDING
+        rows_to_insert.append((td, SyncStep.TUSHARE_BAK_DAILY.value, status_bak.value, bak_count, None, None, None))
+
+        moneyflow_count = moneyflow_counts.get(td, 0)
+        status_moneyflow = SyncStatus.SUCCESS if moneyflow_count > 0 else SyncStatus.PENDING
+        rows_to_insert.append(
+            (td, SyncStep.TUSHARE_MONEYFLOW.value, status_moneyflow.value, moneyflow_count, None, None, None)
+        )
+
+        suspend_d_count = suspend_d_counts.get(td, 0)
+        status_suspend_d = SyncStatus.SUCCESS if suspend_d_count > 0 else SyncStatus.PENDING
+        rows_to_insert.append(
+            (td, SyncStep.TUSHARE_SUSPEND_D.value, status_suspend_d.value, suspend_d_count, None, None, None)
+        )
+
+        suspend_count = suspend_counts.get(td, 0)
+        status_suspend = SyncStatus.SUCCESS if suspend_count > 0 else SyncStatus.PENDING
+        rows_to_insert.append(
+            (td, SyncStep.TUSHARE_SUSPEND.value, status_suspend.value, suspend_count, None, None, None)
+        )
+
         adj_count = adj_factor_counts.get(td, 0)
         status_adj = SyncStatus.SUCCESS if adj_count > 0 else SyncStatus.PENDING
         rows_to_insert.append((td, SyncStep.TUSHARE_ADJ_FACTOR.value, status_adj.value, adj_count, None, None, None))
@@ -1065,6 +1133,20 @@ def initialize_sync_status_table(lookback_years: int = 15):
         vnpy_count = vnpy_counts.get(td, 0)
         status_vnpy = SyncStatus.SUCCESS if vnpy_count > 0 else SyncStatus.PENDING
         rows_to_insert.append((td, SyncStep.VNPY_SYNC.value, status_vnpy.value, vnpy_count, None, None, None))
+
+        if td in weekly_trade_days:
+            weekly_count = stock_weekly_counts.get(td, 0)
+            status_weekly = SyncStatus.SUCCESS if weekly_count > 0 else SyncStatus.PENDING
+            rows_to_insert.append(
+                (td, SyncStep.TUSHARE_STOCK_WEEKLY.value, status_weekly.value, weekly_count, None, None, None)
+            )
+
+        if td in monthly_trade_days:
+            monthly_count = stock_monthly_counts.get(td, 0)
+            status_monthly = SyncStatus.SUCCESS if monthly_count > 0 else SyncStatus.PENDING
+            rows_to_insert.append(
+                (td, SyncStep.TUSHARE_STOCK_MONTHLY.value, status_monthly.value, monthly_count, None, None, None)
+            )
 
         for step in (SyncStep.AKSHARE_INDEX, SyncStep.TUSHARE_DIVIDEND, SyncStep.TUSHARE_TOP10_HOLDERS):
             rows_to_insert.append((td, step.value, SyncStatus.PENDING.value, 0, None, None, None))

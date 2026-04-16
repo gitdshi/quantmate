@@ -135,6 +135,12 @@ def daemon_loop():
     except Exception:
         logger.exception("Failed to ensure tables")
 
+    logger.info("Reconciling enabled sync status...")
+    try:
+        run_init(run_backfill_flag=False)
+    except Exception:
+        logger.exception("Initial sync-status reconciliation failed")
+
     # Run initial sync
     logger.info("Running initial daily sync...")
     try:

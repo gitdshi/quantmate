@@ -1,16 +1,4 @@
-"""Environment-aware initialization service.
-
-Handles first-time data initialization:
-- Seeds data_source_configs and data_source_items if empty
-- Creates tables for enabled interfaces
-- Generates pending sync status records for the initialization window
-- Optionally runs initial backfill
-
-Environment windows:
-- dev: 1 year
-- staging: 5 years
-- prod: max available
-"""
+"""Environment-aware initialization service for dynamic data sync state."""
 
 from __future__ import annotations
 
@@ -20,9 +8,10 @@ from datetime import date, timedelta
 
 from sqlalchemy import text
 
-from app.datasync.base import SyncStatus
 from app.datasync.registry import DataSourceRegistry
+from app.datasync.service.sync_init_service import ensure_sync_status_init_table, reconcile_enabled_sync_status
 from app.datasync.table_manager import ensure_table
+from app.domains.extdata.dao.data_sync_status_dao import ensure_backfill_lock_table, ensure_tables
 from app.infrastructure.db.connections import get_quantmate_engine
 
 logger = logging.getLogger(__name__)
@@ -48,34 +37,33 @@ def _lookback_days() -> int:
 def initialize(registry: DataSourceRegistry, run_backfill: bool = False) -> dict:
     """Run initialization sequence.
 
-    1. Ensure data_source_configs and data_source_items have seed data
-    2. Create tables for all enabled interfaces
-    3. Generate pending sync status records
-    4. Optionally run backfill
+    1. Ensure sync status support tables exist
+    2. Ensure data_source_configs and data_source_items have seed data
+    3. Create tables for all enabled interfaces
+    4. Reconcile pending sync status records for enabled interfaces
+    5. Optionally run backfill
     """
     logger.info("=== DataSync Initialization (env=%s) ===", _get_env())
 
     engine = get_quantmate_engine()
 
-    # Step 1: Seed configs if empty
+    ensure_tables()
+    ensure_backfill_lock_table()
+    ensure_sync_status_init_table()
+
     _seed_configs(engine, registry)
-
-    # Step 2: Seed items if empty
     _seed_items(engine, registry)
-
-    # Step 3: Create tables for enabled interfaces
     tables_created = _ensure_tables(engine, registry)
-
-    # Step 4: Generate pending status records
-    pending_count = _generate_pending_records(engine, registry)
+    pending_result = _reconcile_pending_records(registry)
 
     result = {
         "env": _get_env(),
         "tables_created": tables_created,
-        "pending_records": pending_count,
+        "pending_records": pending_result["pending_records"],
+        "items_reconciled": pending_result["items_reconciled"],
+        "skipped_unsupported": pending_result["skipped_unsupported"],
     }
 
-    # Step 5: Optional backfill
     if run_backfill:
         from app.datasync.service.sync_engine import backfill_retry
 
@@ -131,8 +119,10 @@ def _ensure_tables(engine, registry: DataSourceRegistry) -> int:
     with engine.connect() as conn:
         rows = conn.execute(
             text(
-                "SELECT source, item_key, target_database, target_table "
-                "FROM data_source_items WHERE enabled = 1 AND table_created = 0"
+                "SELECT dsi.source, dsi.item_key, dsi.target_database, dsi.target_table "
+                "FROM data_source_items dsi "
+                "JOIN data_source_configs dsc ON dsi.source = dsc.source_key "
+                "WHERE dsi.enabled = 1 AND dsc.enabled = 1 AND dsi.table_created = 0"
             )
         ).fetchall()
 
@@ -149,61 +139,22 @@ def _ensure_tables(engine, registry: DataSourceRegistry) -> int:
     return created
 
 
-def _generate_pending_records(engine, registry: DataSourceRegistry) -> int:
-    """Generate pending sync_status records for the lookback window."""
+def _reconcile_pending_records(registry: DataSourceRegistry) -> dict[str, object]:
     lookback = _lookback_days()
     end_date = date.today() - timedelta(days=1)
     start_date = end_date - timedelta(days=lookback)
 
-    # Get trade dates
-    try:
-        from app.datasync.service.sync_engine import get_trade_calendar
+    result = reconcile_enabled_sync_status(
+        registry,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    if result["skipped_unsupported"]:
+        logger.warning("Skipped unsupported enabled interfaces during init: %s", result["skipped_unsupported"])
+    return result
 
-        trade_dates = get_trade_calendar(start_date, end_date)
-    except Exception:
-        logger.warning("Could not get trade calendar, using weekdays")
-        trade_dates = []
-        cur = start_date
-        while cur <= end_date:
-            if cur.weekday() < 5:
-                trade_dates.append(cur)
-            cur += timedelta(days=1)
 
-    # Get enabled items
-    with engine.connect() as conn:
-        items = conn.execute(text("SELECT source, item_key FROM data_source_items WHERE enabled = 1")).fetchall()
-
-    if not items or not trade_dates:
-        return 0
-
-    # Bulk insert pending records (skip existing)
-    count = 0
-    raw_conn = engine.raw_connection()
-    try:
-        cursor = raw_conn.cursor()
-        sql = "INSERT IGNORE INTO data_sync_status (sync_date, source, interface_key, status) VALUES (%s, %s, %s, %s)"
-        batch = []
-        for td in trade_dates:
-            for source, item_key in items:
-                batch.append((td.strftime("%Y-%m-%d"), source, item_key, SyncStatus.PENDING.value))
-                if len(batch) >= 5000:
-                    cursor.executemany(sql, batch)
-                    raw_conn.commit()
-                    count += cursor.rowcount
-                    batch = []
-        if batch:
-            cursor.executemany(sql, batch)
-            raw_conn.commit()
-            count += cursor.rowcount
-    finally:
-        try:
-            cursor.close()
-        except Exception:
-            pass
-        try:
-            raw_conn.close()
-        except Exception:
-            pass
-
-    logger.info("Generated %d pending sync status records (%d dates x %d items)", count, len(trade_dates), len(items))
-    return count
+def _generate_pending_records(engine, registry: DataSourceRegistry) -> int:
+    """Generate pending sync_status records for the lookback window."""
+    del engine
+    return int(_reconcile_pending_records(registry)["pending_records"])

@@ -26,7 +26,7 @@ def run_backfill_task(source: str, item_key: str, batch_size: int = 30) -> dict:
     from rq import get_current_job
 
     from app.datasync.registry import build_default_registry
-    from app.datasync.service.sync_engine import MAX_RETRIES, _get_source_semaphore, _write_status
+    from app.datasync.service.sync_engine import MAX_RETRIES, _get_backfill_source_semaphore, _write_status
     from app.datasync.base import SyncStatus, SyncResult
     from app.datasync.table_manager import ensure_table
     from app.infrastructure.db.connections import get_quantmate_engine
@@ -97,7 +97,7 @@ def run_backfill_task(source: str, item_key: str, batch_size: int = 30) -> dict:
 
     synced = 0
     errors = 0
-    sem = _get_source_semaphore(source)
+    sem = _get_backfill_source_semaphore(source)
 
     for d, current_status, retry_count in pending_records:
         attempt_retry_count = retry_count + 1
@@ -159,7 +159,7 @@ def run_backfill_task(source: str, item_key: str, batch_size: int = 30) -> dict:
                 "WHERE source = :s AND interface_key = :k "
                 "AND status IN ('error', 'partial') AND retry_count >= :max_retries"
             ),
-            {"s": source, "k": item_key},
+            {"s": source, "k": item_key, "max_retries": MAX_RETRIES},
         ).fetchone()
     remaining = remaining_row[0] if remaining_row else 0
     exhausted = exhausted_row[0] if exhausted_row else 0

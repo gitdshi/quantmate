@@ -150,6 +150,14 @@ def test_discover_migrations(tmp_path):
     assert result[1][0] == "002"
 
 
+def test_discover_migrations_rejects_duplicate_versions(tmp_path):
+    (tmp_path / "029_alpha.sql").write_text("SELECT 1")
+    (tmp_path / "029_beta.sql").write_text("SELECT 2")
+    with patch("app.infrastructure.db.migrate.MIGRATIONS_DIR", tmp_path):
+        with pytest.raises(ValueError, match="Duplicate migration version '029'"):
+            _discover_migrations()
+
+
 # ── _ensure_migration_table / _get_applied ────────────────────────
 
 def test_ensure_migration_table():

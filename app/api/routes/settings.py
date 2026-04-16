@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -15,6 +16,7 @@ from app.api.errors import ErrorCode
 from app.api.exception_handlers import APIError
 
 router = APIRouter(prefix="/settings", tags=["Settings"])
+logger = logging.getLogger(__name__)
 
 
 class DataSourceItemUpdate(BaseModel):
@@ -246,8 +248,11 @@ async def update_datasource_config(
     if not existing:
         raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message=f"Config {source_key} not found")
 
+    was_enabled = bool(existing.get("enabled"))
     config_str = json.dumps(body.config_json) if body.config_json is not None else None
     dao.update_config(source_key, config_json=config_str, enabled=body.enabled)
+    if body.enabled and not was_enabled:
+        _reconcile_source_sync(source_key)
     return {"source_key": source_key, "updated": True}
 
 
@@ -283,9 +288,6 @@ async def test_datasource_connection(
 
 def _ensure_table_for_item(source: str, item_key: str) -> None:
     """Best-effort table creation when an item is enabled."""
-    import logging
-
-    logger = logging.getLogger(__name__)
     try:
         from app.domains.market.dao.data_source_item_dao import DataSourceItemDao
         from app.datasync.registry import build_default_registry
@@ -313,13 +315,12 @@ def _ensure_table_for_item(source: str, item_key: str) -> None:
 
 def _trigger_sync_init(source: str, item_key: str) -> Optional[str]:
     """Initialize sync status rows for a newly enabled item and enqueue backfill."""
-    import logging
-
-    logger = logging.getLogger(__name__)
     try:
-        from app.datasync.service.sync_init_service import initialize_sync_status
+        from app.datasync.registry import build_default_registry
+        from app.datasync.service.sync_init_service import reconcile_enabled_sync_status
 
-        initialize_sync_status(source, item_key)
+        registry = build_default_registry()
+        reconcile_enabled_sync_status(registry, source=source, item_key=item_key)
 
         from app.worker.service.config import get_queue
         from app.worker.service.datasync_tasks import run_backfill_task
@@ -330,6 +331,18 @@ def _trigger_sync_init(source: str, item_key: str) -> Optional[str]:
     except Exception:
         logger.warning("Sync init for %s/%s failed (non-fatal)", source, item_key, exc_info=True)
         return None
+
+
+def _reconcile_source_sync(source: str) -> None:
+    """Best-effort reconciliation when a whole source is enabled again."""
+    try:
+        from app.datasync.registry import build_default_registry
+        from app.datasync.service.sync_init_service import reconcile_enabled_sync_status
+
+        registry = build_default_registry()
+        reconcile_enabled_sync_status(registry, source=source)
+    except Exception:
+        logger.warning("Source sync reconciliation for %s failed (non-fatal)", source, exc_info=True)
 
 
 def _list_items_with_sync_support(

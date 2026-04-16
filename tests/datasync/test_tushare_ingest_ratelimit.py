@@ -15,8 +15,10 @@ os.environ.setdefault('TUSHARE_TOKEN', 'test_token_123')
 # Import the module under test
 from app.datasync.service.tushare_ingest import (
     parse_retry_after,
+    parse_rate_limit_scope,
     _is_rate_limit_error,
     call_pro,
+    TushareQuotaExceededError,
 )
 
 
@@ -63,6 +65,29 @@ class TestParseRetryAfter:
         msg = "RETRY AFTER 15 SECONDS"
         assert parse_retry_after(msg) == 15.0
 
+    def test_chinese_quota_per_minute(self):
+        msg = "抱歉，您每分钟最多访问该接口50次"
+        assert parse_retry_after(msg) == 1.2
+
+    def test_chinese_quota_per_hour(self):
+        msg = "抱歉，您每小时最多访问该接口1次"
+        assert parse_retry_after(msg) == 3600.0
+
+    def test_chinese_quota_per_day(self):
+        msg = "抱歉，您每天最多访问该接口50次"
+        assert parse_retry_after(msg) == 1728.0
+
+
+class TestParseRateLimitScope:
+    def test_detects_daily_scope(self):
+        assert parse_rate_limit_scope("抱歉，您每天最多访问该接口50次") == "day"
+
+    def test_detects_hourly_scope(self):
+        assert parse_rate_limit_scope("抱歉，您每小时最多访问该接口1次") == "hour"
+
+    def test_detects_minute_scope(self):
+        assert parse_rate_limit_scope("抱歉，您每分钟最多访问该接口5次") == "minute"
+
 
 class TestIsRateLimitError:
     """Test _is_rate_limit_error identifies rate limit errors correctly."""
@@ -76,6 +101,7 @@ class TestIsRateLimitError:
     def test_detects_chinese_phrases(self):
         assert _is_rate_limit_error("接口访问太频繁") is True
         assert _is_rate_limit_error("访问频率过高，请稍后重试") is True  # contains "频率" and "后重试"
+        assert _is_rate_limit_error("抱歉，您每天最多访问该接口50次") is True
 
     def test_negative_case(self):
         assert _is_rate_limit_error("Connection timeout") is False
@@ -171,3 +197,16 @@ class TestCallProRateLimitBehavior:
                     call_pro('stock_basic', max_retries=2)
                 # Should have attempted 2 times (initial + 1 retry)
                 assert mock_func.call_count == 2
+
+    @patch('app.datasync.service.tushare_ingest.pro')
+    def test_daily_quota_pauses_without_retry(self, mock_pro):
+        mock_func = MagicMock(side_effect=Exception("抱歉，您每天最多访问该接口50次"))
+        mock_pro.stock_basic = mock_func
+
+        with patch('app.datasync.service.tushare_ingest.time.sleep') as mock_sleep:
+            with pytest.raises(TushareQuotaExceededError) as exc_info:
+                call_pro('stock_basic', max_retries=3)
+
+        assert exc_info.value.scope == 'day'
+        assert mock_func.call_count == 1
+        mock_sleep.assert_not_called()

@@ -26,6 +26,10 @@ class TushareDataSource(BaseDataSource):
         from app.datasync.sources.tushare.interfaces import (
             TushareStockBasicInterface,
             TushareStockDailyInterface,
+            TushareBakDailyInterface,
+            TushareMoneyflowInterface,
+            TushareSuspendDInterface,
+            TushareSuspendInterface,
             TushareAdjFactorInterface,
             TushareDividendInterface,
             TushareTop10HoldersInterface,
@@ -38,6 +42,10 @@ class TushareDataSource(BaseDataSource):
         return [
             TushareStockBasicInterface(),
             TushareStockDailyInterface(),
+            TushareBakDailyInterface(),
+            TushareMoneyflowInterface(),
+            TushareSuspendDInterface(),
+            TushareSuspendInterface(),
             TushareAdjFactorInterface(),
             TushareDividendInterface(),
             TushareTop10HoldersInterface(),

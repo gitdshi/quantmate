@@ -170,13 +170,26 @@ fi
 echo "Scanning migration files..."
 # bash 3.2 compat (macOS): mapfile is bash 4.x only
 FILES=()
+BASENAMES=()
 while IFS= read -r _f; do
   FILES+=("$_f")
+  BASENAMES+=("$(basename "$_f")")
 done < <(find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '*.sql' | sort)
 
 if [ "${#FILES[@]}" -eq 0 ]; then
   echo "No migration files found in: $MIGRATIONS_DIR"
   exit 0
+fi
+
+DUPLICATE_VERSIONS="$({ printf '%s\n' "${BASENAMES[@]}" | sed 's/_.*$//'; } | sort | uniq -d)"
+if [ -n "$DUPLICATE_VERSIONS" ]; then
+  echo "Error: duplicate migration versions detected:" >&2
+  while IFS= read -r version; do
+    [ -n "$version" ] || continue
+    echo "  version $version:" >&2
+    printf '%s\n' "${BASENAMES[@]}" | grep "^${version}_" | sed 's/^/    - /' >&2
+  done <<< "$DUPLICATE_VERSIONS"
+  exit 1
 fi
 
 APPLY_COUNT=0

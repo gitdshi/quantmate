@@ -228,6 +228,7 @@ class TestTushareIngest:
             "2024-01-01", "2024-06-30", batch_size=10, start_after_ts_code="B"
         )
         assert "A" not in call_log
+        assert call_log == ["B", "C"]
 
     def test_ingest_top10_holders_with_data(self, monkeypatch):
         monkeypatch.setattr(self.mod, "audit_start", lambda *a: 1)
@@ -291,12 +292,19 @@ class TestTushareIngest:
     def test_ingest_all_daily_skip_logic(self, monkeypatch):
         monkeypatch.setattr(self.mod, "get_all_ts_codes", lambda: ["A", "B"])
         monkeypatch.setattr(self.mod, "get_max_trade_date", lambda tc: None)
-        monkeypatch.setattr(self.mod, "ingest_daily", lambda **kw: None)
+        monkeypatch.setattr(self.mod, "_fetch_existing_keys", lambda *a, **kw: set())
+        calls = []
+        monkeypatch.setattr(
+            self.mod,
+            "call_pro",
+            lambda *a, **kw: calls.append(kw.get("ts_code")) or pd.DataFrame(),
+        )
         monkeypatch.setattr("time.sleep", lambda _: None)
         self.mod.ingest_all_daily(
             start_date="2024-01-01", end_date="2024-06-30",
             start_after_ts_code="A", batch_size=10,
         )
+        assert calls == ["A", "B"]
 
     def test_ingest_all_daily_resume_from_last(self, monkeypatch):
         monkeypatch.setattr(self.mod, "get_all_ts_codes", lambda: ["000001.SZ"])

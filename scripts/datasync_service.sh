@@ -11,8 +11,74 @@ mkdir -p "$LOG_DIR"
 VENV_PY="$BASE_DIR/.venv/bin/python3"
 PID_FILE="$LOG_DIR/data_sync.pid"
 OUT_FILE="$LOG_DIR/data_sync.out"
+INIT_PID_FILE="$LOG_DIR/data_sync_init.pid"
+INIT_OUT_FILE="$LOG_DIR/data_sync_init.out"
+BACKFILL_PID_FILE="$LOG_DIR/data_sync_backfill.pid"
+BACKFILL_OUT_FILE="$LOG_DIR/data_sync_backfill.out"
 
-DAEMON_PATTERN="app.datasync.service.data_sync_daemon"
+DAEMON_PATTERN="app.datasync.scheduler --daemon"
+INIT_PATTERN="app.datasync.cli.init_market_data"
+SYNC_INIT_PATTERN="app.datasync.scheduler --init"
+BACKFILL_PATTERN="app.datasync.scheduler --backfill"
+
+timestamp() {
+  date '+%Y-%m-%d %H:%M:%S'
+}
+
+log_line() {
+  printf '%s %s\n' "$(timestamp)" "$*"
+}
+
+read_pid_file() {
+  local file_path="$1"
+  if [ -f "$file_path" ]; then
+    cat "$file_path" 2>/dev/null || true
+  fi
+}
+
+pid_is_running() {
+  local pid="$1"
+  [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+
+stop_pid_file() {
+  local file_path="$1"
+  local label="$2"
+  local pid
+  pid="$(read_pid_file "$file_path")"
+  if pid_is_running "$pid"; then
+    echo "Stopping $label pid $pid..."
+    kill -TERM "$pid" 2>/dev/null || true
+  fi
+  rm -f "$file_path"
+}
+
+any_sync_process_running() {
+  pgrep -f "$DAEMON_PATTERN" >/dev/null || \
+    pgrep -f "$INIT_PATTERN" >/dev/null || \
+    pgrep -f "$SYNC_INIT_PATTERN" >/dev/null || \
+    pgrep -f "$BACKFILL_PATTERN" >/dev/null
+}
+
+run_init_sequence() {
+  local lookback_days="$1"
+  shift
+
+  if market_bootstrap_completed; then
+    log_line "[1/3] Market bootstrap already completed; skipping bootstrap import"
+  else
+    log_line "[1/3] Initialize market bootstrap data (tushare/akshare/vnpy)..."
+    PYTHONPATH=. "$VENV_PY" -u -m app.datasync.cli.init_market_data "$@"
+  fi
+
+  log_line "[2/3] Reconcile registry-driven sync status..."
+  PYTHONPATH=. "$VENV_PY" -u -m app.datasync.scheduler --init
+
+  log_line "[3/3] Run historical backfill pass..."
+  LOOKBACK_DAYS="$lookback_days" PYTHONPATH=. "$VENV_PY" -u -m app.datasync.scheduler --backfill
+
+  log_line "Initialization sequence complete"
+}
 
 load_env() {
   if [ -f ".env" ]; then
@@ -92,7 +158,7 @@ print((date.today() - timedelta(days=days)).isoformat())
 PY
 }
 
-init_already_completed() {
+market_bootstrap_completed() {
   "$VENV_PY" - <<'PY'
 import sys
 import pymysql
@@ -123,26 +189,31 @@ PY
 }
 
 stop() {
-  echo "Stopping DataSync..."
-  if [ -f "$PID_FILE" ]; then
-    pid=$(cat "$PID_FILE" 2>/dev/null || true)
-    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-      kill -TERM "$pid" 2>/dev/null || true
-    fi
-    rm -f "$PID_FILE"
-  fi
+  echo "Stopping DataSync/init/backfill..."
+  stop_pid_file "$PID_FILE" "DataSync daemon"
+  stop_pid_file "$INIT_PID_FILE" "DataSync init"
+  stop_pid_file "$BACKFILL_PID_FILE" "DataSync backfill"
   pkill -f "$DAEMON_PATTERN" || true
+  pkill -f "$INIT_PATTERN" || true
+  pkill -f "$SYNC_INIT_PATTERN" || true
+  pkill -f "$BACKFILL_PATTERN" || true
 
   for i in {1..15}; do
-    if pgrep -f "$DAEMON_PATTERN" >/dev/null; then
+    if any_sync_process_running; then
       sleep 1
     else
-      echo "DataSync stopped"
+      echo "DataSync/init stopped"
       return 0
     fi
   done
-  echo "Warning: DataSync did not stop within timeout" >&2
+  echo "Warning: DataSync/init did not stop within timeout" >&2
   return 1
+}
+
+backfill_running() {
+  local backfill_pid
+  backfill_pid="$(read_pid_file "$BACKFILL_PID_FILE")"
+  pid_is_running "$backfill_pid" || pgrep -f "$BACKFILL_PATTERN" >/dev/null
 }
 
 start() {
@@ -150,10 +221,11 @@ start() {
   echo "Starting DataSync daemon..."
   load_env
   ensure_db_host_reachable
-  nohup "$VENV_PY" -u -m app.datasync.service.data_sync_daemon --daemon >>"$OUT_FILE" 2>&1 &
+  nohup "$VENV_PY" -u -m app.datasync.scheduler --daemon >>"$OUT_FILE" 2>&1 &
   echo $! > "$PID_FILE"
   sleep 1
   echo "DataSync started (pid $(cat "$PID_FILE"))"
+  echo "Logs: $OUT_FILE"
 }
 
 init_data() {
@@ -162,7 +234,6 @@ init_data() {
   ensure_db_host_reachable
 
   local lookback_days="${INIT_LOOKBACK_DAYS:-365}"
-  local lookback_years="${INIT_LOOKBACK_YEARS:-1}"
   local start_date="${INIT_START_DATE:-$(calc_lookback_start_date "$lookback_days")}"
   local daily_start_date="${INIT_DAILY_START_DATE:-$start_date}"
   local daily_lookback_days="${INIT_DAILY_LOOKBACK_DAYS:-}"
@@ -186,33 +257,66 @@ init_data() {
     init_args+=("--reset-progress")
   fi
 
-  if init_already_completed; then
-    echo "DataSync init already completed. Skipping initialization."
+  echo "Starting DataSync initialization sequence in background..."
+  echo "  start_date=${start_date} daily_start_date=${daily_start_date} lookback_days=${lookback_days}"
+  echo "  logs: $INIT_OUT_FILE"
+
+  run_init_sequence "$lookback_days" "${init_args[@]}" >>"$INIT_OUT_FILE" 2>&1 &
+  echo $! > "$INIT_PID_FILE"
+
+  echo "DataSync init started in background (pid $(cat "$INIT_PID_FILE"))"
+}
+
+run_backfill() {
+  load_env
+  ensure_db_host_reachable
+
+  local lookback_days="${INIT_LOOKBACK_DAYS:-365}"
+
+  if backfill_running; then
+    echo "DataSync backfill is already running"
+    echo "Logs: $BACKFILL_OUT_FILE"
     return 0
   fi
 
-  echo "Starting DataSync initialization sequence in background..."
-  echo "  start_date=${start_date} daily_start_date=${daily_start_date} lookback_years=${lookback_years} lookback_days=${lookback_days}"
-  echo "  logs: $OUT_FILE"
+  echo "Starting DataSync backfill in background..."
+  echo "  lookback_days=${lookback_days}"
+  echo "  logs: $BACKFILL_OUT_FILE"
 
   (
-    echo "[1/3] Initialize market data (tushare/akshare/vnpy)..."
-    PYTHONPATH=. "$VENV_PY" -u scripts/init_market_data.py "${init_args[@]}" >>"$OUT_FILE" 2>&1
-    echo "[2/3] Initialize sync status table..."
-    PYTHONPATH=. "$VENV_PY" -u -m app.datasync.service.data_sync_daemon --init --lookback-years "$lookback_years" >>"$OUT_FILE" 2>&1
-    echo "[3/3] Run historical backfill pass..."
-    PYTHONPATH=. "$VENV_PY" -u -m app.datasync.service.data_sync_daemon --backfill --lookback-days "$lookback_days" >>"$OUT_FILE" 2>&1
-    echo "Initialization sequence complete"
-  ) &
+    log_line "Starting one-shot backfill (lookback_days=${lookback_days})"
+    LOOKBACK_DAYS="$lookback_days" PYTHONPATH=. "$VENV_PY" -u -m app.datasync.scheduler --backfill
+    log_line "Backfill command finished"
+  ) >>"$BACKFILL_OUT_FILE" 2>&1 &
+  echo $! > "$BACKFILL_PID_FILE"
 
-  echo "DataSync init started in background (PID $!)"
+  echo "DataSync backfill started in background (pid $(cat "$BACKFILL_PID_FILE"))"
 }
 
 status() {
-  if pgrep -f "$DAEMON_PATTERN" >/dev/null; then
-    echo "DataSync: running"
+  local daemon_pid
+  local init_pid
+  local backfill_pid
+  daemon_pid="$(read_pid_file "$PID_FILE")"
+  init_pid="$(read_pid_file "$INIT_PID_FILE")"
+  backfill_pid="$(read_pid_file "$BACKFILL_PID_FILE")"
+
+  if pid_is_running "$daemon_pid" || pgrep -f "$DAEMON_PATTERN" >/dev/null; then
+    echo "DataSync daemon: running (log: $OUT_FILE)"
   else
-    echo "DataSync: stopped"
+    echo "DataSync daemon: stopped"
+  fi
+
+  if pid_is_running "$init_pid" || pgrep -f "$INIT_PATTERN" >/dev/null || pgrep -f "$SYNC_INIT_PATTERN" >/dev/null; then
+    echo "DataSync init: running (log: $INIT_OUT_FILE)"
+  else
+    echo "DataSync init: stopped"
+  fi
+
+  if pid_is_running "$backfill_pid" || pgrep -f "$BACKFILL_PATTERN" >/dev/null; then
+    echo "DataSync backfill: running (log: $BACKFILL_OUT_FILE)"
+  else
+    echo "DataSync backfill: stopped"
   fi
 }
 
@@ -231,6 +335,9 @@ case "${1-}" in
     ;;
   init)
     init_data
+    ;;
+  backfill)
+    run_backfill
     ;;
   unlock)
     echo "Releasing backfill_lock via DAO..."
@@ -260,18 +367,18 @@ except Exception as e:
 PY
     ;;
   *)
-    echo "Usage: $0 {start|stop|restart|status|init|unlock}"
+    echo "Usage: $0 {start|stop|restart|status|init|backfill|unlock}"
     echo ""
     echo "Init options via env vars:"
     echo "  INIT_START_DATE=YYYY-MM-DD   # historical start date (defaults to last year)"
     echo "  INIT_DAILY_START_DATE=YYYY-MM-DD  # optional: limit stock_daily ingest start date"
     echo "  INIT_DAILY_LOOKBACK_DAYS=365      # optional: limit stock_daily ingest by days"
-    echo "  INIT_LOOKBACK_YEARS=1        # for --init"
     echo "  INIT_LOOKBACK_DAYS=365       # for --backfill"
     echo "  INIT_SKIP_AUX=1              # optional: skip adj/dividend/top10"
     echo "  INIT_SKIP_VNPY=1             # optional: skip vnpy sync"
     echo "  INIT_SKIP_SCHEMA=1           # optional: skip schema init"
     echo "  INIT_RESET_PROGRESS=1        # optional: reset init_progress before execution"
+    echo "  INIT_LOOKBACK_DAYS=365       # used by init --backfill and backfill command"
     exit 2
     ;;
 esac

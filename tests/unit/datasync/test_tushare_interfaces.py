@@ -80,6 +80,49 @@ class TestTushareStockDailyInterface:
             assert result.status == SyncStatus.ERROR
 
 
+class TestTushareBakDailyInterface:
+    def test_info(self):
+        from app.datasync.sources.tushare.interfaces import TushareBakDailyInterface
+        info = TushareBakDailyInterface().info
+        assert info.interface_key == "bak_daily"
+
+    def test_sync_date_success(self):
+        from app.datasync.sources.tushare.interfaces import TushareBakDailyInterface
+        with patch(f"{_INGEST}.ingest_bak_daily", return_value=12):
+            result = TushareBakDailyInterface().sync_date(date(2024, 1, 5))
+            assert result.status == SyncStatus.SUCCESS
+            assert result.rows_synced == 12
+
+
+class TestTushareSuspendDInterface:
+    def test_sync_date_success(self):
+        from app.datasync.sources.tushare.interfaces import TushareSuspendDInterface
+        with patch(f"{_INGEST}.ingest_suspend_d", return_value=3):
+            result = TushareSuspendDInterface().sync_date(date(2024, 1, 5))
+            assert result.status == SyncStatus.SUCCESS
+            assert result.rows_synced == 3
+
+
+class TestTushareMoneyflowInterface:
+    def test_sync_date_success(self):
+        from app.datasync.sources.tushare.interfaces import TushareMoneyflowInterface
+        df = pd.DataFrame({"ts_code": ["000001.SZ"], "trade_date": ["20240105"]})
+        with patch(f"{_INGEST}.call_pro", return_value=df), \
+             patch(f"{_INGEST}.upsert_moneyflow", return_value=9):
+            result = TushareMoneyflowInterface().sync_date(date(2024, 1, 5))
+            assert result.status == SyncStatus.SUCCESS
+            assert result.rows_synced == 9
+
+
+class TestTushareSuspendInterface:
+    def test_sync_date_success(self):
+        from app.datasync.sources.tushare.interfaces import TushareSuspendInterface
+        with patch(f"{_INGEST}.ingest_suspend", return_value=2):
+            result = TushareSuspendInterface().sync_date(date(2024, 1, 5))
+            assert result.status == SyncStatus.SUCCESS
+            assert result.rows_synced == 2
+
+
 class TestTushareAdjFactorInterface:
     def test_sync_date(self):
         from app.datasync.sources.tushare.interfaces import TushareAdjFactorInterface
@@ -117,19 +160,21 @@ class TestTushareDividendInterface:
 class TestTushareStockWeeklyInterface:
     def test_sync_date(self):
         from app.datasync.sources.tushare.interfaces import TushareStockWeeklyInterface
-        with patch(f"{_INGEST}.ingest_weekly", return_value=10):
+        with patch(f"{_INGEST}.ingest_weekly", return_value=10) as mock_ingest:
             result = TushareStockWeeklyInterface().sync_date(date(2024, 1, 5))
             assert result.status == SyncStatus.SUCCESS
             assert result.rows_synced == 10
+            mock_ingest.assert_called_once_with(trade_date="20240105")
 
 
 class TestTushareStockMonthlyInterface:
     def test_sync_date(self):
         from app.datasync.sources.tushare.interfaces import TushareStockMonthlyInterface
-        with patch(f"{_INGEST}.ingest_monthly", return_value=5):
+        with patch(f"{_INGEST}.ingest_monthly", return_value=5) as mock_ingest:
             result = TushareStockMonthlyInterface().sync_date(date(2024, 1, 5))
             assert result.status == SyncStatus.SUCCESS
             assert result.rows_synced == 5
+            mock_ingest.assert_called_once_with(trade_date="20240105")
 
 
 class TestTushareIndexDailyInterface:

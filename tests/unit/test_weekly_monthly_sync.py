@@ -193,6 +193,24 @@ class TestIngestWeekly:
             mock_upsert.assert_called_once_with(df)
             mock_audit_finish.assert_called_once_with(1, 'success', 1)
 
+    def test_ingest_weekly_trade_date_success(self, mock_db_engines):
+        with patch("app.datasync.service.tushare_ingest.upsert_weekly") as mock_upsert, \
+             patch("app.datasync.service.tushare_ingest.call_pro") as mock_call, \
+             patch("app.datasync.service.tushare_ingest.audit_finish") as mock_audit_finish, \
+             patch("app.datasync.service.tushare_ingest.audit_start", return_value=11):
+
+            from app.datasync.service.tushare_ingest import ingest_weekly
+            df = pd.DataFrame([{'ts_code': '000001.SZ', 'trade_date': '20250103',
+                                'open': 10.0, 'high': 11.0, 'low': 9.0, 'close': 10.5, 'vol': 100}])
+            mock_call.return_value = df
+            mock_upsert.return_value = 1
+
+            result = ingest_weekly(trade_date='20250103')
+            assert result == 1
+            mock_call.assert_called_once_with('weekly', ts_code=None, trade_date='20250103', start_date=None, end_date=None)
+            mock_upsert.assert_called_once_with(df)
+            mock_audit_finish.assert_called_once_with(11, 'success', 1)
+
     def test_ingest_weekly_failure_retries(self, mock_db_engines):
         with patch("app.datasync.service.tushare_ingest.call_pro", side_effect=Exception("API error")), \
              patch("app.datasync.service.tushare_ingest.audit_finish") as mock_audit_finish, \
@@ -224,6 +242,23 @@ class TestIngestMonthly:
             result = ingest_monthly(ts_code='000001.SZ')
             assert result == 1
             mock_audit_finish.assert_called_once_with(2, 'success', 1)
+
+    def test_ingest_monthly_trade_date_success(self, mock_db_engines):
+        with patch("app.datasync.service.tushare_ingest.upsert_monthly") as mock_upsert, \
+             patch("app.datasync.service.tushare_ingest.call_pro") as mock_call, \
+             patch("app.datasync.service.tushare_ingest.audit_finish") as mock_audit_finish, \
+             patch("app.datasync.service.tushare_ingest.audit_start", return_value=12):
+
+            from app.datasync.service.tushare_ingest import ingest_monthly
+            df = pd.DataFrame([{'ts_code': '000001.SZ', 'trade_date': '20250131',
+                                'open': 10.0, 'high': 12.0, 'low': 9.0, 'close': 11.0, 'vol': 500}])
+            mock_call.return_value = df
+            mock_upsert.return_value = 1
+
+            result = ingest_monthly(trade_date='20250131')
+            assert result == 1
+            mock_call.assert_called_once_with('monthly', ts_code=None, trade_date='20250131', start_date=None, end_date=None)
+            mock_audit_finish.assert_called_once_with(12, 'success', 1)
 
 
 class TestIngestIndexWeekly:
@@ -292,12 +327,13 @@ class TestStepRunners:
     """Test the new step runner functions."""
 
     def test_run_stock_weekly_step(self, mock_db_engines):
-        with patch("app.datasync.service.data_sync_daemon.ingest_weekly", return_value=50):
+        with patch("app.datasync.service.data_sync_daemon.ingest_weekly", return_value=50) as mock_ingest:
             from app.datasync.service.data_sync_daemon import run_tushare_stock_weekly_step, SyncStatus
             status, rows, err = run_tushare_stock_weekly_step(date(2025, 1, 3))
             assert status == SyncStatus.SUCCESS
             assert rows == 50
             assert err is None
+            mock_ingest.assert_called_once_with(trade_date='20250103')
 
     def test_run_stock_weekly_step_error(self, mock_db_engines):
         with patch("app.datasync.service.data_sync_daemon.ingest_weekly", side_effect=Exception("fail")):
@@ -307,11 +343,12 @@ class TestStepRunners:
             assert rows == 0
 
     def test_run_stock_monthly_step(self, mock_db_engines):
-        with patch("app.datasync.service.data_sync_daemon.ingest_monthly", return_value=30):
+        with patch("app.datasync.service.data_sync_daemon.ingest_monthly", return_value=30) as mock_ingest:
             from app.datasync.service.data_sync_daemon import run_tushare_stock_monthly_step, SyncStatus
             status, rows, err = run_tushare_stock_monthly_step(date(2025, 1, 31))
             assert status == SyncStatus.SUCCESS
             assert rows == 30
+            mock_ingest.assert_called_once_with(trade_date='20250131')
 
     def test_run_index_daily_step_success(self, mock_db_engines):
         with patch("app.datasync.service.data_sync_daemon.ingest_index_daily", return_value=5):

@@ -247,6 +247,86 @@ class TestTushareDao:
         r = self.mod.upsert_financial_statement(df, "income")
         assert r >= 0
 
+    def test_upsert_stock_company_with_data(self):
+        import pandas as pd
+        df = pd.DataFrame({
+            "ts_code": ["000001.SZ"],
+            "com_name": ["Ping An Bank"],
+            "com_id": ["123456"],
+            "exchange": ["SZSE"],
+            "setup_date": ["19910101"],
+            "employees": [10],
+        })
+        r = self.mod.upsert_stock_company(df)
+        assert r >= 0
+
+    def test_upsert_new_share_with_data(self):
+        import pandas as pd
+        df = pd.DataFrame({
+            "ts_code": ["920001.BJ"],
+            "sub_code": ["920001"],
+            "ipo_date": ["20240115"],
+            "price": [12.3],
+            "amount": [1000],
+        })
+        r = self.mod.upsert_new_share(df)
+        assert r >= 0
+
+    def test_upsert_fina_indicator_with_data(self):
+        import pandas as pd
+        df = pd.DataFrame({
+            "ts_code": ["000001.SZ"],
+            "ann_date": ["20240301"],
+            "end_date": ["20231231"],
+            "eps": [1.2],
+            "roe": [0.1],
+        })
+        r = self.mod.upsert_fina_indicator(df)
+        assert r >= 0
+
+    def test_upsert_income_with_data(self):
+        import pandas as pd
+        df = pd.DataFrame({
+            "ts_code": ["000001.SZ"],
+            "ann_date": ["20240301"],
+            "f_ann_date": ["20240305"],
+            "end_date": ["20231231"],
+            "report_type": ["1"],
+            "comp_type": ["1"],
+            "revenue": [100.0],
+            "n_income": [10.0],
+        })
+        r = self.mod.upsert_income(df)
+        assert r >= 0
+
+    def test_upsert_balancesheet_with_data(self):
+        import pandas as pd
+        df = pd.DataFrame({
+            "ts_code": ["000001.SZ"],
+            "ann_date": ["20240301"],
+            "f_ann_date": ["20240305"],
+            "end_date": ["20231231"],
+            "report_type": ["1"],
+            "comp_type": ["1"],
+            "total_share": [1000],
+        })
+        r = self.mod.upsert_balancesheet(df)
+        assert r >= 0
+
+    def test_upsert_cashflow_with_data(self):
+        import pandas as pd
+        df = pd.DataFrame({
+            "ts_code": ["000001.SZ"],
+            "ann_date": ["20240301"],
+            "f_ann_date": ["20240305"],
+            "end_date": ["20231231"],
+            "report_type": ["1"],
+            "comp_type": ["1"],
+            "net_profit": [100],
+        })
+        r = self.mod.upsert_cashflow(df)
+        assert r >= 0
+
     # ── upsert_daily_basic ─────────────────────────────────────
     def test_upsert_daily_basic_empty(self):
         import pandas as pd

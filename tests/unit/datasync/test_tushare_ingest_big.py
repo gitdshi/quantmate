@@ -76,14 +76,15 @@ class TestIngestIndexWeekly:
 # ═══ ingest_income ══════════════════════════════════════════════════════
 
 class TestIngestIncome:
-    @patch(f"{_MOD}.store_financial_statement", return_value=3)
+    @patch(f"{_MOD}.upsert_income", return_value=3)
     @patch(f"{_MOD}.call_pro")
     def test_success(self, mock_call, mock_store):
         from app.datasync.service.tushare_ingest import ingest_income
         df = pd.DataFrame({"revenue": [100]})
         mock_call.return_value = df
-        ingest_income("000001.SZ")
-        mock_store.assert_called_once_with(df, "income")
+        result = ingest_income("000001.SZ")
+        assert result == 3
+        mock_store.assert_called_once_with(df)
 
     @patch(f"{_MOD}.call_pro", side_effect=RuntimeError("api error"))
     def test_error(self, mock_call):
@@ -331,8 +332,8 @@ class TestIngestDividendByDateRange:
             batch_size=10, sleep_between=0,
             start_after_ts_code="000001.SZ",
         )
-        # 000003 skipped, 000001 skipped (is the resume point), 000002 processed
-        assert mock_call.call_count == 1
+        # 000003 skipped; resume continues at 000001 and then 000002.
+        assert mock_call.call_count == 2
 
     @patch(f"{_MOD}.call_pro")
     @patch(f"{_MOD}.get_all_ts_codes", return_value=["000001.SZ"])
@@ -386,7 +387,7 @@ class TestIngestTop10HoldersByDateRange:
             batch_size=10, sleep_between=0,
             start_after_ts_code="B",
         )
-        assert mock_call.call_count == 1  # only C processed
+        assert mock_call.call_count == 2  # B and C processed
 
 
 # ═══ ingest_adj_factor_by_date_range ═════════════════════════════════
@@ -467,7 +468,7 @@ class TestIngestAllDaily:
     def test_start_after(self, mock_codes, mock_max, mock_ingest):
         from app.datasync.service.tushare_ingest import ingest_all_daily
         ingest_all_daily(batch_size=10, sleep_between=0, start_after_ts_code="B")
-        assert mock_ingest.call_count == 1  # only C processed
+        assert mock_ingest.call_count == 2  # B and C processed
 
     @patch(f"{_MOD}.ingest_daily")
     @patch(f"{_MOD}.get_max_trade_date", return_value="20240101")

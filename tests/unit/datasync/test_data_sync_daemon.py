@@ -644,7 +644,13 @@ class TestInitializeSyncStatusTable:
         from app.datasync.service.data_sync_daemon import initialize_sync_status_table
         with patch(f"{_MOD}.get_trade_calendar", return_value=[date(2024, 1, 3)]), \
              patch(f"{_MOD}.get_stock_daily_counts", return_value={"20240103": 100}), \
+               patch(f"{_MOD}.get_bak_daily_counts", return_value={}), \
+                             patch(f"{_MOD}.get_moneyflow_counts", return_value={}), \
+               patch(f"{_MOD}.get_suspend_d_counts", return_value={}), \
+               patch(f"{_MOD}.get_suspend_counts", return_value={}), \
              patch(f"{_MOD}.get_adj_factor_counts", return_value={"20240103": 99}), \
+             patch(f"{_MOD}.get_stock_weekly_counts", return_value={}), \
+             patch(f"{_MOD}.get_stock_monthly_counts", return_value={}), \
              patch(f"{_MOD}.get_vnpy_counts", return_value={"20240103": 50}), \
              patch(f"{_MOD}.bulk_upsert_status") as mock_bulk:
             initialize_sync_status_table(lookback_years=1)

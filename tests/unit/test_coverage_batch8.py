@@ -221,8 +221,8 @@ class TestTushareIngestDateRange:
         self.mod.ingest_top10_holders_by_date_range(
             "2024-01-01", "2024-01-31", start_after_ts_code="000001.SZ"
         )
-        # Should skip 000001, start from 000002
-        assert call_count["n"] == 1
+        # Resume should continue at 000001 and then 000002.
+        assert call_count["n"] == 2
 
     def test_ingest_adj_factor_by_date_range(self, monkeypatch):
         monkeypatch.setattr(self.mod, "get_all_ts_codes", lambda: ["000001.SZ"])
@@ -329,7 +329,7 @@ class TestTushareIngestAllDaily:
         self.mod.ingest_all_daily(
             batch_size=100, sleep_between=0, start_after_ts_code="AAA.SZ"
         )
-        assert len(calls) == 1  # only BBB.SZ processed
+        assert len(calls) == 2  # AAA.SZ and BBB.SZ processed
 
     def test_progress_callback(self, monkeypatch):
         monkeypatch.setattr(self.mod, "get_all_ts_codes", lambda: ["000001.SZ"])

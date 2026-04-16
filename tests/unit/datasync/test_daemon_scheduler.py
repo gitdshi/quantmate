@@ -375,12 +375,24 @@ class TestDaemonMainFunctions:
 
     @patch(f"{_M}.bulk_upsert_status")
     @patch(f"{_M}.get_vnpy_counts")
+    @patch(f"{_M}.get_suspend_counts")
+    @patch(f"{_M}.get_suspend_d_counts")
+    @patch(f"{_M}.get_moneyflow_counts")
+    @patch(f"{_M}.get_bak_daily_counts")
+    @patch(f"{_M}.get_stock_monthly_counts")
+    @patch(f"{_M}.get_stock_weekly_counts")
     @patch(f"{_M}.get_adj_factor_counts")
     @patch(f"{_M}.get_stock_daily_counts")
-    def test_initialize_sync_status_table(self, daily_c, adj_c, vnpy_c, bulk):
+    def test_initialize_sync_status_table(self, daily_c, adj_c, weekly_c, monthly_c, bak_c, moneyflow_c, suspend_d_c, suspend_c, vnpy_c, bulk):
         from app.datasync.service.data_sync_daemon import initialize_sync_status_table
         daily_c.return_value = {}
         adj_c.return_value = {}
+        weekly_c.return_value = {}
+        monthly_c.return_value = {}
+        bak_c.return_value = {}
+        moneyflow_c.return_value = {}
+        suspend_d_c.return_value = {}
+        suspend_c.return_value = {}
         vnpy_c.return_value = {}
         initialize_sync_status_table(lookback_years=1)
         bulk.assert_called()

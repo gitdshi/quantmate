@@ -63,6 +63,10 @@ class TestAkShareIndexSpotInterface:
         ddl = iface.get_ddl()
         assert isinstance(ddl, str)
 
+    def test_does_not_support_backfill(self):
+        iface = _mod.AkShareIndexSpotInterface()
+        assert iface.supports_backfill() is False
+
     def test_sync_date_success(self):
         iface = _mod.AkShareIndexSpotInterface()
         mock_engine = MagicMock()
@@ -74,17 +78,18 @@ class TestAkShareIndexSpotInterface:
         mock_df = pd.DataFrame({
             "代码": ["000001"], "名称": ["上证指数"],
             "最新价": [3000.0], "涨跌幅": [0.5],
+            "涨跌额": [15.0],
             "成交量": [100000], "成交额": [5e9],
             "今开": [2990.0], "最高": [3010.0], "最低": [2985.0],
+            "昨收": [2985.0],
         })
         
-        with patch(f"{_mod.__name__}.get_akshare_engine", create=True, return_value=mock_engine), \
-             patch(f"{_mod.__name__}.ak", create=True) as mock_ak:
-            mock_ak.stock_zh_index_spot_em.return_value = mock_df
-            try:
-                result = iface.sync_date(date(2024, 1, 15))
-            except Exception:
-                pass  # acceptable if lazy imports differ
+        with patch("app.infrastructure.db.connections.get_akshare_engine", return_value=mock_engine), \
+             patch("app.datasync.service.akshare_ingest.call_ak", return_value=mock_df):
+            result = iface.sync_date(date(2024, 1, 15))
+
+        assert result.status.value == "success"
+        assert result.rows_synced == 1
 
 
 class TestAkShareETFDailyInterface:
@@ -110,13 +115,31 @@ class TestAkShareETFDailyInterface:
         
         import pandas as pd
         mock_df = pd.DataFrame({
-            "日期": ["2024-01-15"], "开盘": [1.0], "收盘": [1.1],
-            "最高": [1.2], "最低": [0.9], "成交量": [10000],
+            "date": [date(2024, 1, 15)], "open": [1.0], "close": [1.1],
+            "high": [1.2], "low": [0.9], "volume": [10000], "amount": [20000],
         })
         
-        with patch(f"{_mod.__name__}.get_akshare_engine", create=True, return_value=mock_engine), \
-             patch(f"{_mod.__name__}.call_ak", create=True, return_value=mock_df):
-            try:
-                result = iface.sync_date(date(2024, 1, 15))
-            except Exception:
-                pass
+        with patch("app.infrastructure.db.connections.get_akshare_engine", return_value=mock_engine), \
+             patch.object(_mod.AkShareETFDailyInterface, "_load_symbol_history", return_value=mock_df):
+            result = iface.sync_date(date(2024, 1, 15))
+
+        assert result.status.value == "success"
+        assert result.rows_synced == len(_mod.AkShareETFDailyInterface.ETF_SYMBOLS)
+
+    def test_load_symbol_history_uses_sina_symbol_and_cache(self):
+        iface = _mod.AkShareETFDailyInterface()
+
+        import pandas as pd
+        mock_df = pd.DataFrame({
+            "date": ["2024-01-15"], "open": [1.0], "high": [1.2],
+            "low": [0.9], "close": [1.1], "volume": [10000], "amount": [20000],
+        })
+
+        with patch("app.datasync.service.akshare_ingest.call_ak", return_value=mock_df) as mock_call:
+            first = iface._load_symbol_history("159919")
+            second = iface._load_symbol_history("159919")
+
+        assert mock_call.call_count == 1
+        assert mock_call.call_args.kwargs["symbol"] == "sz159919"
+        assert not first.empty
+        assert first.equals(second)

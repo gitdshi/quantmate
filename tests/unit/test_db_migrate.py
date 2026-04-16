@@ -46,6 +46,14 @@ class TestDiscoverMigrations:
             migrations = _discover_migrations()
         assert len(migrations) == 1
 
+    def test_rejects_duplicate_versions(self, tmp_path):
+        (tmp_path / "029_alpha.sql").write_text("SELECT 1;")
+        (tmp_path / "029_beta.sql").write_text("SELECT 2;")
+
+        with patch("app.infrastructure.db.migrate.MIGRATIONS_DIR", tmp_path):
+            with pytest.raises(ValueError, match="Duplicate migration version '029'"):
+                _discover_migrations()
+
 
 class TestFileChecksum:
     def test_consistent_checksum(self, tmp_path):

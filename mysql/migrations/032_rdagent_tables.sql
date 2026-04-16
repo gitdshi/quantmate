@@ -1,8 +1,10 @@
--- Migration 029: RD-Agent autonomous factor mining tables
+-- Migration 032: RD-Agent autonomous factor mining tables
 -- Supports the Auto Pilot feature for LLM-driven factor discovery
 
+CREATE DATABASE IF NOT EXISTS `qlib` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
 -- Mining run records
-CREATE TABLE IF NOT EXISTS rdagent_runs (
+CREATE TABLE IF NOT EXISTS `qlib`.`rdagent_runs` (
     id              BIGINT AUTO_INCREMENT PRIMARY KEY,
     run_id          VARCHAR(36)  NOT NULL UNIQUE,
     user_id         BIGINT       NOT NULL,
@@ -20,7 +22,7 @@ CREATE TABLE IF NOT EXISTS rdagent_runs (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Iteration-level results within a run
-CREATE TABLE IF NOT EXISTS rdagent_iterations (
+CREATE TABLE IF NOT EXISTS `qlib`.`rdagent_iterations` (
     id               BIGINT AUTO_INCREMENT PRIMARY KEY,
     run_id           VARCHAR(36) NOT NULL,
     iteration_number INT         NOT NULL,
@@ -31,11 +33,11 @@ CREATE TABLE IF NOT EXISTS rdagent_iterations (
     status           VARCHAR(20) NOT NULL DEFAULT 'pending',
     created_at       DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_rdagent_iter_run (run_id),
-    CONSTRAINT fk_rdagent_iter_run FOREIGN KEY (run_id) REFERENCES rdagent_runs(run_id) ON DELETE CASCADE
+    CONSTRAINT fk_rdagent_iter_run FOREIGN KEY (run_id) REFERENCES `qlib`.`rdagent_runs`(run_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Factors discovered by RD-Agent mining
-CREATE TABLE IF NOT EXISTS rdagent_discovered_factors (
+CREATE TABLE IF NOT EXISTS `qlib`.`rdagent_discovered_factors` (
     id           BIGINT AUTO_INCREMENT PRIMARY KEY,
     run_id       VARCHAR(36)  NOT NULL,
     factor_name  VARCHAR(128) NOT NULL,
@@ -47,11 +49,11 @@ CREATE TABLE IF NOT EXISTS rdagent_discovered_factors (
     status       VARCHAR(20)  NOT NULL DEFAULT 'discovered',
     created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_rdagent_factors_run (run_id),
-    CONSTRAINT fk_rdagent_factors_run FOREIGN KEY (run_id) REFERENCES rdagent_runs(run_id) ON DELETE CASCADE
+    CONSTRAINT fk_rdagent_factors_run FOREIGN KEY (run_id) REFERENCES `qlib`.`rdagent_runs`(run_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Data catalog cache (optional — stores last scan results)
-CREATE TABLE IF NOT EXISTS data_catalog (
+CREATE TABLE IF NOT EXISTS `qlib`.`data_catalog` (
     id           BIGINT AUTO_INCREMENT PRIMARY KEY,
     source       VARCHAR(32)  NOT NULL,
     table_name   VARCHAR(128) NOT NULL,

@@ -52,10 +52,17 @@ def _discover_migrations() -> list[tuple[str, Path]]:
         return []
     files = sorted(MIGRATIONS_DIR.glob("*.sql"))
     results = []
+    seen_versions: dict[str, Path] = {}
     for f in files:
         # Extract version from filename: 001_xxx.sql → "001"
         parts = f.stem.split("_", 1)
         version = parts[0]
+        if version in seen_versions:
+            prev = seen_versions[version]
+            raise ValueError(
+                f"Duplicate migration version '{version}' found in {prev.name} and {f.name}"
+            )
+        seen_versions[version] = f
         results.append((version, f))
     return results
 

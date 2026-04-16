@@ -71,14 +71,11 @@ class TestInitialize:
         conn.execute.return_value = MagicMock(
             fetchall=MagicMock(return_value=[]),
         )
-        # raw_connection for _generate_pending_records
-        raw_conn = MagicMock()
-        cursor = MagicMock()
-        raw_conn.cursor.return_value = cursor
-        engine.raw_connection.return_value = raw_conn
-
         with patch(f"{_MOD}.get_quantmate_engine", return_value=engine), \
-             patch("app.datasync.service.sync_engine.get_trade_calendar", return_value=[]):
+               patch(f"{_MOD}.ensure_tables"), \
+               patch(f"{_MOD}.ensure_backfill_lock_table"), \
+               patch(f"{_MOD}.ensure_sync_status_init_table"), \
+               patch(f"{_MOD}._reconcile_pending_records", return_value={"pending_records": 0, "items_reconciled": 0, "skipped_unsupported": []}):
             result = initialize(registry, run_backfill=False)
         assert "env" in result
         assert "tables_created" in result
@@ -93,13 +90,11 @@ class TestInitialize:
         conn.execute.return_value = MagicMock(
             fetchall=MagicMock(return_value=[]),
         )
-        raw_conn = MagicMock()
-        cursor = MagicMock()
-        raw_conn.cursor.return_value = cursor
-        engine.raw_connection.return_value = raw_conn
-
         with patch(f"{_MOD}.get_quantmate_engine", return_value=engine), \
-             patch("app.datasync.service.sync_engine.get_trade_calendar", return_value=[]), \
+               patch(f"{_MOD}.ensure_tables"), \
+               patch(f"{_MOD}.ensure_backfill_lock_table"), \
+               patch(f"{_MOD}.ensure_sync_status_init_table"), \
+               patch(f"{_MOD}._reconcile_pending_records", return_value={"pending_records": 0, "items_reconciled": 0, "skipped_unsupported": []}), \
              patch("app.datasync.service.sync_engine.backfill_retry", return_value={"step": {"status": "success"}}):
             result = initialize(registry, run_backfill=True)
         assert "backfill" in result
@@ -161,17 +156,7 @@ class TestGeneratePendingRecords:
     def test_generates_records(self):
         from app.datasync.service.init_service import _generate_pending_records
         engine, conn = _engine_ctx()
-        items = [("tushare", "stock_daily")]
-        conn.execute.return_value = MagicMock(fetchall=MagicMock(return_value=items))
-
-        raw_conn = MagicMock()
-        cursor = MagicMock()
-        cursor.rowcount = 5
-        raw_conn.cursor.return_value = cursor
-        engine.raw_connection.return_value = raw_conn
-
         registry = MagicMock()
-        with patch("app.datasync.service.sync_engine.get_trade_calendar",
-                    return_value=[date(2024, 1, 3), date(2024, 1, 4)]):
+        with patch(f"{_MOD}._reconcile_pending_records", return_value={"pending_records": 5, "items_reconciled": 1, "skipped_unsupported": []}):
             count = _generate_pending_records(engine, registry)
         assert count == 5

@@ -1,8 +1,10 @@
 """DAO layer for extdata domain: centralized DB operations for sync status and trade calendar."""
 
-from datetime import date, timedelta
 import os
 import logging
+import socket
+import subprocess
+from datetime import date, timedelta
 from typing import Dict, List, Tuple, Any
 
 from sqlalchemy import text
@@ -19,6 +21,10 @@ _STEP_TO_INTERFACE = {
     "akshare_index": ("akshare", "index_daily"),
     "tushare_stock_basic": ("tushare", "stock_basic"),
     "tushare_stock_daily": ("tushare", "stock_daily"),
+    "tushare_bak_daily": ("tushare", "bak_daily"),
+    "tushare_moneyflow": ("tushare", "moneyflow"),
+    "tushare_suspend_d": ("tushare", "suspend_d"),
+    "tushare_suspend": ("tushare", "suspend"),
     "tushare_adj_factor": ("tushare", "adj_factor"),
     "tushare_dividend": ("tushare", "dividend"),
     "tushare_top10_holders": ("tushare", "top10_holders"),
@@ -113,6 +119,108 @@ def get_adj_factor_counts(start: date, end: date) -> Dict[date, int]:
             text("""
             SELECT trade_date, COUNT(*) as cnt
             FROM adj_factor
+            WHERE trade_date BETWEEN :s AND :e
+            GROUP BY trade_date
+        """),
+            {"s": start, "e": end},
+        )
+        for row in res.fetchall():
+            res_map[row[0]] = int(row[1])
+    return res_map
+
+
+def get_bak_daily_counts(start: date, end: date) -> Dict[date, int]:
+    res_map: Dict[date, int] = {}
+    with engine_ts.connect() as conn:
+        res = conn.execute(
+            text("""
+            SELECT trade_date, COUNT(*) as cnt
+            FROM bak_daily
+            WHERE trade_date BETWEEN :s AND :e
+            GROUP BY trade_date
+        """),
+            {"s": start, "e": end},
+        )
+        for row in res.fetchall():
+            res_map[row[0]] = int(row[1])
+    return res_map
+
+
+def get_moneyflow_counts(start: date, end: date) -> Dict[date, int]:
+    res_map: Dict[date, int] = {}
+    with engine_ts.connect() as conn:
+        res = conn.execute(
+            text("""
+            SELECT trade_date, COUNT(*) as cnt
+            FROM stock_moneyflow
+            WHERE trade_date BETWEEN :s AND :e
+            GROUP BY trade_date
+        """),
+            {"s": start, "e": end},
+        )
+        for row in res.fetchall():
+            res_map[row[0]] = int(row[1])
+    return res_map
+
+
+def get_suspend_d_counts(start: date, end: date) -> Dict[date, int]:
+    res_map: Dict[date, int] = {}
+    with engine_ts.connect() as conn:
+        res = conn.execute(
+            text("""
+            SELECT trade_date, COUNT(*) as cnt
+            FROM suspend_d
+            WHERE trade_date BETWEEN :s AND :e
+            GROUP BY trade_date
+        """),
+            {"s": start, "e": end},
+        )
+        for row in res.fetchall():
+            res_map[row[0]] = int(row[1])
+    return res_map
+
+
+def get_suspend_counts(start: date, end: date) -> Dict[date, int]:
+    res_map: Dict[date, int] = {}
+    with engine_ts.connect() as conn:
+        res = conn.execute(
+            text("""
+            SELECT suspend_date, COUNT(*) as cnt
+            FROM `suspend`
+            WHERE suspend_date BETWEEN :s AND :e
+            GROUP BY suspend_date
+        """),
+            {"s": start, "e": end},
+        )
+        for row in res.fetchall():
+            res_map[row[0]] = int(row[1])
+    return res_map
+
+
+def get_stock_weekly_counts(start: date, end: date) -> Dict[date, int]:
+    res_map: Dict[date, int] = {}
+    with engine_ts.connect() as conn:
+        res = conn.execute(
+            text("""
+            SELECT trade_date, COUNT(*) as cnt
+            FROM stock_weekly
+            WHERE trade_date BETWEEN :s AND :e
+            GROUP BY trade_date
+        """),
+            {"s": start, "e": end},
+        )
+        for row in res.fetchall():
+            res_map[row[0]] = int(row[1])
+    return res_map
+
+
+def get_stock_monthly_counts(start: date, end: date) -> Dict[date, int]:
+    res_map: Dict[date, int] = {}
+    with engine_ts.connect() as conn:
+        res = conn.execute(
+            text("""
+            SELECT trade_date, COUNT(*) as cnt
+            FROM stock_monthly
             WHERE trade_date BETWEEN :s AND :e
             GROUP BY trade_date
         """),
@@ -346,12 +454,85 @@ def ensure_backfill_lock_table():
         )
 
 
+def _is_local_pid_running(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def _local_backfill_process_running() -> bool:
+    patterns = (
+        "app.datasync.scheduler --backfill",
+        "app.datasync.scheduler --daemon",
+        "app.datasync.service.data_sync_daemon",
+    )
+    for pattern in patterns:
+        try:
+            result = subprocess.run(["pgrep", "-f", pattern], capture_output=True, text=True, check=False)
+        except FileNotFoundError:
+            return False
+        if result.returncode == 0 and result.stdout.strip():
+            return True
+    return False
+
+
+def release_orphaned_backfill_lock() -> bool:
+    """Release a local backfill lock when no matching owner process still exists."""
+    ensure_backfill_lock_table()
+    hostname = socket.gethostname()
+    with engine_tm.begin() as conn:
+        row = conn.execute(text("SELECT is_locked, locked_by FROM backfill_lock WHERE id = 1")).fetchone()
+        if not row:
+            return False
+
+        is_locked, locked_by = row[0], row[1]
+        if not is_locked or not locked_by:
+            return False
+
+        owner_alive = False
+        if locked_by == hostname:
+            owner_alive = _local_backfill_process_running()
+        elif locked_by.startswith(f"{hostname}:"):
+            parts = locked_by.split(":", 2)
+            if len(parts) >= 2:
+                try:
+                    owner_alive = _is_local_pid_running(int(parts[1]))
+                except ValueError:
+                    owner_alive = _local_backfill_process_running()
+        else:
+            return False
+
+        if owner_alive:
+            return False
+
+        result = conn.execute(
+            text(
+                """
+                UPDATE backfill_lock
+                SET is_locked = 0, locked_at = NULL, locked_by = NULL
+                WHERE id = 1 AND is_locked = 1
+                """
+            )
+        )
+        if result.rowcount > 0:
+            logger.warning("Released orphaned backfill lock held by %s", locked_by)
+            return True
+    return False
+
+
 def acquire_backfill_lock() -> bool:
     """Acquire backfill lock. Returns True if acquired, False if already locked."""
     ensure_backfill_lock_table()
-    import socket
-
     hostname = socket.gethostname()
+    owner = f"{hostname}:{os.getpid()}"
+    try:
+        release_orphaned_backfill_lock()
+    except Exception:
+        logger.exception("Failed to release orphaned backfill lock")
     # Clear stale locks before attempting to acquire
     try:
         stale_hours = int(os.getenv("BACKFILL_LOCK_STALE_HOURS", "6"))
@@ -368,14 +549,14 @@ def acquire_backfill_lock() -> bool:
             UPDATE backfill_lock 
             SET is_locked = 1, 
                 locked_at = CURRENT_TIMESTAMP, 
-                locked_by = :hostname
+                locked_by = :owner
             WHERE id = 1 AND is_locked = 0
         """),
-            {"hostname": hostname},
+            {"owner": owner},
         )
 
         if result.rowcount > 0:
-            logger.info("Acquired backfill lock (host: %s)", hostname)
+            logger.info("Acquired backfill lock (owner: %s)", owner)
             return True
         else:
             logger.warning("Failed to acquire backfill lock (already locked)")
@@ -388,43 +569,24 @@ def release_stale_backfill_lock(max_age_hours: int = 6) -> bool:
     Returns True if a stale lock was released, False otherwise.
     """
     ensure_backfill_lock_table()
+    max_age_seconds = max(int(max_age_hours), 0) * 3600
     with engine_tm.begin() as conn:
-        # Find locked_at timestamp
-        row = conn.execute(text("SELECT is_locked, locked_at FROM backfill_lock WHERE id = 1")).fetchone()
-        if not row:
-            return False
-        is_locked, locked_at = row[0], row[1]
-        if not is_locked or not locked_at:
-            return False
-        try:
-            from datetime import datetime
-
-            now = datetime.utcnow()
-            # locked_at may be timezone-naive; compare in UTC assuming DB stores UTC
-            if isinstance(locked_at, str):
-                # Parse common format
-                try:
-                    locked_dt = datetime.fromisoformat(locked_at)
-                except Exception:
-                    return False
-            else:
-                locked_dt = locked_at
-
-            age = now - locked_dt
-            if age.total_seconds() >= max_age_hours * 3600:
-                conn.execute(
-                    text("""
-                    UPDATE backfill_lock
-                    SET is_locked = 0, locked_at = NULL, locked_by = NULL
-                    WHERE id = 1
-                """)
-                )
-                logger.info(
-                    "Released stale backfill lock (age %.1f hours >= %d)", age.total_seconds() / 3600.0, max_age_hours
-                )
-                return True
-        except Exception:
-            logger.exception("Error while checking/releasing stale backfill lock")
+        result = conn.execute(
+            text(
+                """
+                UPDATE backfill_lock
+                SET is_locked = 0, locked_at = NULL, locked_by = NULL
+                WHERE id = 1
+                  AND is_locked = 1
+                  AND locked_at IS NOT NULL
+                  AND TIMESTAMPDIFF(SECOND, locked_at, CURRENT_TIMESTAMP) >= :max_age_seconds
+                """
+            ),
+            {"max_age_seconds": max_age_seconds},
+        )
+        if result.rowcount > 0:
+            logger.info("Released stale backfill lock (older than %d hours)", max_age_hours)
+            return True
     return False
 
 
@@ -450,6 +612,10 @@ def acquire_backfill_lock_with_token(token: str) -> bool:
     Returns True if acquired, False if already locked.
     """
     ensure_backfill_lock_table()
+    try:
+        release_orphaned_backfill_lock()
+    except Exception:
+        logger.exception("Failed to release orphaned backfill lock")
     try:
         stale_hours = int(os.getenv("BACKFILL_LOCK_STALE_HOURS", "6"))
     except Exception:
@@ -533,6 +699,18 @@ def release_backfill_lock_token(token: str) -> bool:
 def is_backfill_locked() -> bool:
     """Check if backfill is currently locked."""
     ensure_backfill_lock_table()
+    try:
+        release_orphaned_backfill_lock()
+    except Exception:
+        logger.exception("Failed to release orphaned backfill lock during lock check")
+    try:
+        stale_hours = int(os.getenv("BACKFILL_LOCK_STALE_HOURS", "6"))
+    except Exception:
+        stale_hours = 6
+    try:
+        release_stale_backfill_lock(stale_hours)
+    except Exception:
+        logger.exception("Failed to release stale backfill lock during lock check")
     with engine_tm.connect() as conn:
         result = conn.execute(
             text("""

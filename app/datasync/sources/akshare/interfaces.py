@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from datetime import date
 
+import pandas as pd
+
 from app.datasync.base import BaseIngestInterface, InterfaceInfo, SyncResult, SyncStatus
 from app.datasync.sources.akshare import ddl
 
@@ -45,12 +47,25 @@ class AkShareIndexDailyInterface(BaseIngestInterface):
         if failures:
             err_msg = f"Failed symbols: {','.join(failures)}"
             if total_success > 0:
-                return SyncResult(SyncStatus.PARTIAL, total_success, err_msg)
-            return SyncResult(SyncStatus.ERROR, 0, err_msg)
-        return SyncResult(SyncStatus.SUCCESS, total_success)
+                return SyncResult(
+                    SyncStatus.PARTIAL,
+                    total_success,
+                    err_msg,
+                    details={"symbols": list(INDEX_MAPPING.keys()), "failed_symbols": failures},
+                )
+            return SyncResult(
+                SyncStatus.ERROR,
+                0,
+                err_msg,
+                details={"symbols": list(INDEX_MAPPING.keys()), "failed_symbols": failures},
+            )
+        return SyncResult(SyncStatus.SUCCESS, total_success, details={"symbols": list(INDEX_MAPPING.keys())})
 
 
 class AkShareIndexSpotInterface(BaseIngestInterface):
+    def supports_backfill(self) -> bool:
+        return False
+
     @property
     def info(self) -> InterfaceInfo:
         return InterfaceInfo(
@@ -70,10 +85,11 @@ class AkShareIndexSpotInterface(BaseIngestInterface):
     def sync_date(self, trade_date: date) -> SyncResult:
         try:
             import akshare as ak
+            from app.datasync.service.akshare_ingest import call_ak
             from app.infrastructure.db.connections import get_akshare_engine
             from sqlalchemy import text
 
-            df = ak.stock_zh_index_spot_em()
+            df = call_ak("stock_zh_index_spot_sina", ak.stock_zh_index_spot_sina)
             if df is None or df.empty:
                 return SyncResult(SyncStatus.SUCCESS, 0, "No data")
 
@@ -83,10 +99,10 @@ class AkShareIndexSpotInterface(BaseIngestInterface):
                 for _, row in df.iterrows():
                     conn.execute(
                         text(
-                            "INSERT INTO stock_zh_index_spot (symbol, name, latest_price, change_pct, volume, amount, high, low, open, prev_close) "
-                            "VALUES (:sym, :name, :price, :pct, :vol, :amt, :hi, :lo, :op, :pc) "
+                            "INSERT INTO stock_zh_index_spot (symbol, name, latest_price, change_pct, change_amount, volume, amount, high, low, open, prev_close) "
+                            "VALUES (:sym, :name, :price, :pct, :chg, :vol, :amt, :hi, :lo, :op, :pc) "
                             "ON DUPLICATE KEY UPDATE name=VALUES(name), latest_price=VALUES(latest_price), "
-                            "change_pct=VALUES(change_pct), volume=VALUES(volume), amount=VALUES(amount), "
+                            "change_pct=VALUES(change_pct), change_amount=VALUES(change_amount), volume=VALUES(volume), amount=VALUES(amount), "
                             "high=VALUES(high), low=VALUES(low), open=VALUES(open), prev_close=VALUES(prev_close)"
                         ),
                         {
@@ -94,6 +110,7 @@ class AkShareIndexSpotInterface(BaseIngestInterface):
                             "name": str(row.get("名称", "")),
                             "price": row.get("最新价"),
                             "pct": row.get("涨跌幅"),
+                            "chg": row.get("涨跌额"),
                             "vol": row.get("成交量"),
                             "amt": row.get("成交额"),
                             "hi": row.get("最高"),
@@ -115,6 +132,47 @@ class AkShareETFDailyInterface(BaseIngestInterface):
     # Popular ETFs to sync
     ETF_SYMBOLS = ["159919", "510300", "510050", "510500", "159915"]
 
+    def _sina_symbol(self, symbol: str) -> str:
+        if symbol.startswith(("sh", "sz")):
+            return symbol
+        prefix = "sz" if symbol.startswith(("15", "16", "18")) else "sh"
+        return f"{prefix}{symbol}"
+
+    def _history_cache(self) -> dict[str, pd.DataFrame]:
+        cache = getattr(self, "_etf_history_cache", None)
+        if cache is None:
+            cache = {}
+            self._etf_history_cache = cache
+        return cache
+
+    def _load_symbol_history(self, symbol: str) -> pd.DataFrame:
+        cache = self._history_cache()
+        if symbol in cache:
+            return cache[symbol]
+
+        import akshare as ak
+        from app.datasync.service.akshare_ingest import call_ak
+
+        df = call_ak("fund_etf_hist_sina", ak.fund_etf_hist_sina, symbol=self._sina_symbol(symbol))
+        if df is None or df.empty:
+            cache[symbol] = pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume", "amount"])
+            return cache[symbol]
+
+        df = df.rename(
+            columns={
+                "日期": "date",
+                "开盘": "open",
+                "最高": "high",
+                "最低": "low",
+                "收盘": "close",
+                "成交量": "volume",
+                "成交额": "amount",
+            }
+        ).copy()
+        df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
+        cache[symbol] = df
+        return df
+
     @property
     def info(self) -> InterfaceInfo:
         return InterfaceInfo(
@@ -133,8 +191,6 @@ class AkShareETFDailyInterface(BaseIngestInterface):
 
     def sync_date(self, trade_date: date) -> SyncResult:
         try:
-            import akshare as ak
-            from app.datasync.service.akshare_ingest import call_ak
             from app.infrastructure.db.connections import get_akshare_engine
             from sqlalchemy import text
 
@@ -144,18 +200,14 @@ class AkShareETFDailyInterface(BaseIngestInterface):
 
             for symbol in self.ETF_SYMBOLS:
                 try:
-                    df = call_ak(
-                        "fund_etf_hist_em",
-                        ak.fund_etf_hist_em,
-                        symbol=symbol,
-                        period="daily",
-                        start_date=trade_date.strftime("%Y%m%d"),
-                        end_date=trade_date.strftime("%Y%m%d"),
-                    )
+                    df = self._load_symbol_history(symbol)
                     if df is None or df.empty:
                         continue
+                    day_df = df[df["date"] == trade_date]
+                    if day_df.empty:
+                        continue
                     with engine.begin() as conn:
-                        for _, row in df.iterrows():
+                        for _, row in day_df.iterrows():
                             conn.execute(
                                 text(
                                     "INSERT INTO fund_etf_daily (symbol, trade_date, open, high, low, close, volume, amount) "
@@ -165,13 +217,13 @@ class AkShareETFDailyInterface(BaseIngestInterface):
                                 ),
                                 {
                                     "sym": symbol,
-                                    "td": str(row.get("日期", trade_date))[:10],
-                                    "o": row.get("开盘"),
-                                    "h": row.get("最高"),
-                                    "l": row.get("最低"),
-                                    "c": row.get("收盘"),
-                                    "v": row.get("成交量"),
-                                    "a": row.get("成交额"),
+                                    "td": trade_date.isoformat(),
+                                    "o": row.get("open"),
+                                    "h": row.get("high"),
+                                    "l": row.get("low"),
+                                    "c": row.get("close"),
+                                    "v": row.get("volume"),
+                                    "a": row.get("amount"),
                                 },
                             )
                             total_rows += 1
@@ -180,10 +232,20 @@ class AkShareETFDailyInterface(BaseIngestInterface):
                     failures.append(symbol)
 
             if failures and total_rows == 0:
-                return SyncResult(SyncStatus.ERROR, 0, f"Failed: {','.join(failures)}")
+                return SyncResult(
+                    SyncStatus.ERROR,
+                    0,
+                    f"Failed: {','.join(failures)}",
+                    details={"symbols": list(self.ETF_SYMBOLS), "failed_symbols": failures},
+                )
             if failures:
-                return SyncResult(SyncStatus.PARTIAL, total_rows, f"Failed: {','.join(failures)}")
-            return SyncResult(SyncStatus.SUCCESS, total_rows)
+                return SyncResult(
+                    SyncStatus.PARTIAL,
+                    total_rows,
+                    f"Failed: {','.join(failures)}",
+                    details={"symbols": list(self.ETF_SYMBOLS), "failed_symbols": failures},
+                )
+            return SyncResult(SyncStatus.SUCCESS, total_rows, details={"symbols": list(self.ETF_SYMBOLS)})
         except Exception as e:
             logger.exception("fund_etf_daily sync failed: %s", e)
             return SyncResult(SyncStatus.ERROR, 0, str(e))

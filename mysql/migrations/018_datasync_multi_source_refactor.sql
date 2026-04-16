@@ -152,38 +152,58 @@ CREATE TABLE IF NOT EXISTS `quantmate`.`data_sync_status` (
     INDEX idx_source_interface (source, interface_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Per-interface per-trading-day sync status tracking';
 
--- Migrate existing data: map step_name to source + interface_key
-INSERT INTO `quantmate`.`data_sync_status` (sync_date, source, interface_key, status, rows_synced, error_message, started_at, finished_at, created_at, updated_at)
-SELECT
+-- Migrate existing data: handle both old schema (step_name) and already-migrated schema (source, interface_key)
+SET @old_has_step_name := (
+    SELECT COUNT(*)
+    FROM information_schema.columns
+    WHERE table_schema = 'quantmate' AND table_name = 'data_sync_status_old' AND column_name = 'step_name'
+);
+
+-- Insert path A: legacy schema with step_name column
+SET @migrate_sql_legacy := IF(
+    @old_has_step_name > 0,
+    'INSERT IGNORE INTO `quantmate`.`data_sync_status` (sync_date, source, interface_key, status, rows_synced, error_message, started_at, finished_at, created_at, updated_at)
+ SELECT
     sync_date,
     CASE
-        WHEN step_name LIKE 'akshare_%' THEN 'akshare'
-        WHEN step_name LIKE 'tushare_%' THEN 'tushare'
-        WHEN step_name = 'vnpy_sync' THEN 'vnpy'
-        ELSE 'unknown'
-    END AS source,
+        WHEN step_name LIKE ''akshare_%'' THEN ''akshare''
+        WHEN step_name LIKE ''tushare_%'' THEN ''tushare''
+        WHEN step_name = ''vnpy_sync'' THEN ''vnpy''
+        ELSE ''unknown''
+    END,
     CASE
-        WHEN step_name = 'akshare_index' THEN 'index_daily'
-        WHEN step_name = 'tushare_stock_basic' THEN 'stock_basic'
-        WHEN step_name = 'tushare_stock_daily' THEN 'stock_daily'
-        WHEN step_name = 'tushare_adj_factor' THEN 'adj_factor'
-        WHEN step_name = 'tushare_dividend' THEN 'dividend'
-        WHEN step_name = 'tushare_top10_holders' THEN 'top10_holders'
-        WHEN step_name = 'vnpy_sync' THEN 'vnpy_sync'
-        WHEN step_name = 'tushare_stock_weekly' THEN 'stock_weekly'
-        WHEN step_name = 'tushare_stock_monthly' THEN 'stock_monthly'
-        WHEN step_name = 'tushare_index_daily' THEN 'index_daily'
-        WHEN step_name = 'tushare_index_weekly' THEN 'index_weekly'
+        WHEN step_name = ''akshare_index'' THEN ''index_daily''
+        WHEN step_name = ''tushare_stock_basic'' THEN ''stock_basic''
+        WHEN step_name = ''tushare_stock_daily'' THEN ''stock_daily''
+        WHEN step_name = ''tushare_adj_factor'' THEN ''adj_factor''
+        WHEN step_name = ''tushare_dividend'' THEN ''dividend''
+        WHEN step_name = ''tushare_top10_holders'' THEN ''top10_holders''
+        WHEN step_name = ''vnpy_sync'' THEN ''vnpy_sync''
+        WHEN step_name = ''tushare_stock_weekly'' THEN ''stock_weekly''
+        WHEN step_name = ''tushare_stock_monthly'' THEN ''stock_monthly''
+        WHEN step_name = ''tushare_index_daily'' THEN ''index_daily''
+        WHEN step_name = ''tushare_index_weekly'' THEN ''index_weekly''
         ELSE step_name
-    END AS interface_key,
-    status,
-    rows_synced,
-    error_message,
-    started_at,
-    finished_at,
-    created_at,
-    updated_at
-FROM `quantmate`.`data_sync_status_old`;
+    END,
+    status, rows_synced, error_message, started_at, finished_at, created_at, updated_at
+ FROM `quantmate`.`data_sync_status_old`',
+    'SELECT 1'
+);
+PREPARE stmt_migrate_legacy FROM @migrate_sql_legacy;
+EXECUTE stmt_migrate_legacy;
+DEALLOCATE PREPARE stmt_migrate_legacy;
+
+-- Insert path B: already-migrated schema with source/interface_key columns
+SET @migrate_sql_new := IF(
+    @old_has_step_name = 0,
+    'INSERT IGNORE INTO `quantmate`.`data_sync_status` (sync_date, source, interface_key, status, rows_synced, error_message, retry_count, started_at, finished_at, created_at, updated_at)
+ SELECT sync_date, source, interface_key, status, rows_synced, error_message, COALESCE(retry_count, 0), started_at, finished_at, created_at, updated_at
+ FROM `quantmate`.`data_sync_status_old`',
+    'SELECT 1'
+);
+PREPARE stmt_migrate_new FROM @migrate_sql_new;
+EXECUTE stmt_migrate_new;
+DEALLOCATE PREPARE stmt_migrate_new;
 
 -- Drop old table after migration
 DROP TABLE `quantmate`.`data_sync_status_old`;

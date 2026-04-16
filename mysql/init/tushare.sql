@@ -36,6 +36,8 @@ CREATE INDEX idx_stock_basic_exchange ON stock_basic(exchange);
 -- Company information (migration 013 version - extended fields)
 CREATE TABLE IF NOT EXISTS stock_company (
     ts_code        VARCHAR(20) NOT NULL PRIMARY KEY,
+    com_name       VARCHAR(255) DEFAULT NULL,
+    com_id         VARCHAR(64) DEFAULT NULL,
     exchange       VARCHAR(10) DEFAULT NULL,
     chairman       VARCHAR(50) DEFAULT NULL,
     manager        VARCHAR(50) DEFAULT NULL,
@@ -88,10 +90,16 @@ CREATE TABLE IF NOT EXISTS stock_name_change (
 -- New share / IPO list (tushare: new_share)
 CREATE TABLE IF NOT EXISTS new_share (
     ts_code VARCHAR(32) NOT NULL,
+    sub_code VARCHAR(32),
     name VARCHAR(255),
     ipo_date DATE,
     issue_date DATE,
+    market_amount DECIMAL(18,4),
     issue_price DECIMAL(12,2),
+    pe DECIMAL(12,2),
+    limit_amount DECIMAL(18,4),
+    funds DECIMAL(18,4),
+    ballot DECIMAL(18,4),
     amount BIGINT,
     market VARCHAR(32),
     PRIMARY KEY (ts_code, ipo_date)
@@ -119,6 +127,63 @@ CREATE TABLE IF NOT EXISTS stock_daily (
 CREATE INDEX idx_daily_ts ON stock_daily(ts_code);
 CREATE INDEX idx_daily_date ON stock_daily(trade_date);
 CREATE INDEX idx_daily_ts_date ON stock_daily(ts_code, trade_date);
+
+-- Backup daily market snapshot (tushare: bak_daily)
+CREATE TABLE IF NOT EXISTS bak_daily (
+    ts_code VARCHAR(32) NOT NULL,
+    trade_date DATE NOT NULL,
+    name VARCHAR(255),
+    pct_change DECIMAL(16,4),
+    close DECIMAL(16,4),
+    change_amount DECIMAL(16,4),
+    open DECIMAL(16,4),
+    high DECIMAL(16,4),
+    low DECIMAL(16,4),
+    pre_close DECIMAL(16,4),
+    vol_ratio DECIMAL(16,4),
+    turn_over DECIMAL(16,4),
+    swing DECIMAL(16,4),
+    vol BIGINT,
+    amount DECIMAL(20,2),
+    selling BIGINT,
+    buying BIGINT,
+    total_share DECIMAL(20,2),
+    float_share DECIMAL(20,2),
+    pe DECIMAL(16,4),
+    industry VARCHAR(128),
+    area VARCHAR(64),
+    float_mv DECIMAL(20,2),
+    total_mv DECIMAL(20,2),
+    avg_price DECIMAL(16,4),
+    strength DECIMAL(16,4),
+    activity BIGINT,
+    avg_turnover DECIMAL(16,4),
+    attack DECIMAL(16,4),
+    interval_3 DECIMAL(16,4),
+    interval_6 DECIMAL(16,4),
+    PRIMARY KEY (ts_code, trade_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE INDEX idx_bak_daily_date ON bak_daily(trade_date);
+
+-- Suspension status on a trade date (tushare: suspend_d)
+CREATE TABLE IF NOT EXISTS suspend_d (
+    ts_code VARCHAR(32) NOT NULL,
+    trade_date DATE NOT NULL,
+    suspend_timing VARCHAR(64),
+    suspend_type VARCHAR(32),
+    PRIMARY KEY (ts_code, trade_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE INDEX idx_suspend_d_date ON suspend_d(trade_date);
+
+-- Suspension history (tushare: suspend)
+CREATE TABLE IF NOT EXISTS `suspend` (
+    ts_code VARCHAR(32) NOT NULL,
+    suspend_date DATE NOT NULL,
+    resume_date DATE,
+    suspend_reason VARCHAR(255),
+    PRIMARY KEY (ts_code, suspend_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE INDEX idx_suspend_resume_date ON `suspend`(resume_date);
 
 -- Weekly K-line (migration 008)
 CREATE TABLE IF NOT EXISTS stock_weekly (
@@ -358,28 +423,28 @@ CREATE TABLE IF NOT EXISTS fina_indicator (
     undist_profit_ps DECIMAL(18,6) DEFAULT NULL COMMENT '每股未分配利润',
     extra_item     DECIMAL(18,4) DEFAULT NULL,
     profit_dedt    DECIMAL(18,4) DEFAULT NULL COMMENT '扣非净利润',
-    gross_margin   DECIMAL(10,6) DEFAULT NULL COMMENT '毛利率',
-    current_ratio  DECIMAL(10,6) DEFAULT NULL COMMENT '流动比率',
-    quick_ratio    DECIMAL(10,6) DEFAULT NULL COMMENT '速动比率',
-    cash_ratio     DECIMAL(10,6) DEFAULT NULL COMMENT '现金比率',
-    ar_turn        DECIMAL(10,6) DEFAULT NULL COMMENT '应收账款周转率',
-    ca_turn        DECIMAL(10,6) DEFAULT NULL COMMENT '流动资产周转率',
-    fa_turn        DECIMAL(10,6) DEFAULT NULL COMMENT '固定资产周转率',
-    assets_turn    DECIMAL(10,6) DEFAULT NULL COMMENT '总资产周转率',
+    gross_margin   DECIMAL(20,6) DEFAULT NULL COMMENT '毛利率',
+    current_ratio  DECIMAL(20,6) DEFAULT NULL COMMENT '流动比率',
+    quick_ratio    DECIMAL(20,6) DEFAULT NULL COMMENT '速动比率',
+    cash_ratio     DECIMAL(20,6) DEFAULT NULL COMMENT '现金比率',
+    ar_turn        DECIMAL(20,6) DEFAULT NULL COMMENT '应收账款周转率',
+    ca_turn        DECIMAL(20,6) DEFAULT NULL COMMENT '流动资产周转率',
+    fa_turn        DECIMAL(20,6) DEFAULT NULL COMMENT '固定资产周转率',
+    assets_turn    DECIMAL(20,6) DEFAULT NULL COMMENT '总资产周转率',
     op_income      DECIMAL(18,4) DEFAULT NULL COMMENT '经营活动净现金流',
     ebit           DECIMAL(18,4) DEFAULT NULL,
     ebitda         DECIMAL(18,4) DEFAULT NULL,
     fcff           DECIMAL(18,4) DEFAULT NULL COMMENT '企业自由现金流量',
     fcfe           DECIMAL(18,4) DEFAULT NULL COMMENT '股权自由现金流量',
-    roe            DECIMAL(10,6) DEFAULT NULL COMMENT '净资产收益率',
-    roe_waa        DECIMAL(10,6) DEFAULT NULL COMMENT '加权ROE',
-    roe_dt         DECIMAL(10,6) DEFAULT NULL COMMENT '扣非ROE',
-    roa            DECIMAL(10,6) DEFAULT NULL COMMENT '总资产报酬率',
-    npta           DECIMAL(10,6) DEFAULT NULL COMMENT '总资产净利率',
-    debt_to_assets DECIMAL(10,6) DEFAULT NULL COMMENT '资产负债率',
-    netprofit_yoy  DECIMAL(10,6) DEFAULT NULL COMMENT '净利润同比增长',
-    or_yoy         DECIMAL(10,6) DEFAULT NULL COMMENT '营业收入同比增长',
-    roe_yoy        DECIMAL(10,6) DEFAULT NULL COMMENT 'ROE同比增长',
+    roe            DECIMAL(20,6) DEFAULT NULL COMMENT '净资产收益率',
+    roe_waa        DECIMAL(20,6) DEFAULT NULL COMMENT '加权ROE',
+    roe_dt         DECIMAL(20,6) DEFAULT NULL COMMENT '扣非ROE',
+    roa            DECIMAL(20,6) DEFAULT NULL COMMENT '总资产报酬率',
+    npta           DECIMAL(20,6) DEFAULT NULL COMMENT '总资产净利率',
+    debt_to_assets DECIMAL(20,6) DEFAULT NULL COMMENT '资产负债率',
+    netprofit_yoy  DECIMAL(20,6) DEFAULT NULL COMMENT '净利润同比增长',
+    or_yoy         DECIMAL(20,6) DEFAULT NULL COMMENT '营业收入同比增长',
+    roe_yoy        DECIMAL(20,6) DEFAULT NULL COMMENT 'ROE同比增长',
     PRIMARY KEY (ts_code, end_date),
     INDEX idx_end_date (end_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -409,6 +474,30 @@ CREATE TABLE IF NOT EXISTS income (
     diluted_eps    DECIMAL(10,6) DEFAULT NULL COMMENT '稀释每股收益',
     PRIMARY KEY (ts_code, end_date),
     INDEX idx_end_date (end_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS balancesheet (
+    ts_code        VARCHAR(20) NOT NULL,
+    ann_date       DATE DEFAULT NULL,
+    f_ann_date     DATE DEFAULT NULL,
+    end_date       DATE NOT NULL,
+    report_type    VARCHAR(5) DEFAULT NULL,
+    comp_type      VARCHAR(5) DEFAULT NULL,
+    data           JSON NOT NULL,
+    PRIMARY KEY (ts_code, end_date),
+    INDEX idx_balancesheet_ann_date (ann_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS cashflow (
+    ts_code        VARCHAR(20) NOT NULL,
+    ann_date       DATE DEFAULT NULL,
+    f_ann_date     DATE DEFAULT NULL,
+    end_date       DATE NOT NULL,
+    report_type    VARCHAR(5) DEFAULT NULL,
+    comp_type      VARCHAR(5) DEFAULT NULL,
+    data           JSON NOT NULL,
+    PRIMARY KEY (ts_code, end_date),
+    INDEX idx_cashflow_ann_date (ann_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =============================================================================

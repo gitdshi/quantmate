@@ -387,16 +387,22 @@ class TestMissingDataBackfill:
 class TestInitializeSyncStatusTable:
     @patch(f"{_MOD}.bulk_upsert_status", return_value=100)
     @patch(f"{_MOD}.get_vnpy_counts", return_value={})
+    @patch(f"{_MOD}.get_suspend_counts", return_value={})
+    @patch(f"{_MOD}.get_suspend_d_counts", return_value={})
+    @patch(f"{_MOD}.get_moneyflow_counts", return_value={})
+    @patch(f"{_MOD}.get_bak_daily_counts", return_value={})
+    @patch(f"{_MOD}.get_stock_monthly_counts", return_value={})
+    @patch(f"{_MOD}.get_stock_weekly_counts", return_value={})
     @patch(f"{_MOD}.get_adj_factor_counts", return_value={})
     @patch(f"{_MOD}.get_stock_daily_counts", return_value={})
     @patch(f"{_MOD}.get_trade_calendar", return_value=[date(2024, 3, 15)])
-    def test_success(self, mock_cal, mock_dc, mock_ac, mock_vc, mock_bulk):
+    def test_success(self, mock_cal, mock_dc, mock_ac, mock_wc, mock_mc, mock_bc, mock_mfc, mock_sdc, mock_sc, mock_vc, mock_bulk):
         from app.datasync.service.data_sync_daemon import initialize_sync_status_table
         initialize_sync_status_table(lookback_years=1)
         mock_bulk.assert_called_once()
         rows = mock_bulk.call_args[0][0]
-        # 1 date * 6 steps = 6 rows
-        assert len(rows) == 6
+        # 1 date includes daily, bak_daily, moneyflow, suspend_d, suspend, adj_factor, weekly, monthly, vnpy, akshare, dividend, top10_holders
+        assert len(rows) == 12
 
     @patch(f"{_MOD}.get_trade_calendar", return_value=[])
     def test_no_trade_days(self, mock_cal):

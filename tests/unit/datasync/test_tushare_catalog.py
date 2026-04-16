@@ -71,8 +71,9 @@ class TestRecordInit:
 class TestInitializeSyncStatus:
     def test_skips_when_already_initialized(self):
         from app.datasync.service.sync_init_service import initialize_sync_status
-        with patch(f"{_INIT_MOD}._already_initialized", return_value=True):
-            result = initialize_sync_status("tushare", "stock_daily")
+        with patch(f"{_INIT_MOD}.ensure_sync_status_init_table"), \
+             patch(f"{_INIT_MOD}._already_initialized", return_value=True):
+            result = initialize_sync_status("tushare", "stock_daily", reconcile_missing=False)
         assert result == 0
 
     def test_seeds_pending_rows(self):
@@ -80,7 +81,7 @@ class TestInitializeSyncStatus:
         trade_days = [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)]
         engine, conn = _conn_ctx()
 
-        with patch(f"{_INIT_MOD}._already_initialized", return_value=False), \
+        with patch(f"{_INIT_MOD}.ensure_sync_status_init_table"), \
              patch(f"{_ENGINE_MOD}.get_trade_calendar", return_value=trade_days), \
              patch(f"{_INIT_MOD}.get_quantmate_engine", return_value=engine), \
              patch(f"{_INIT_MOD}._record_init") as mock_record:
@@ -95,7 +96,7 @@ class TestInitializeSyncStatus:
 
     def test_no_trade_days(self):
         from app.datasync.service.sync_init_service import initialize_sync_status
-        with patch(f"{_INIT_MOD}._already_initialized", return_value=False), \
+        with patch(f"{_INIT_MOD}.ensure_sync_status_init_table"), \
              patch(f"{_ENGINE_MOD}.get_trade_calendar", return_value=[]):
             result = initialize_sync_status("tushare", "stock_daily")
         assert result == 0
@@ -105,7 +106,7 @@ class TestInitializeSyncStatus:
         trade_days = [date(2024, 6, 1)]
         engine, conn = _conn_ctx()
 
-        with patch(f"{_INIT_MOD}._already_initialized", return_value=False), \
+        with patch(f"{_INIT_MOD}.ensure_sync_status_init_table"), \
              patch(f"{_ENGINE_MOD}.get_trade_calendar", return_value=trade_days) as mock_cal, \
              patch(f"{_INIT_MOD}.get_quantmate_engine", return_value=engine), \
              patch(f"{_INIT_MOD}._record_init"):
@@ -113,6 +114,35 @@ class TestInitializeSyncStatus:
 
         args = mock_cal.call_args[0]
         assert args[0] == DEFAULT_START_DATE
+
+
+class TestReconcileEnabledSyncStatus:
+    def test_non_historical_interface_only_initializes_target_day(self):
+        from app.datasync.service.sync_init_service import reconcile_enabled_sync_status
+
+        engine, conn = _conn_ctx(rows=[("akshare", "stock_zh_index_spot")])
+        registry = MagicMock()
+        iface = MagicMock()
+        iface.supports_backfill.return_value = False
+        registry.get_interface.return_value = iface
+
+        with patch(f"{_INIT_MOD}.ensure_sync_status_init_table"), \
+             patch(f"{_INIT_MOD}.get_quantmate_engine", return_value=engine), \
+             patch(f"{_INIT_MOD}.initialize_sync_status", return_value=1) as mock_init:
+            result = reconcile_enabled_sync_status(
+                registry,
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 1, 5),
+            )
+
+        assert result["pending_records"] == 1
+        mock_init.assert_called_once_with(
+            "akshare",
+            "stock_zh_index_spot",
+            start_date=date(2024, 1, 5),
+            end_date=date(2024, 1, 5),
+            reconcile_missing=True,
+        )
 
 
 # ===========================================================================
@@ -330,6 +360,41 @@ class TestRunBackfillTask:
 
         assert result["status"] == "failed"
         assert result["exhausted"] == 2
+
+    def test_uses_backfill_source_semaphore(self):
+        from app.datasync.base import SyncResult, SyncStatus
+        from app.worker.service.datasync_tasks import run_backfill_task
+
+        registry = MagicMock()
+        iface = MagicMock()
+        iface.sync_date.return_value = SyncResult(SyncStatus.SUCCESS, 12)
+        registry.get_interface.return_value = iface
+        engine, conn = _conn_ctx()
+        sem = MagicMock()
+
+        item_row = MagicMock()
+        item_row.__getitem__ = lambda s, k: {0: "ts", 1: "stock_daily", 2: 1}[k]
+        pending_rows = MagicMock(fetchall=MagicMock(return_value=[(date(2024, 1, 3), "pending", 0)]))
+        remaining_row = MagicMock(fetchone=MagicMock(return_value=(0,)))
+        exhausted_row = MagicMock(fetchone=MagicMock(return_value=(0,)))
+
+        conn.execute.side_effect = [
+            MagicMock(fetchone=MagicMock(return_value=item_row)),
+            pending_rows,
+            remaining_row,
+            exhausted_row,
+        ]
+
+        with patch("rq.get_current_job", return_value=None), \
+             patch("app.datasync.registry.build_default_registry", return_value=registry), \
+             patch("app.infrastructure.db.connections.get_quantmate_engine", return_value=engine), \
+             patch("app.datasync.service.sync_engine._get_backfill_source_semaphore", return_value=sem), \
+             patch("app.datasync.service.sync_engine._write_status"):
+            result = run_backfill_task("tushare", "stock_daily")
+
+        sem.acquire.assert_called_once()
+        sem.release.assert_called_once()
+        assert result["synced"] == 1
 
 
 def _dao_conn_ctx():
@@ -550,17 +615,19 @@ class TestSettingsRoutes:
         mock_job.id = "job-123"
         mock_queue.enqueue.return_value = mock_job
 
-        with patch("app.datasync.service.sync_init_service.initialize_sync_status") as mock_init, \
+        with patch("app.datasync.registry.build_default_registry", return_value=MagicMock()) as mock_registry, \
+             patch("app.datasync.service.sync_init_service.reconcile_enabled_sync_status") as mock_init, \
              patch("app.worker.service.config.get_queue", return_value=mock_queue):
             result = _trigger_sync_init("tushare", "stock_daily")
 
-        mock_init.assert_called_once_with("tushare", "stock_daily")
+        mock_init.assert_called_once_with(mock_registry.return_value, source="tushare", item_key="stock_daily")
         assert result == "job-123"
 
     def test_trigger_sync_init_failure(self):
         from app.api.routes.settings import _trigger_sync_init
 
-        with patch("app.datasync.service.sync_init_service.initialize_sync_status", side_effect=Exception("DB error")):
+        with patch("app.datasync.registry.build_default_registry", return_value=MagicMock()), \
+             patch("app.datasync.service.sync_init_service.reconcile_enabled_sync_status", side_effect=Exception("DB error")):
             result = _trigger_sync_init("tushare", "stock_daily")
 
         assert result is None

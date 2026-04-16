@@ -84,6 +84,125 @@ class TushareStockDailyInterface(BaseIngestInterface):
             return SyncResult(SyncStatus.ERROR, 0, str(e))
 
 
+class TushareBakDailyInterface(BaseIngestInterface):
+    @property
+    def info(self) -> InterfaceInfo:
+        return InterfaceInfo(
+            interface_key="bak_daily",
+            display_name="备用行情",
+            source_key="tushare",
+            target_database="tushare",
+            target_table="bak_daily",
+            sync_priority=22,
+            enabled_by_default=True,
+            description="A股备用行情数据(5000积分)",
+        )
+
+    def get_ddl(self) -> str:
+        return ddl.BAK_DAILY_DDL
+
+    def sync_date(self, trade_date: date) -> SyncResult:
+        from app.datasync.service.tushare_ingest import ingest_bak_daily
+
+        target = trade_date.strftime("%Y%m%d")
+        try:
+            rows = ingest_bak_daily(trade_date=target)
+            return SyncResult(SyncStatus.SUCCESS, rows or 0)
+        except Exception as e:
+            logger.exception("bak_daily sync failed for %s: %s", trade_date, e)
+            return SyncResult(SyncStatus.ERROR, 0, str(e))
+
+
+class TushareMoneyflowInterface(BaseIngestInterface):
+    @property
+    def info(self) -> InterfaceInfo:
+        return InterfaceInfo(
+            interface_key="moneyflow",
+            display_name="资金流向",
+            source_key="tushare",
+            target_database="tushare",
+            target_table="stock_moneyflow",
+            sync_priority=25,
+            enabled_by_default=True,
+            description="个股资金流向数据",
+        )
+
+    def get_ddl(self) -> str:
+        return ddl.STOCK_MONEYFLOW_DDL
+
+    def sync_date(self, trade_date: date) -> SyncResult:
+        from app.datasync.service.tushare_ingest import call_pro, upsert_moneyflow
+
+        target = trade_date.strftime("%Y%m%d")
+        try:
+            df = call_pro("moneyflow", trade_date=target)
+            if df is None or df.empty:
+                return SyncResult(SyncStatus.SUCCESS, 0)
+            rows = upsert_moneyflow(df)
+            return SyncResult(SyncStatus.SUCCESS, rows)
+        except Exception as e:
+            logger.exception("moneyflow sync failed for %s: %s", trade_date, e)
+            return SyncResult(SyncStatus.ERROR, 0, str(e))
+
+
+class TushareSuspendDInterface(BaseIngestInterface):
+    @property
+    def info(self) -> InterfaceInfo:
+        return InterfaceInfo(
+            interface_key="suspend_d",
+            display_name="停复牌当日信息",
+            source_key="tushare",
+            target_database="tushare",
+            target_table="suspend_d",
+            sync_priority=23,
+            enabled_by_default=True,
+            description="停复牌当日状态数据",
+        )
+
+    def get_ddl(self) -> str:
+        return ddl.SUSPEND_D_DDL
+
+    def sync_date(self, trade_date: date) -> SyncResult:
+        from app.datasync.service.tushare_ingest import ingest_suspend_d
+
+        target = trade_date.strftime("%Y%m%d")
+        try:
+            rows = ingest_suspend_d(trade_date=target)
+            return SyncResult(SyncStatus.SUCCESS, rows or 0)
+        except Exception as e:
+            logger.exception("suspend_d sync failed for %s: %s", trade_date, e)
+            return SyncResult(SyncStatus.ERROR, 0, str(e))
+
+
+class TushareSuspendInterface(BaseIngestInterface):
+    @property
+    def info(self) -> InterfaceInfo:
+        return InterfaceInfo(
+            interface_key="suspend",
+            display_name="停复牌历史",
+            source_key="tushare",
+            target_database="tushare",
+            target_table="suspend",
+            sync_priority=24,
+            enabled_by_default=True,
+            description="停复牌历史数据",
+        )
+
+    def get_ddl(self) -> str:
+        return ddl.SUSPEND_DAILY_DDL
+
+    def sync_date(self, trade_date: date) -> SyncResult:
+        from app.datasync.service.tushare_ingest import ingest_suspend
+
+        target = trade_date.strftime("%Y%m%d")
+        try:
+            rows = ingest_suspend(suspend_date=target)
+            return SyncResult(SyncStatus.SUCCESS, rows or 0)
+        except Exception as e:
+            logger.exception("suspend sync failed for %s: %s", trade_date, e)
+            return SyncResult(SyncStatus.ERROR, 0, str(e))
+
+
 class TushareAdjFactorInterface(BaseIngestInterface):
     @property
     def info(self) -> InterfaceInfo:
@@ -184,8 +303,18 @@ class TushareTop10HoldersInterface(BaseIngestInterface):
                 except Exception:
                     pass
             if success > 0:
-                return SyncResult(SyncStatus.SUCCESS, success, f"Sampled {success}/{total}")
-            return SyncResult(SyncStatus.PARTIAL, 0, "No holder data fetched")
+                return SyncResult(
+                    SyncStatus.SUCCESS,
+                    success,
+                    f"Sampled {success}/{total}",
+                    details={"sample_symbols": ts_codes[: min(5, total)], "sampled_count": total},
+                )
+            return SyncResult(
+                SyncStatus.PARTIAL,
+                0,
+                "No holder data fetched",
+                details={"sample_symbols": ts_codes[: min(5, total)], "sampled_count": total},
+            )
         except Exception as e:
             logger.exception("top10_holders sync failed: %s", e)
             return SyncResult(SyncStatus.ERROR, 0, str(e))
@@ -213,7 +342,7 @@ class TushareStockWeeklyInterface(BaseIngestInterface):
 
         target = trade_date.strftime("%Y%m%d")
         try:
-            rows = ingest_weekly(start_date=target, end_date=target)
+            rows = ingest_weekly(trade_date=target)
             return SyncResult(SyncStatus.SUCCESS, rows or 0)
         except Exception as e:
             logger.exception("stock_weekly sync failed for %s: %s", trade_date, e)
@@ -242,7 +371,7 @@ class TushareStockMonthlyInterface(BaseIngestInterface):
 
         target = trade_date.strftime("%Y%m%d")
         try:
-            rows = ingest_monthly(start_date=target, end_date=target)
+            rows = ingest_monthly(trade_date=target)
             return SyncResult(SyncStatus.SUCCESS, rows or 0)
         except Exception as e:
             logger.exception("stock_monthly sync failed for %s: %s", trade_date, e)
@@ -281,10 +410,20 @@ class TushareIndexDailyInterface(BaseIngestInterface):
                 failures.append(code)
 
         if failures and total_rows == 0:
-            return SyncResult(SyncStatus.ERROR, 0, f"Failed: {','.join(failures)}")
+            return SyncResult(
+                SyncStatus.ERROR,
+                0,
+                f"Failed: {','.join(failures)}",
+                details={"symbols": list(INDEX_CODES), "failed_symbols": failures},
+            )
         if failures:
-            return SyncResult(SyncStatus.PARTIAL, total_rows, f"Failed: {','.join(failures)}")
-        return SyncResult(SyncStatus.SUCCESS, total_rows)
+            return SyncResult(
+                SyncStatus.PARTIAL,
+                total_rows,
+                f"Failed: {','.join(failures)}",
+                details={"symbols": list(INDEX_CODES), "failed_symbols": failures},
+            )
+        return SyncResult(SyncStatus.SUCCESS, total_rows, details={"symbols": list(INDEX_CODES)})
 
 
 class TushareIndexWeeklyInterface(BaseIngestInterface):
@@ -319,7 +458,17 @@ class TushareIndexWeeklyInterface(BaseIngestInterface):
                 failures.append(code)
 
         if failures and total_rows == 0:
-            return SyncResult(SyncStatus.ERROR, 0, f"Failed: {','.join(failures)}")
+            return SyncResult(
+                SyncStatus.ERROR,
+                0,
+                f"Failed: {','.join(failures)}",
+                details={"symbols": list(INDEX_CODES), "failed_symbols": failures},
+            )
         if failures:
-            return SyncResult(SyncStatus.PARTIAL, total_rows, f"Failed: {','.join(failures)}")
-        return SyncResult(SyncStatus.SUCCESS, total_rows)
+            return SyncResult(
+                SyncStatus.PARTIAL,
+                total_rows,
+                f"Failed: {','.join(failures)}",
+                details={"symbols": list(INDEX_CODES), "failed_symbols": failures},
+            )
+        return SyncResult(SyncStatus.SUCCESS, total_rows, details={"symbols": list(INDEX_CODES)})

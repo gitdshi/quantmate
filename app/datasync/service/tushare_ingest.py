@@ -22,6 +22,22 @@ except ModuleNotFoundError:  # pragma: no cover - exercised in lightweight test 
 
 logging.basicConfig(level=logging.INFO)
 
+BAK_DAILY_MIN_SLEEP_SECONDS = 12.5
+API_MIN_INTERVAL_SECONDS = {
+    "fina_indicator": 0.15,
+    "income": 0.15,
+    "balancesheet": 0.15,
+    "cashflow": 0.15,
+}
+
+
+class TushareQuotaExceededError(RuntimeError):
+    def __init__(self, api_name: str, message: str, scope: str | None = None, retry_after: float | None = None):
+        super().__init__(message)
+        self.api_name = api_name
+        self.scope = scope
+        self.retry_after = retry_after
+
 # DB engine is provided by DAO helpers backed by infrastructure connections.
 TS_TOKEN = os.getenv("TUSHARE_TOKEN", "")
 
@@ -32,6 +48,15 @@ from app.domains.extdata.dao.tushare_dao import (
     audit_start,
     audit_finish,
     upsert_daily,
+    upsert_stock_company,
+    upsert_new_share,
+    upsert_bak_daily,
+    upsert_fina_indicator,
+    upsert_income,
+    upsert_balancesheet,
+    upsert_cashflow,
+    upsert_suspend_d,
+    upsert_suspend,
     upsert_financial_statement,
     upsert_daily_basic,
     upsert_adj_factor,
@@ -63,7 +88,7 @@ def _min_interval_for(api_name: str) -> float:
     Tushare throttling is now reactive: sleep duration is derived from API rate-limit
     responses instead of a locally enforced global/per-endpoint interval.
     """
-    return 0.0
+    return API_MIN_INTERVAL_SECONDS.get(api_name, 0.0)
 
 
 def parse_retry_after(error_msg: str):
@@ -87,6 +112,41 @@ def parse_retry_after(error_msg: str):
                 return float(match.group(1)) * factor
             except Exception:
                 return None
+
+    quota_patterns = [
+        (r"每分钟最多访问该接口(\d+(?:\.\d+)?)次", 60.0),
+        (r"每小时最多访问该接口(\d+(?:\.\d+)?)次", 3600.0),
+        (r"每天最多访问该接口(\d+(?:\.\d+)?)次", 86400.0),
+        (r"at\s+most\s+(\d+(?:\.\d+)?)\s*(?:times|requests?)\s+per\s+minute", 60.0),
+        (r"at\s+most\s+(\d+(?:\.\d+)?)\s*(?:times|requests?)\s+per\s+hour", 3600.0),
+        (r"at\s+most\s+(\d+(?:\.\d+)?)\s*(?:times|requests?)\s+per\s+day", 86400.0),
+    ]
+    for pattern, window_seconds in quota_patterns:
+        match = re.search(pattern, text_msg)
+        if not match:
+            continue
+        try:
+            quota = float(match.group(1))
+        except Exception:
+            return None
+        if quota > 0:
+            return window_seconds / quota
+    return None
+
+
+def parse_rate_limit_scope(error_msg: str):
+    if not error_msg:
+        return None
+
+    text_msg = str(error_msg).lower()
+    patterns = [
+        (r"每天最多访问|per\s+day", "day"),
+        (r"每小时最多访问|per\s+hour", "hour"),
+        (r"每分钟最多访问|per\s+minute", "minute"),
+    ]
+    for pattern, scope in patterns:
+        if re.search(pattern, text_msg):
+            return scope
     return None
 
 
@@ -95,12 +155,562 @@ def _is_rate_limit_error(error_msg: str) -> bool:
     tokens = [
         "rate limit",
         "too many requests",
+        "每天最多访问",
+        "每小时最多访问",
         "每分钟最多访问",
         "接口访问太频繁",
         "后重试",
         "频率",
     ]
     return any(token in msg for token in tokens)
+
+
+def _normalize_date_bounds(start_date: str, end_date: str):
+    s_norm = pd.to_datetime(start_date).date().isoformat()
+    e_norm = pd.to_datetime(end_date).date().isoformat()
+    if s_norm > e_norm:
+        raise ValueError(f"start_date {s_norm} must be <= end_date {e_norm}")
+    return s_norm, e_norm
+
+
+def _iter_iso_dates(start_date: str, end_date: str, freq: str = "D"):
+    s_norm, e_norm = _normalize_date_bounds(start_date, end_date)
+    return [ts.date().isoformat() for ts in pd.date_range(start=s_norm, end=e_norm, freq=freq)]
+
+
+def _safe_float(value):
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except Exception:
+        pass
+    try:
+        return float(value)
+    except Exception:
+        return None
+
+
+def _filter_new_rows(df: pd.DataFrame, key_date_col: str, existing: set[tuple[str, str]]) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame()
+    if key_date_col not in df.columns:
+        raise KeyError(f"Column '{key_date_col}' missing from dataframe")
+
+    normalized = df.copy()
+    normalized[key_date_col] = pd.to_datetime(normalized[key_date_col], errors="coerce").dt.date
+    rows = []
+    for record in normalized.to_dict(orient="records"):
+        key_date = record.get(key_date_col)
+        if key_date is None:
+            continue
+        key = (record.get("ts_code"), key_date.isoformat())
+        if key in existing:
+            continue
+        rows.append(record)
+    return pd.DataFrame(rows)
+
+
+def _ingest_marketwide_on_dates(
+    api_name: str,
+    table_name: str,
+    key_date_col: str,
+    upsert_fn,
+    dates,
+    query_date_param: str = "trade_date",
+    sleep_between: float = 0.5,
+    progress_cb=None,
+    start_after_date: str = None,
+):
+    ordered_dates = sorted({iso_date for iso_date in dates if iso_date})
+    if not ordered_dates:
+        logging.info("No dates to ingest for %s", api_name)
+        return 0
+
+    existing = _fetch_existing_keys(table_name, key_date_col, ordered_dates[0], ordered_dates[-1])
+    total_rows = 0
+    logging.info(
+        "Starting marketwide %s ingest for %d dates (%s -> %s)",
+        api_name,
+        len(ordered_dates),
+        ordered_dates[0],
+        ordered_dates[-1],
+    )
+
+    for iso_date in ordered_dates:
+        if start_after_date and iso_date < start_after_date:
+            continue
+        if progress_cb:
+            progress_cb(ts_code=None, cursor_date=iso_date)
+        try:
+            df = call_pro(api_name, **{query_date_param: iso_date.replace("-", "")})
+        except TushareQuotaExceededError as exc:
+            logging.warning(
+                "Pausing marketwide %s ingest at %s=%s after %d rows: %s",
+                api_name,
+                query_date_param,
+                iso_date,
+                total_rows,
+                exc,
+            )
+            raise
+        if df is None or df.empty:
+            time.sleep(sleep_between)
+            continue
+
+        df_new = _filter_new_rows(df, key_date_col, existing)
+        if df_new.empty:
+            time.sleep(sleep_between)
+            continue
+
+        rows = upsert_fn(df_new)
+        total_rows += rows
+        for ts_code, key_date in df_new[["ts_code", key_date_col]].itertuples(index=False):
+            if ts_code and key_date:
+                existing.add((ts_code, key_date.isoformat()))
+        logging.info("Inserted %d %s rows for %s=%s", rows, api_name, query_date_param, iso_date)
+        time.sleep(sleep_between)
+
+    logging.info("Marketwide %s ingest completed (%d rows)", api_name, total_rows)
+    return total_rows
+
+
+def ingest_daily_by_trade_date_range(
+    start_date: str,
+    end_date: str,
+    sleep_between: float = 0.5,
+    progress_cb=None,
+    start_after_date: str = None,
+):
+    dates = _iter_iso_dates(start_date, end_date, freq="B")
+    return _ingest_marketwide_on_dates(
+        "daily",
+        "stock_daily",
+        "trade_date",
+        upsert_daily,
+        dates,
+        sleep_between=sleep_between,
+        progress_cb=progress_cb,
+        start_after_date=start_after_date,
+    )
+
+
+def ingest_bak_daily_by_trade_dates(
+    trade_dates,
+    sleep_between: float = 0.5,
+    progress_cb=None,
+    start_after_date: str = None,
+):
+    return _ingest_marketwide_on_dates(
+        "bak_daily",
+        "bak_daily",
+        "trade_date",
+        upsert_bak_daily,
+        trade_dates,
+        sleep_between=max(sleep_between, BAK_DAILY_MIN_SLEEP_SECONDS),
+        progress_cb=progress_cb,
+        start_after_date=start_after_date,
+    )
+
+
+def _ingest_per_symbol_on_date_range(
+    api_name: str,
+    table_name: str,
+    key_date_col: str,
+    upsert_fn,
+    start_date: str,
+    end_date: str,
+    batch_size: int = None,
+    sleep_between: float = 0.5,
+    progress_cb=None,
+    start_after_ts_code: str = None,
+):
+    batch_size = batch_size or int(os.getenv("BATCH_SIZE", "100"))
+    sleep_between = max(sleep_between, _min_interval_for(api_name))
+    s_norm, e_norm = _normalize_date_bounds(start_date, end_date)
+    existing = _fetch_existing_keys(table_name, key_date_col, s_norm, e_norm)
+    ts_codes = get_all_ts_codes()
+    total_rows = 0
+    total = len(ts_codes)
+    logging.info(
+        "Starting %s date-range ingest for %s - %s (symbols=%d)",
+        api_name,
+        s_norm,
+        e_norm,
+        total,
+    )
+
+    skip_until_found = bool(start_after_ts_code)
+    for index in range(0, total, batch_size):
+        chunk = ts_codes[index : index + batch_size]
+        for ts_code in chunk:
+            if skip_until_found:
+                if ts_code == start_after_ts_code:
+                    skip_until_found = False
+                else:
+                    continue
+            try:
+                if progress_cb:
+                    progress_cb(ts_code=ts_code, cursor_date=e_norm)
+                df = call_pro(
+                    api_name,
+                    ts_code=ts_code,
+                    start_date=s_norm.replace("-", ""),
+                    end_date=e_norm.replace("-", ""),
+                )
+                if df is None or df.empty:
+                    continue
+
+                df_new = _filter_new_rows(df, key_date_col, existing)
+                if df_new.empty:
+                    continue
+
+                rows = upsert_fn(df_new)
+                total_rows += rows
+                for symbol, key_date in df_new[["ts_code", key_date_col]].itertuples(index=False):
+                    if symbol and key_date:
+                        existing.add((symbol, key_date.isoformat()))
+                logging.info("Inserted %d %s rows for symbol %s", rows, api_name, ts_code)
+            except TushareQuotaExceededError as exc:
+                logging.warning(
+                    "Pausing %s date-range ingest at ts_code=%s after %d rows: %s",
+                    api_name,
+                    ts_code,
+                    total_rows,
+                    exc,
+                )
+                raise
+            except Exception as e:
+                logging.exception("Error fetching/%s for %s: %s", api_name, ts_code, e)
+            finally:
+                time.sleep(sleep_between)
+
+    logging.info("%s date-range ingest completed (%d rows)", api_name, total_rows)
+    return total_rows
+
+
+def ingest_stock_company(exchange=None):
+    params = {"exchange": exchange}
+    aid = audit_start("stock_company", params)
+    try:
+        df = call_pro("stock_company", exchange=exchange)
+        rows = upsert_stock_company(df)
+        audit_finish(aid, "success", rows)
+        logging.info("Ingested stock_company rows: %d", rows)
+        return rows
+    except TushareQuotaExceededError as exc:
+        audit_finish(aid, "error", 0)
+        logging.warning("stock_company ingest paused by quota: %s", exc)
+        raise
+    except Exception as e:
+        audit_finish(aid, "error", 0)
+        logging.exception("stock_company ingest failed: %s", e)
+        return 0
+
+
+def ingest_stock_company_snapshot(
+    exchanges=None,
+    sleep_between: float = 0.5,
+    progress_cb=None,
+    start_after_exchange: str = None,
+):
+    exchanges = exchanges or ["SSE", "SZSE"]
+    total_rows = 0
+    skip_until_found = bool(start_after_exchange)
+    for exchange in exchanges:
+        if skip_until_found:
+            if exchange == start_after_exchange:
+                skip_until_found = False
+            else:
+                continue
+        if progress_cb:
+            progress_cb(ts_code=exchange, cursor_date=None)
+        total_rows += ingest_stock_company(exchange=exchange) or 0
+        time.sleep(sleep_between)
+    logging.info("stock_company snapshot ingest completed (%d rows)", total_rows)
+    return total_rows
+
+
+def ingest_new_share(start_date=None, end_date=None):
+    params = {"start_date": start_date, "end_date": end_date}
+    aid = audit_start("new_share", params)
+    try:
+        df = call_pro("new_share", start_date=start_date, end_date=end_date)
+        rows = upsert_new_share(df)
+        audit_finish(aid, "success", rows)
+        logging.info("Ingested new_share rows: %d", rows)
+        return rows
+    except TushareQuotaExceededError as exc:
+        audit_finish(aid, "error", 0)
+        logging.warning("new_share ingest paused by quota: %s", exc)
+        raise
+    except Exception as e:
+        audit_finish(aid, "error", 0)
+        logging.exception("new_share ingest failed: %s", e)
+        return 0
+
+
+def ingest_new_share_by_date_range(
+    start_date: str,
+    end_date: str,
+    progress_cb=None,
+):
+    s_norm, e_norm = _normalize_date_bounds(start_date, end_date)
+    existing = _fetch_existing_keys("new_share", "ipo_date", s_norm, e_norm)
+    if progress_cb:
+        progress_cb(ts_code=None, cursor_date=e_norm)
+    df = call_pro("new_share", start_date=s_norm.replace("-", ""), end_date=e_norm.replace("-", ""))
+    if df is None or df.empty:
+        logging.info("No new_share rows returned for %s - %s", s_norm, e_norm)
+        return 0
+    df_new = _filter_new_rows(df, "ipo_date", existing)
+    if df_new.empty:
+        logging.info("No new new_share rows to insert for %s - %s", s_norm, e_norm)
+        return 0
+    rows = upsert_new_share(df_new)
+    logging.info("Inserted %d new_share rows for %s - %s", rows, s_norm, e_norm)
+    return rows
+
+
+def ingest_adj_factor_by_trade_dates(
+    trade_dates,
+    sleep_between: float = 0.5,
+    progress_cb=None,
+    start_after_date: str = None,
+):
+    return _ingest_marketwide_on_dates(
+        "adj_factor",
+        "adj_factor",
+        "trade_date",
+        upsert_adj_factor,
+        trade_dates,
+        sleep_between=sleep_between,
+        progress_cb=progress_cb,
+        start_after_date=start_after_date,
+    )
+
+
+def ingest_moneyflow_by_trade_dates(
+    trade_dates,
+    sleep_between: float = 0.5,
+    progress_cb=None,
+    start_after_date: str = None,
+):
+    return _ingest_marketwide_on_dates(
+        "moneyflow",
+        "stock_moneyflow",
+        "trade_date",
+        upsert_moneyflow,
+        trade_dates,
+        sleep_between=sleep_between,
+        progress_cb=progress_cb,
+        start_after_date=start_after_date,
+    )
+
+
+def ingest_weekly_by_trade_dates(
+    trade_dates,
+    sleep_between: float = 0.5,
+    progress_cb=None,
+    start_after_date: str = None,
+):
+    return _ingest_marketwide_on_dates(
+        "weekly",
+        "stock_weekly",
+        "trade_date",
+        upsert_weekly,
+        trade_dates,
+        sleep_between=sleep_between,
+        progress_cb=progress_cb,
+        start_after_date=start_after_date,
+    )
+
+
+def ingest_monthly_by_trade_dates(
+    trade_dates,
+    sleep_between: float = 0.5,
+    progress_cb=None,
+    start_after_date: str = None,
+):
+    return _ingest_marketwide_on_dates(
+        "monthly",
+        "stock_monthly",
+        "trade_date",
+        upsert_monthly,
+        trade_dates,
+        sleep_between=sleep_between,
+        progress_cb=progress_cb,
+        start_after_date=start_after_date,
+    )
+
+
+def ingest_suspend_d_by_trade_dates(
+    trade_dates,
+    sleep_between: float = 0.5,
+    progress_cb=None,
+    start_after_date: str = None,
+):
+    return _ingest_marketwide_on_dates(
+        "suspend_d",
+        "suspend_d",
+        "trade_date",
+        upsert_suspend_d,
+        trade_dates,
+        sleep_between=sleep_between,
+        progress_cb=progress_cb,
+        start_after_date=start_after_date,
+    )
+
+
+def ingest_suspend_by_trade_dates(
+    trade_dates,
+    sleep_between: float = 0.5,
+    progress_cb=None,
+    start_after_date: str = None,
+):
+    return _ingest_marketwide_on_dates(
+        "suspend",
+        "suspend",
+        "suspend_date",
+        upsert_suspend,
+        trade_dates,
+        query_date_param="suspend_date",
+        sleep_between=sleep_between,
+        progress_cb=progress_cb,
+        start_after_date=start_after_date,
+    )
+
+
+def ingest_dividend_by_ann_date_range(
+    start_date: str,
+    end_date: str,
+    sleep_between: float = 0.5,
+    progress_cb=None,
+    start_after_date: str = None,
+):
+    s_norm, e_norm = _normalize_date_bounds(start_date, end_date)
+    existing = _fetch_existing_keys("stock_dividend", "ann_date", s_norm, e_norm)
+    total_rows = 0
+    logging.info("Starting marketwide dividend ingest for %s - %s", s_norm, e_norm)
+
+    for iso_date in _iter_iso_dates(s_norm, e_norm, freq="D"):
+        if start_after_date and iso_date < start_after_date:
+            continue
+        if progress_cb:
+            progress_cb(ts_code=None, cursor_date=iso_date)
+        df = call_pro("dividend", ann_date=iso_date.replace("-", ""))
+        if df is None or df.empty:
+            time.sleep(sleep_between)
+            continue
+
+        normalized = df.copy()
+        normalized["ann_date"] = pd.to_datetime(normalized.get("ann_date"), errors="coerce")
+        normalized["imp_ann_date"] = pd.to_datetime(normalized.get("imp_ann_date"), errors="coerce")
+        normalized["ann_date"] = normalized["ann_date"].fillna(normalized["imp_ann_date"])
+
+        rows_to_insert = []
+        for record in normalized.to_dict(orient="records"):
+            ann_value = record.get("ann_date")
+            if ann_value is None or pd.isna(ann_value):
+                continue
+            ann_date = ann_value.date() if hasattr(ann_value, "date") else pd.to_datetime(ann_value).date()
+            key = (record.get("ts_code"), ann_date.isoformat())
+            if key in existing:
+                continue
+
+            stk_bo_rate = _safe_float(record.get("stk_bo_rate")) or 0.0
+            stk_co_rate = _safe_float(record.get("stk_co_rate")) or 0.0
+            bonus_ratio = _safe_float(record.get("bonus_ratio"))
+            if bonus_ratio is None:
+                bonus_ratio = stk_bo_rate + stk_co_rate
+
+            rows_to_insert.append(
+                {
+                    "ts_code": record.get("ts_code"),
+                    "ann_date": ann_date,
+                    "imp_ann_date": (
+                        pd.to_datetime(record.get("imp_ann_date")).date() if record.get("imp_ann_date") else None
+                    ),
+                    "record_date": (
+                        pd.to_datetime(record.get("record_date")).date() if record.get("record_date") else None
+                    ),
+                    "ex_date": (pd.to_datetime(record.get("ex_date")).date() if record.get("ex_date") else None),
+                    "pay_date": (
+                        pd.to_datetime(record.get("pay_date")).date() if record.get("pay_date") else None
+                    ),
+                    "div_cash": _safe_float(record.get("div_cash") or record.get("cash_div")),
+                    "div_stock": _safe_float(record.get("div_stock") or record.get("stk_div")),
+                    "bonus_ratio": bonus_ratio,
+                }
+            )
+
+        if not rows_to_insert:
+            time.sleep(sleep_between)
+            continue
+
+        df_rows = pd.DataFrame(rows_to_insert)
+        rows = upsert_dividend_df(df_rows)
+        total_rows += rows
+        for record in rows_to_insert:
+            if record["ann_date"]:
+                existing.add((record["ts_code"], record["ann_date"].isoformat()))
+        logging.info("Inserted %d dividend rows for ann_date=%s", rows, iso_date)
+        time.sleep(sleep_between)
+
+    logging.info("Marketwide dividend ingest completed (%d rows)", total_rows)
+    return total_rows
+
+
+def ingest_top10_holders_marketwide_by_date_range(
+    start_date: str,
+    end_date: str,
+    progress_cb=None,
+):
+    s_norm, e_norm = _normalize_date_bounds(start_date, end_date)
+    from app.domains.extdata.dao.tushare_dao import fetch_top10_holder_keys
+
+    if progress_cb:
+        progress_cb(ts_code=None, cursor_date=e_norm)
+
+    existing = fetch_top10_holder_keys(s_norm, e_norm)
+    df = call_pro("top10_holders", start_date=s_norm.replace("-", ""), end_date=e_norm.replace("-", ""))
+    if df is None or df.empty:
+        logging.info("No top10_holders rows returned for %s - %s", s_norm, e_norm)
+        return 0
+
+    rows_to_insert = []
+    for record in df.to_dict(orient="records"):
+        end_date_value = record.get("end_date")
+        holder_name = record.get("holder_name")
+        if not end_date_value or not holder_name:
+            continue
+        end_dt = pd.to_datetime(end_date_value).date()
+        key = (record.get("ts_code"), end_dt.isoformat(), holder_name)
+        if key in existing:
+            continue
+        rows_to_insert.append(
+            {
+                "ts_code": record.get("ts_code"),
+                "ann_date": (pd.to_datetime(record.get("ann_date")).date() if record.get("ann_date") else None),
+                "end_date": end_dt,
+                "holder_name": holder_name,
+                "hold_amount": _safe_float(record.get("hold_amount")),
+                "hold_ratio": _safe_float(record.get("hold_ratio")),
+                "hold_float_ratio": _safe_float(record.get("hold_float_ratio")),
+                "hold_change": _safe_float(record.get("hold_change")),
+                "holder_type": record.get("holder_type"),
+            }
+        )
+
+    if not rows_to_insert:
+        logging.info("No new top10_holders rows to insert for %s - %s", s_norm, e_norm)
+        return 0
+
+    df_rows = pd.DataFrame(rows_to_insert)
+    rows = upsert_top10_holders(df_rows)
+    logging.info("Inserted %d top10_holders rows for %s - %s", rows, s_norm, e_norm)
+    return rows
 
 
 def call_pro(api_name: str, max_retries: int = None, backoff_base: int = 5, **kwargs):
@@ -146,13 +756,35 @@ def call_pro(api_name: str, max_retries: int = None, backoff_base: int = 5, **kw
                     call_pro._metrics_hook(api_name, False, duration, 0, error=str(e))
                 except Exception:
                     logging.exception("metrics hook failed for %s", api_name)
+            error_msg = str(e)
+            parsed_wait = parse_retry_after(error_msg)
+            rate_limit_scope = parse_rate_limit_scope(error_msg)
+            if _is_rate_limit_error(error_msg) and rate_limit_scope in {"hour", "day"}:
+                logging.warning(
+                    "Long-window rate limit hit for %s (%s); pausing instead of retrying: %s",
+                    api_name,
+                    rate_limit_scope,
+                    error_msg,
+                )
+                raise TushareQuotaExceededError(
+                    api_name,
+                    error_msg,
+                    scope=rate_limit_scope,
+                    retry_after=parsed_wait,
+                ) from e
             attempt += 1
             logging.exception("call_pro %s attempt %d failed: %s", api_name, attempt, e)
             if attempt >= max_retries:
                 logging.error("call_pro %s exhausted retries", api_name)
+                if _is_rate_limit_error(error_msg) and rate_limit_scope == "minute":
+                    raise TushareQuotaExceededError(
+                        api_name,
+                        error_msg,
+                        scope=rate_limit_scope,
+                        retry_after=parsed_wait,
+                    ) from e
                 raise
-            parsed_wait = parse_retry_after(str(e))
-            if _is_rate_limit_error(str(e)) and parsed_wait is not None:
+            if _is_rate_limit_error(error_msg) and parsed_wait is not None:
                 jitter = random.uniform(0.2, 1.0)
                 to_sleep = parsed_wait + jitter
                 logging.info(
@@ -207,15 +839,15 @@ def ingest_index_daily(ts_code=None, start_date=None, end_date=None):
                 return 0
 
 
-def ingest_weekly(ts_code=None, start_date=None, end_date=None):
+def ingest_weekly(ts_code=None, trade_date=None, start_date=None, end_date=None):
     """Ingest weekly K-line data from Tushare (pro.weekly)."""
-    params = {"ts_code": ts_code, "start_date": start_date, "end_date": end_date}
+    params = {"ts_code": ts_code, "trade_date": trade_date, "start_date": start_date, "end_date": end_date}
     aid = audit_start("weekly", params)
     max_retries = int(os.getenv("MAX_RETRIES", "3"))
     attempt = 0
     while attempt < max_retries:
         try:
-            df = call_pro("weekly", ts_code=ts_code, start_date=start_date, end_date=end_date)
+            df = call_pro("weekly", ts_code=ts_code, trade_date=trade_date, start_date=start_date, end_date=end_date)
             rows = upsert_weekly(df)
             audit_finish(aid, "success", rows)
             logging.info("Ingested weekly rows: %d", rows)
@@ -230,15 +862,15 @@ def ingest_weekly(ts_code=None, start_date=None, end_date=None):
                 return 0
 
 
-def ingest_monthly(ts_code=None, start_date=None, end_date=None):
+def ingest_monthly(ts_code=None, trade_date=None, start_date=None, end_date=None):
     """Ingest monthly K-line data from Tushare (pro.monthly)."""
-    params = {"ts_code": ts_code, "start_date": start_date, "end_date": end_date}
+    params = {"ts_code": ts_code, "trade_date": trade_date, "start_date": start_date, "end_date": end_date}
     aid = audit_start("monthly", params)
     max_retries = int(os.getenv("MAX_RETRIES", "3"))
     attempt = 0
     while attempt < max_retries:
         try:
-            df = call_pro("monthly", ts_code=ts_code, start_date=start_date, end_date=end_date)
+            df = call_pro("monthly", ts_code=ts_code, trade_date=trade_date, start_date=start_date, end_date=end_date)
             rows = upsert_monthly(df)
             audit_finish(aid, "success", rows)
             logging.info("Ingested monthly rows: %d", rows)
@@ -316,6 +948,56 @@ def ingest_daily_basic(ts_code=None, trade_date=None, start_date=None, end_date=
         logging.exception("daily_basic ingest failed: %s", e)
 
 
+def ingest_bak_daily(trade_date=None):
+    params = {"trade_date": trade_date}
+    aid = audit_start("bak_daily", params)
+    try:
+        df = call_pro("bak_daily", trade_date=trade_date)
+        rows = upsert_bak_daily(df)
+        audit_finish(aid, "success", rows)
+        logging.info("Ingested bak_daily rows: %d", rows)
+        return rows
+    except Exception as e:
+        audit_finish(aid, "error", 0)
+        logging.exception("bak_daily ingest failed: %s", e)
+        raise
+
+
+def ingest_suspend_d(trade_date=None):
+    params = {"trade_date": trade_date}
+    aid = audit_start("suspend_d", params)
+    try:
+        df = call_pro("suspend_d", trade_date=trade_date)
+        rows = upsert_suspend_d(df)
+        audit_finish(aid, "success", rows)
+        logging.info("Ingested suspend_d rows: %d", rows)
+        return rows
+    except Exception as e:
+        audit_finish(aid, "error", 0)
+        logging.exception("suspend_d ingest failed: %s", e)
+        raise
+
+
+def ingest_suspend(suspend_date=None):
+    params = {"suspend_date": suspend_date}
+    aid = audit_start("suspend", params)
+    try:
+        df = call_pro("suspend", suspend_date=suspend_date)
+        if df is not None and not df.empty:
+            normalized = df.copy()
+            if "resume_date" in normalized.columns:
+                normalized["resume_date"] = normalized["resume_date"].replace({"19000101": None, "1900-01-01": None})
+            df = normalized.drop_duplicates(subset=["ts_code", "suspend_date"], keep="first")
+        rows = upsert_suspend(df)
+        audit_finish(aid, "success", rows)
+        logging.info("Ingested suspend rows: %d", rows)
+        return rows
+    except Exception as e:
+        audit_finish(aid, "error", 0)
+        logging.exception("suspend ingest failed: %s", e)
+        raise
+
+
 def ingest_adj_factor(ts_code=None, trade_date=None, start_date=None, end_date=None):
     params = {"ts_code": ts_code, "trade_date": trade_date, "start_date": start_date, "end_date": end_date}
     aid = audit_start("adj_factor", params)
@@ -334,25 +1016,177 @@ def ingest_income(ts_code, start_date=None, end_date=None):
     aid = audit_start("income", params)
     try:
         df = call_pro("income", ts_code=ts_code, start_date=start_date, end_date=end_date)
-        rows = store_financial_statement(df, "income")
+        rows = upsert_income(df)
         audit_finish(aid, "success", rows)
         logging.info("Stored income rows: %d", rows)
+        return rows
+    except TushareQuotaExceededError as exc:
+        audit_finish(aid, "error", 0)
+        logging.warning("income ingest paused by quota: %s", exc)
+        raise
     except Exception as e:
         audit_finish(aid, "error", 0)
         logging.exception("income ingest failed: %s", e)
 
 
-def ingest_moneyflow(ts_code=None, start_date=None, end_date=None):
+def ingest_fina_indicator(ts_code=None, start_date=None, end_date=None):
     params = {"ts_code": ts_code, "start_date": start_date, "end_date": end_date}
+    aid = audit_start("fina_indicator", params)
+    try:
+        df = call_pro("fina_indicator", ts_code=ts_code, start_date=start_date, end_date=end_date)
+        rows = upsert_fina_indicator(df)
+        audit_finish(aid, "success", rows)
+        logging.info("Ingested fina_indicator rows: %d", rows)
+        return rows
+    except TushareQuotaExceededError as exc:
+        audit_finish(aid, "error", 0)
+        logging.warning("fina_indicator ingest paused by quota: %s", exc)
+        raise
+    except Exception as e:
+        audit_finish(aid, "error", 0)
+        logging.exception("fina_indicator ingest failed: %s", e)
+        return 0
+
+
+def ingest_balancesheet(ts_code=None, start_date=None, end_date=None):
+    params = {"ts_code": ts_code, "start_date": start_date, "end_date": end_date}
+    aid = audit_start("balancesheet", params)
+    try:
+        df = call_pro("balancesheet", ts_code=ts_code, start_date=start_date, end_date=end_date)
+        rows = upsert_balancesheet(df)
+        audit_finish(aid, "success", rows)
+        logging.info("Ingested balancesheet rows: %d", rows)
+        return rows
+    except TushareQuotaExceededError as exc:
+        audit_finish(aid, "error", 0)
+        logging.warning("balancesheet ingest paused by quota: %s", exc)
+        raise
+    except Exception as e:
+        audit_finish(aid, "error", 0)
+        logging.exception("balancesheet ingest failed: %s", e)
+        return 0
+
+
+def ingest_cashflow(ts_code=None, start_date=None, end_date=None):
+    params = {"ts_code": ts_code, "start_date": start_date, "end_date": end_date}
+    aid = audit_start("cashflow", params)
+    try:
+        df = call_pro("cashflow", ts_code=ts_code, start_date=start_date, end_date=end_date)
+        rows = upsert_cashflow(df)
+        audit_finish(aid, "success", rows)
+        logging.info("Ingested cashflow rows: %d", rows)
+        return rows
+    except TushareQuotaExceededError as exc:
+        audit_finish(aid, "error", 0)
+        logging.warning("cashflow ingest paused by quota: %s", exc)
+        raise
+    except Exception as e:
+        audit_finish(aid, "error", 0)
+        logging.exception("cashflow ingest failed: %s", e)
+        return 0
+
+
+def ingest_fina_indicator_by_date_range(
+    start_date: str,
+    end_date: str,
+    batch_size: int = None,
+    sleep_between: float = 0.5,
+    progress_cb=None,
+    start_after_ts_code: str = None,
+):
+    return _ingest_per_symbol_on_date_range(
+        "fina_indicator",
+        "fina_indicator",
+        "end_date",
+        upsert_fina_indicator,
+        start_date,
+        end_date,
+        batch_size=batch_size,
+        sleep_between=sleep_between,
+        progress_cb=progress_cb,
+        start_after_ts_code=start_after_ts_code,
+    )
+
+
+def ingest_income_by_date_range(
+    start_date: str,
+    end_date: str,
+    batch_size: int = None,
+    sleep_between: float = 0.5,
+    progress_cb=None,
+    start_after_ts_code: str = None,
+):
+    return _ingest_per_symbol_on_date_range(
+        "income",
+        "income",
+        "end_date",
+        upsert_income,
+        start_date,
+        end_date,
+        batch_size=batch_size,
+        sleep_between=sleep_between,
+        progress_cb=progress_cb,
+        start_after_ts_code=start_after_ts_code,
+    )
+
+
+def ingest_balancesheet_by_date_range(
+    start_date: str,
+    end_date: str,
+    batch_size: int = None,
+    sleep_between: float = 0.5,
+    progress_cb=None,
+    start_after_ts_code: str = None,
+):
+    return _ingest_per_symbol_on_date_range(
+        "balancesheet",
+        "balancesheet",
+        "end_date",
+        upsert_balancesheet,
+        start_date,
+        end_date,
+        batch_size=batch_size,
+        sleep_between=sleep_between,
+        progress_cb=progress_cb,
+        start_after_ts_code=start_after_ts_code,
+    )
+
+
+def ingest_cashflow_by_date_range(
+    start_date: str,
+    end_date: str,
+    batch_size: int = None,
+    sleep_between: float = 0.5,
+    progress_cb=None,
+    start_after_ts_code: str = None,
+):
+    return _ingest_per_symbol_on_date_range(
+        "cashflow",
+        "cashflow",
+        "end_date",
+        upsert_cashflow,
+        start_date,
+        end_date,
+        batch_size=batch_size,
+        sleep_between=sleep_between,
+        progress_cb=progress_cb,
+        start_after_ts_code=start_after_ts_code,
+    )
+
+
+def ingest_moneyflow(ts_code=None, trade_date=None, start_date=None, end_date=None):
+    params = {"ts_code": ts_code, "trade_date": trade_date, "start_date": start_date, "end_date": end_date}
     aid = audit_start("moneyflow", params)
     try:
-        df = call_pro("moneyflow", ts_code=ts_code, start_date=start_date, end_date=end_date)
+        df = call_pro("moneyflow", ts_code=ts_code, trade_date=trade_date, start_date=start_date, end_date=end_date)
         rows = upsert_moneyflow(df)
         audit_finish(aid, "success", rows)
         logging.info("Ingested moneyflow rows: %d", rows)
+        return rows
     except Exception as e:
         audit_finish(aid, "error", 0)
         logging.exception("moneyflow ingest failed: %s", e)
+        return 0
 
 
 def ingest_dividend(ts_code=None):
@@ -496,12 +1330,13 @@ def ingest_all_other_data(batch_size: int = None, sleep_between: float = 0.5):
     logging.info("Other-data ingest completed")
 
 
-def ingest_stock_basic(exchange=None, list_status="L"):
+def ingest_stock_basic(exchange=None, list_status="L", max_retries: int = None):
     params = {"exchange": exchange, "list_status": list_status}
     aid = audit_start("stock_basic", params)
     try:
         df = call_pro(
             "stock_basic",
+            max_retries=max_retries,
             exchange=exchange,
             list_status=list_status,
             fields="ts_code,symbol,name,area,industry,fullname,enname,market,exchange,list_status,list_date,delist_date,is_hs",
@@ -574,7 +1409,8 @@ def ingest_dividend_by_date_range(
             if skip_until_found:
                 if ts_code == start_after_ts_code:
                     skip_until_found = False
-                continue
+                else:
+                    continue
             try:
                 if progress_cb:
                     progress_cb(ts_code=ts_code, cursor_date=e_norm)
@@ -670,7 +1506,8 @@ def ingest_top10_holders_by_date_range(
             if skip_until_found:
                 if ts_code == start_after_ts_code:
                     skip_until_found = False
-                continue
+                else:
+                    continue
             try:
                 if progress_cb:
                     progress_cb(ts_code=ts_code, cursor_date=e_norm)
@@ -741,7 +1578,8 @@ def ingest_adj_factor_by_date_range(
             if skip_until_found:
                 if ts_code == start_after_ts_code:
                     skip_until_found = False
-                continue
+                else:
+                    continue
             try:
                 if progress_cb:
                     progress_cb(ts_code=ts_code, cursor_date=e_norm)
@@ -824,7 +1662,8 @@ def ingest_all_daily(
             if skip_until_found:
                 if ts_code == start_after_ts_code:
                     skip_until_found = False
-                continue
+                else:
+                    continue
             if progress_cb:
                 progress_cb(ts_code=ts_code)
             # determine resume point

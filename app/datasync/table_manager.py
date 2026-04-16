@@ -23,6 +23,15 @@ def _get_engine(database: str):
     return factory()
 
 
+def _mark_table_created(database: str, table: str) -> None:
+    qm_engine = get_quantmate_engine()
+    with qm_engine.begin() as conn:
+        conn.execute(
+            text("UPDATE data_source_items SET table_created = 1 WHERE target_database = :db AND target_table = :tbl"),
+            {"db": database, "tbl": table},
+        )
+
+
 def ensure_table(database: str, table: str, ddl: str) -> bool:
     """Execute DDL if table does not yet exist. Returns True if created."""
     engine = _get_engine(database)
@@ -35,6 +44,7 @@ def ensure_table(database: str, table: str, ddl: str) -> bool:
         exists = result.scalar() > 0
 
     if exists:
+        _mark_table_created(database, table)
         logger.debug("Table %s.%s already exists", database, table)
         return False
 
@@ -47,13 +57,7 @@ def ensure_table(database: str, table: str, ddl: str) -> bool:
             if stmt:
                 conn.execute(text(stmt))
 
-    # Mark table_created in data_source_items
-    qm_engine = get_quantmate_engine()
-    with qm_engine.begin() as conn:
-        conn.execute(
-            text("UPDATE data_source_items SET table_created = 1 WHERE target_database = :db AND target_table = :tbl"),
-            {"db": database, "tbl": table},
-        )
+    _mark_table_created(database, table)
 
     logger.info("Table %s.%s created successfully", database, table)
     return True

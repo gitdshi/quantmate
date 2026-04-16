@@ -79,6 +79,7 @@ class TestRDAgentServiceStartMining:
         assert "run_id" in result
         assert result["status"] == "queued"
         assert len(result["run_id"]) == 36  # UUID format
+        mock_conn_ctx.assert_called_once_with("qlib")
         mock_conn.execute.assert_called_once()
 
 
@@ -111,6 +112,7 @@ class TestRDAgentServiceGetRun:
         assert run is not None
         assert run["run_id"] == "abc-123"
         assert run["status"] == "running"
+        mock_conn_ctx.assert_called_once_with("qlib")
 
     @patch("app.domains.factors.rdagent_service.connection")
     def test_get_run_not_found(self, mock_conn_ctx):
@@ -147,6 +149,7 @@ class TestRDAgentServiceListRuns:
         runs = svc.list_runs(user_id=1, limit=10, offset=0)
         assert len(runs) == 1
         assert runs[0]["run_id"] == "r1"
+        mock_conn_ctx.assert_called_once_with("qlib")
 
 
 class TestRDAgentServiceCancelRun:
@@ -202,6 +205,7 @@ class TestRDAgentServiceGetIterations:
         iters = svc.get_iterations(user_id=1, run_id="r1")
         assert len(iters) == 1
         assert iters[0]["iteration_number"] == 1
+        mock_conn_ctx.assert_called_once_with("qlib")
 
     @patch("app.domains.factors.rdagent_service.RDAgentService.get_run")
     def test_get_iterations_run_not_found(self, mock_get):
@@ -236,6 +240,7 @@ class TestRDAgentServiceDiscoveredFactors:
         factors = svc.get_discovered_factors(user_id=1, run_id="r1")
         assert len(factors) == 1
         assert factors[0]["factor_name"] == "Alpha1"
+        mock_conn_ctx.assert_called_once_with("qlib")
 
     @patch("app.domains.factors.rdagent_service.RDAgentService.get_run")
     def test_get_discovered_factors_run_not_found(self, mock_get):
@@ -279,6 +284,7 @@ class TestRDAgentServiceImportFactor:
         svc = RDAgentService()
         result = svc.import_factor(user_id=1, run_id="r1", factor_id=42)
         assert result["id"] == 100
+        assert mock_conn_ctx.call_args_list == [call("qlib"), call("qlib")]
 
     @patch("app.domains.factors.rdagent_service.RDAgentService.get_run")
     def test_import_factor_run_not_found(self, mock_get):
@@ -315,6 +321,7 @@ class TestDBHelpers:
         mock_conn_ctx.return_value.__exit__ = MagicMock(return_value=False)
 
         _update_run_status("run-1", "running")
+        mock_conn_ctx.assert_called_once_with("qlib")
         mock_conn.execute.assert_called_once()
 
     @patch("app.domains.factors.rdagent_service.connection")
@@ -324,6 +331,7 @@ class TestDBHelpers:
         mock_conn_ctx.return_value.__exit__ = MagicMock(return_value=False)
 
         _update_run_status("run-1", "failed", "Something went wrong")
+        mock_conn_ctx.assert_called_once_with("qlib")
         mock_conn.execute.assert_called_once()
 
     @patch("app.domains.factors.rdagent_service.connection")
@@ -343,6 +351,7 @@ class TestDBHelpers:
             status="completed",
         )
         assert result == 42
+        mock_conn_ctx.assert_called_once_with("qlib")
         mock_conn.execute.assert_called_once()
 
     @patch("app.domains.factors.rdagent_service.connection")
@@ -364,6 +373,7 @@ class TestDBHelpers:
             sharpe=1.2,
         )
         assert result == 7
+        mock_conn_ctx.assert_called_once_with("qlib")
 
 
 class TestSerializeJson:
