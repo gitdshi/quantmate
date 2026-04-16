@@ -167,6 +167,18 @@ jobs:
 
       # Pull new image and rolling-restart backend services only.
       # The portal image is published by the portal repo and may not share this commit SHA.
+      - name: Grant qlib DB access to quantmate user
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            # Ensure qlib database exists and quantmate user has access (idempotent)
+            sudo mysql -e "CREATE DATABASE IF NOT EXISTS \`qlib\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; GRANT ALL PRIVILEGES ON \`qlib\`.* TO 'quantmate'@'%'; FLUSH PRIVILEGES;" 2>/dev/null \
+              && echo "qlib grant applied" \
+              || echo "qlib grant skipped (manual step may be required)"
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         env:

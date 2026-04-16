@@ -127,3 +127,7 @@ CREATE TABLE IF NOT EXISTS data_conversion_log (
     INDEX idx_source (source_db, source_table),
     INDEX idx_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Tracks tushare/akshare to Qlib data conversions';
+
+-- Grant application user full access to qlib database
+GRANT ALL PRIVILEGES ON qlib.* TO 'quantmate'@'%';
+FLUSH PRIVILEGES;
