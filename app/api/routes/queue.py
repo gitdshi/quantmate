@@ -139,15 +139,15 @@ async def submit_backtest_to_queue(request: Dict[str, Any], current_user: TokenD
         symbol=symbol,
         start_date=start_date,
         end_date=end_date,
-        initial_capital=request.get("initial_capital", 100000.0),
-        rate=request.get("rate", 0.0001),
-        slippage=request.get("slippage", 0.0),
-        size=request.get("size", 1),
-        pricetick=request.get("pricetick", 0.01),
+        initial_capital=request.get("initial_capital"),
+        rate=request.get("rate"),
+        slippage=request.get("slippage"),
+        size=request.get("size"),
+        pricetick=request.get("pricetick"),
         parameters=request.get("parameters"),
         symbol_name=request.get("symbol_name", ""),
         strategy_name=request.get("strategy_name", ""),
-        benchmark=request.get("benchmark", "399300.SZ"),
+        benchmark=request.get("benchmark"),
     )
 
     # Audit: log backtest submission from version if version_id provided
@@ -188,14 +188,14 @@ async def submit_bulk_backtest(request: Dict[str, Any], current_user: TokenData 
         symbols=symbols,
         start_date=start_date,
         end_date=end_date,
-        initial_capital=request.get("initial_capital", 100000.0),
-        rate=request.get("rate", 0.0001),
-        slippage=request.get("slippage", 0.0),
-        size=request.get("size", 1),
-        pricetick=request.get("pricetick", 0.01),
+        initial_capital=request.get("initial_capital"),
+        rate=request.get("rate"),
+        slippage=request.get("slippage"),
+        size=request.get("size"),
+        pricetick=request.get("pricetick"),
         parameters=request.get("parameters"),
         strategy_name=request.get("strategy_name", ""),
-        benchmark=request.get("benchmark", "399300.SZ"),
+        benchmark=request.get("benchmark"),
     )
 
     return {"job_id": job_id, "status": "queued", "message": "Bulk backtest submitted"}

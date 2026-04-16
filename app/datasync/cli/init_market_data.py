@@ -46,6 +46,7 @@ from app.datasync.service.tushare_ingest import (
 )
 from app.datasync.service.akshare_ingest import ingest_all_indexes
 from app.datasync.service.vnpy_ingest import sync_all_to_vnpy
+from app.infrastructure.config import get_runtime_int
 from app.infrastructure.db.connections import get_mysql_server_engine, get_quantmate_engine
 
 # Metrics integration for backfill lock status
@@ -368,7 +369,11 @@ def main() -> int:
     parser.add_argument('--skip-aux', action='store_true', help='Skip adj/dividend/top10 backfill')
     parser.add_argument('--skip-vnpy', action='store_true', help='Skip vnpy full sync')
     parser.add_argument('--stock-statuses', default='L', help='Comma-separated stock_basic list_status values (e.g. L or L,D,P)')
-    parser.add_argument('--batch-size', type=int, default=int(os.getenv('BATCH_SIZE', '100')))
+    parser.add_argument(
+        '--batch-size',
+        type=int,
+        default=get_runtime_int(env_keys='BATCH_SIZE', db_key='datasync.batch_size', default=100),
+    )
     parser.add_argument('--sleep-between', type=float, default=0.02)
     parser.add_argument('--daily-start-date', default=None, help='Limit stock_daily ingest to start at this date (YYYY-MM-DD)')
     parser.add_argument('--daily-lookback-days', type=int, default=None, help='Limit stock_daily ingest to last N days')
@@ -553,9 +558,9 @@ def main() -> int:
             require_tushare_rows('stock_monthly', 'monthly')
 
         if should_run_phase(progress, 'indexes', args.resume):
-            logger.info('Rebuilding AkShare index history')
+            logger.info('Rebuilding AkShare index history from %s to %s', daily_range_start, end_date)
             save_progress('indexes', 'running')
-            ingest_all_indexes()
+            ingest_all_indexes(start_date=daily_range_start)
             save_progress('indexes', 'completed')
 
         if not args.skip_aux:

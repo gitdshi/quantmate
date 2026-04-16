@@ -102,3 +102,75 @@ def test_no_hardcoded_defaults():
         assert field is not None, f"{field_name} not found in model_fields"
         default = field.default
         assert default is PydanticUndefined, f"{field_name} has a default value: {default}"
+
+
+def test_worker_default_queue_names_accepts_csv():
+    """Test that queue names can be provided as a comma-separated env var."""
+    test_env = {
+        'SECRET_KEY': 'csv-secret-key-1234567890',
+        'MYSQL_PASSWORD': 'csv-mysql-password',
+        'WORKER_DEFAULT_QUEUE_NAMES': 'backtest, optimization, default , low',
+    }
+    original_env = {}
+    for key, value in test_env.items():
+        original_env[key] = os.environ.get(key)
+        os.environ[key] = value
+
+    try:
+        settings = Settings(_env_file=None)
+
+        assert settings.worker_default_queue_names == ['backtest', 'optimization', 'default', 'low']
+    finally:
+        for key in test_env:
+            if original_env[key] is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = original_env[key]
+
+
+def test_worker_default_queue_names_accepts_json():
+    """Test that queue names still accept JSON list input."""
+    test_env = {
+        'SECRET_KEY': 'json-secret-key-1234567890',
+        'MYSQL_PASSWORD': 'json-mysql-password',
+        'WORKER_DEFAULT_QUEUE_NAMES': '["backtest", "optimization", "default", "low"]',
+    }
+    original_env = {}
+    for key, value in test_env.items():
+        original_env[key] = os.environ.get(key)
+        os.environ[key] = value
+
+    try:
+        settings = Settings(_env_file=None)
+
+        assert settings.worker_default_queue_names == ['backtest', 'optimization', 'default', 'low']
+    finally:
+        for key in test_env:
+            if original_env[key] is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = original_env[key]
+
+
+def test_worker_default_queue_names_accepts_bracketed_csv():
+    """Test that queue names tolerate bracketed non-JSON values from legacy env files."""
+    test_env = {
+        'SECRET_KEY': 'legacy-secret-key-1234567890',
+        'MYSQL_PASSWORD': 'legacy-mysql-password',
+        'WORKER_DEFAULT_QUEUE_NAMES': '[backtest,optimization,default,low]',
+    }
+    original_env = {}
+    for key, value in test_env.items():
+        original_env[key] = os.environ.get(key)
+        os.environ[key] = value
+
+    try:
+        settings = Settings(_env_file=None)
+
+        assert settings.worker_default_queue_names == ['backtest', 'optimization', 'default', 'low']
+    finally:
+        for key in test_env:
+            if original_env[key] is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = original_env[key]

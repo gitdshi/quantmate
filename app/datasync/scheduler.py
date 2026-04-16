@@ -7,6 +7,7 @@ Usage:
     python -m app.datasync.scheduler --daemon       # Run as daemon
     python -m app.datasync.scheduler --daily         # Run daily sync once
     python -m app.datasync.scheduler --backfill      # Run backfill retry once
+    python -m app.datasync.scheduler --backfill-loop # Run dedicated backfill loop
     python -m app.datasync.scheduler --vnpy          # Run VNPy sync once
     python -m app.datasync.scheduler --init          # Run initialization
 """
@@ -31,15 +32,30 @@ if str(ROOT) not in sys.path:
 
 from dotenv import load_dotenv
 
+from app.infrastructure.config import get_runtime_bool, get_runtime_int, get_runtime_str
+
 load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-SYNC_HOUR = int(os.getenv("SYNC_HOUR", "2"))
-SYNC_MINUTE = int(os.getenv("SYNC_MINUTE", "0"))
-BACKFILL_INTERVAL_HOURS = int(os.getenv("BACKFILL_INTERVAL_HOURS", "6"))
-TIMEZONE = "Asia/Shanghai"
+SYNC_HOUR = get_runtime_int(env_keys="SYNC_HOUR", db_key="datasync.sync_hour", default=2)
+SYNC_MINUTE = get_runtime_int(env_keys="SYNC_MINUTE", db_key="datasync.sync_minute", default=0)
+BACKFILL_IDLE_INTERVAL_HOURS = get_runtime_int(
+    env_keys="BACKFILL_IDLE_INTERVAL_HOURS",
+    db_key="datasync.backfill_idle_interval_hours",
+    default=4,
+)
+BACKFILL_LOCK_RETRY_SECONDS = get_runtime_int(
+    env_keys="BACKFILL_LOCK_RETRY_SECONDS",
+    db_key="datasync.backfill_lock_retry_seconds",
+    default=60,
+)
+TIMEZONE = get_runtime_str(env_keys="DATASYNC_TIMEZONE", db_key="datasync.timezone", default="Asia/Shanghai")
+
+
+def _env_flag(name: str) -> bool:
+    return get_runtime_bool(env_keys=name, default=False)
 
 
 def _build_registry():
@@ -48,11 +64,12 @@ def _build_registry():
     return build_default_registry()
 
 
-def run_daily_sync(target_date: date | None = None):
+def run_daily_sync(target_date: date | None = None, registry=None):
     """Run daily sync with the plugin registry."""
     from app.datasync.service.sync_engine import daily_sync
 
-    registry = _build_registry()
+    if registry is None:
+        registry = _build_registry()
     results = daily_sync(registry, target_date=target_date)
 
     # Run VNPy sync after daily sync
@@ -68,12 +85,50 @@ def run_daily_sync(target_date: date | None = None):
     return results
 
 
-def run_backfill():
+def run_backfill(lookback_days: int | None = None, registry=None):
     """Run backfill retry."""
     from app.datasync.service.sync_engine import backfill_retry
 
-    registry = _build_registry()
-    return backfill_retry(registry)
+    if registry is None:
+        registry = _build_registry()
+    return backfill_retry(registry, lookback_days=lookback_days)
+
+
+def run_backfill_loop(idle_hours: int | None = None, registry=None):
+    """Continuously drain backfill work, then sleep until the next cycle."""
+    from app.domains.extdata.dao.data_sync_status_dao import is_backfill_locked
+
+    if idle_hours is None:
+        idle_hours = BACKFILL_IDLE_INTERVAL_HOURS
+    idle_hours = max(1, idle_hours)
+    if registry is None:
+        registry = _build_registry()
+
+    logger.info("Backfill loop starting (idle every %dh)", idle_hours)
+    while True:
+        if is_backfill_locked():
+            logger.info(
+                "Backfill loop detected active lock; retrying in %ds",
+                BACKFILL_LOCK_RETRY_SECONDS,
+            )
+            time.sleep(BACKFILL_LOCK_RETRY_SECONDS)
+            continue
+
+        results = run_backfill(lookback_days=None, registry=registry)
+        if results:
+            logger.info("Backfill loop pass complete: drained=%d retryable rows", len(results))
+            continue
+
+        if is_backfill_locked():
+            logger.info(
+                "Backfill loop pass ended while lock is active; retrying in %ds",
+                BACKFILL_LOCK_RETRY_SECONDS,
+            )
+            time.sleep(BACKFILL_LOCK_RETRY_SECONDS)
+            continue
+
+        logger.info("Backfill loop idle: no retryable rows; sleeping %dh", idle_hours)
+        time.sleep(idle_hours * 3600)
 
 
 def run_vnpy():
@@ -83,40 +138,67 @@ def run_vnpy():
     return run_vnpy_sync_job()
 
 
-def run_init(run_backfill_flag: bool = False):
+def run_init(run_backfill_flag: bool = False, registry=None):
     """Run initialization."""
     from app.datasync.service.init_service import initialize
 
-    registry = _build_registry()
+    if registry is None:
+        registry = _build_registry()
     return initialize(registry, run_backfill=run_backfill_flag)
+
+
+def run_reconcile(target_end_date: date | None = None, registry=None):
+    """Seed/normalize runtime state and ensure coverage through target date."""
+    from app.datasync.service.init_service import reconcile_runtime_state
+
+    if registry is None:
+        registry = _build_registry()
+    return reconcile_runtime_state(registry, target_end_date=target_end_date)
 
 
 def _scheduled_daily():
     """Called by the scheduler at 02:00 Shanghai time."""
     logger.info("Scheduled daily sync triggered")
     try:
+        run_reconcile()
         run_daily_sync()
     except Exception:
         logger.exception("Scheduled daily sync failed")
 
 
-def _scheduled_backfill():
-    """Called by the scheduler every 6 hours."""
-    logger.info("Scheduled backfill triggered")
+def _run_startup_sequence(registry) -> None:
+    startup_target_end_date = date.today()
+
+    if _env_flag("DATASYNC_SKIP_INITIAL_DAILY"):
+        logger.info("Skipping initial daily sync due to DATASYNC_SKIP_INITIAL_DAILY")
+    else:
+        logger.info("Running initial daily sync...")
+        try:
+            run_daily_sync(registry=registry)
+        except Exception:
+            logger.exception("Initial daily sync failed")
+
+    if _env_flag("DATASYNC_SKIP_INITIAL_RECONCILE"):
+        logger.info("Skipping initial sync-status reconciliation due to DATASYNC_SKIP_INITIAL_RECONCILE")
+        return
+
+    logger.info("Reconciling enabled sync status through %s...", startup_target_end_date)
     try:
-        run_backfill()
+        run_reconcile(target_end_date=startup_target_end_date, registry=registry)
     except Exception:
-        logger.exception("Scheduled backfill failed")
+        logger.exception("Initial sync-status reconciliation failed")
 
 
 def daemon_loop():
     """Run the scheduler daemon."""
     logger.info(
-        "DataSync scheduler starting (daily at %02d:%02d, backfill every %dh)",
+        "DataSync scheduler starting (daily at %02d:%02d, timezone=%s)",
         SYNC_HOUR,
         SYNC_MINUTE,
-        BACKFILL_INTERVAL_HOURS,
+        TIMEZONE,
     )
+
+    registry = _build_registry()
 
     # Init metrics
     try:
@@ -135,29 +217,10 @@ def daemon_loop():
     except Exception:
         logger.exception("Failed to ensure tables")
 
-    logger.info("Reconciling enabled sync status...")
-    try:
-        run_init(run_backfill_flag=False)
-    except Exception:
-        logger.exception("Initial sync-status reconciliation failed")
-
-    # Run initial sync
-    logger.info("Running initial daily sync...")
-    try:
-        run_daily_sync()
-    except Exception:
-        logger.exception("Initial daily sync failed")
-
-    # Run initial backfill
-    logger.info("Running initial backfill...")
-    try:
-        run_backfill()
-    except Exception:
-        logger.exception("Initial backfill failed")
+    _run_startup_sequence(registry)
 
     # Schedule recurring jobs
     schedule.every().day.at(f"{SYNC_HOUR:02d}:{SYNC_MINUTE:02d}").do(_scheduled_daily)
-    schedule.every(BACKFILL_INTERVAL_HOURS).hours.do(_scheduled_backfill)
 
     logger.info("Scheduler loop started")
     while True:
@@ -171,9 +234,13 @@ def main():
     group.add_argument("--daemon", action="store_true", help="Run as daemon")
     group.add_argument("--daily", action="store_true", help="Run daily sync once")
     group.add_argument("--backfill", action="store_true", help="Run backfill once")
+    group.add_argument("--backfill-loop", action="store_true", help="Run dedicated backfill loop")
     group.add_argument("--vnpy", action="store_true", help="Run VNPy sync once")
     group.add_argument("--init", action="store_true", help="Run initialization")
+    group.add_argument("--reconcile", action="store_true", help="Run runtime reconciliation once")
     parser.add_argument("--date", type=str, help="Target date (YYYY-MM-DD)")
+    parser.add_argument("--lookback-days", type=int, help="Optional lookback limit for one-shot backfill")
+    parser.add_argument("--idle-hours", type=int, help="Backfill loop idle sleep hours")
     parser.add_argument("--with-backfill", action="store_true", help="Run backfill during init")
 
     args = parser.parse_args()
@@ -190,14 +257,19 @@ def main():
         results = run_daily_sync(target_date)
         logger.info("Daily sync results: %s", results)
     elif args.backfill:
-        results = run_backfill()
+        results = run_backfill(lookback_days=args.lookback_days)
         logger.info("Backfill results: %s", results)
+    elif args.backfill_loop:
+        run_backfill_loop(idle_hours=args.idle_hours)
     elif args.vnpy:
         result = run_vnpy()
         logger.info("VNPy sync result: %s", result)
     elif args.init:
         result = run_init(run_backfill_flag=args.with_backfill)
         logger.info("Init result: %s", result)
+    elif args.reconcile:
+        result = run_reconcile(target_end_date=target_date)
+        logger.info("Reconcile result: %s", result)
 
 
 if __name__ == "__main__":

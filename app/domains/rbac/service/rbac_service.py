@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import os
 from functools import lru_cache
 
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.infrastructure.config import get_runtime_str
 from app.domains.rbac.dao.rbac_dao import RoleDao, UserRoleDao
 
 SYSTEM_RESOURCES = (
@@ -79,7 +79,7 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, set[str]] = {
 
 @lru_cache(maxsize=1)
 def get_default_admin_username() -> str:
-    return os.getenv("ADMIN_USERNAME", "admin")
+    return get_runtime_str(env_keys="ADMIN_USERNAME", db_key="auth.admin_username", default="admin")
 
 
 class RbacService:

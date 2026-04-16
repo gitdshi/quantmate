@@ -4,13 +4,18 @@ Uses JSON format in production (QUANTMATE_LOG_FORMAT=json) and plain text
 in development.
 """
 
-from typing import Optional
 import logging
-import os
+from typing import Optional
+
+from app.infrastructure.config import get_runtime_str
 
 
 def configure_logging(level: int = logging.INFO) -> None:
-    log_format = os.getenv("QUANTMATE_LOG_FORMAT", "text")
+    log_format = get_runtime_str(
+        env_keys="QUANTMATE_LOG_FORMAT",
+        db_key="logging.format",
+        default="text",
+    )
 
     if log_format == "json":
         from app.infrastructure.logging.json_formatter import configure_json_logging

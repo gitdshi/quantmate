@@ -6,6 +6,8 @@ import re
 
 import pandas as pd
 
+from app.infrastructure.config import get_runtime_bool, get_runtime_int, get_runtime_str
+
 try:
     import tushare as ts
 except ModuleNotFoundError:  # pragma: no cover - exercised in lightweight test envs
@@ -39,7 +41,7 @@ class TushareQuotaExceededError(RuntimeError):
         self.retry_after = retry_after
 
 # DB engine is provided by DAO helpers backed by infrastructure connections.
-TS_TOKEN = os.getenv("TUSHARE_TOKEN", "")
+TS_TOKEN = get_runtime_str(env_keys="TUSHARE_TOKEN", default="")
 
 # Use engine from tushare DAO
 # Bring in helpers and SQL `text` from DAO modules to avoid direct SQLAlchemy imports in service layer
@@ -78,6 +80,14 @@ try:
     pro = ts.pro_api(TS_TOKEN) if TS_TOKEN else ts.pro_api()
 except Exception:
     pro = None  # API calls will raise at runtime; tests patch this via unittest.mock
+
+
+def _default_batch_size() -> int:
+    return get_runtime_int(env_keys="BATCH_SIZE", db_key="datasync.batch_size", default=100)
+
+
+def _default_max_retries() -> int:
+    return get_runtime_int(env_keys="MAX_RETRIES", db_key="datasync.max_retries", default=3)
 
 # DAO for Tushare DB operations
 # DAO imports are above (engine included)
@@ -326,7 +336,7 @@ def _ingest_per_symbol_on_date_range(
     progress_cb=None,
     start_after_ts_code: str = None,
 ):
-    batch_size = batch_size or int(os.getenv("BATCH_SIZE", "100"))
+    batch_size = batch_size or _default_batch_size()
     sleep_between = max(sleep_between, _min_interval_for(api_name))
     s_norm, e_norm = _normalize_date_bounds(start_date, end_date)
     existing = _fetch_existing_keys(table_name, key_date_col, s_norm, e_norm)
@@ -720,7 +730,7 @@ def call_pro(api_name: str, max_retries: int = None, backoff_base: int = 5, **kw
     are not proactively delayed by a local global/per-endpoint pacing rule.
     """
     if max_retries is None:
-        max_retries = int(os.getenv("MAX_RETRIES", "3"))
+        max_retries = _default_max_retries()
     # metrics hook (callable) can be set via set_metrics_hook
     if not hasattr(call_pro, "_metrics_hook"):
         call_pro._metrics_hook = None
@@ -814,7 +824,7 @@ def ingest_index_daily(ts_code=None, start_date=None, end_date=None):
     """Ingest index daily data (e.g., HS300 399300.SZ) from Tushare."""
     params = {"ts_code": ts_code, "start_date": start_date, "end_date": end_date}
     aid = audit_start("index_daily", params)
-    max_retries = int(os.getenv("MAX_RETRIES", "3"))
+    max_retries = _default_max_retries()
     attempt = 0
     while attempt < max_retries:
         try:
@@ -843,7 +853,7 @@ def ingest_weekly(ts_code=None, trade_date=None, start_date=None, end_date=None)
     """Ingest weekly K-line data from Tushare (pro.weekly)."""
     params = {"ts_code": ts_code, "trade_date": trade_date, "start_date": start_date, "end_date": end_date}
     aid = audit_start("weekly", params)
-    max_retries = int(os.getenv("MAX_RETRIES", "3"))
+    max_retries = _default_max_retries()
     attempt = 0
     while attempt < max_retries:
         try:
@@ -866,7 +876,7 @@ def ingest_monthly(ts_code=None, trade_date=None, start_date=None, end_date=None
     """Ingest monthly K-line data from Tushare (pro.monthly)."""
     params = {"ts_code": ts_code, "trade_date": trade_date, "start_date": start_date, "end_date": end_date}
     aid = audit_start("monthly", params)
-    max_retries = int(os.getenv("MAX_RETRIES", "3"))
+    max_retries = _default_max_retries()
     attempt = 0
     while attempt < max_retries:
         try:
@@ -889,7 +899,7 @@ def ingest_index_weekly(ts_code=None, start_date=None, end_date=None):
     """Ingest index weekly K-line data from Tushare (pro.index_weekly)."""
     params = {"ts_code": ts_code, "start_date": start_date, "end_date": end_date}
     aid = audit_start("index_weekly", params)
-    max_retries = int(os.getenv("MAX_RETRIES", "3"))
+    max_retries = _default_max_retries()
     attempt = 0
     while attempt < max_retries:
         try:
@@ -914,7 +924,7 @@ def ingest_index_weekly(ts_code=None, start_date=None, end_date=None):
 def ingest_daily(ts_code=None, start_date=None, end_date=None):
     params = {"ts_code": ts_code, "start_date": start_date, "end_date": end_date}
     aid = audit_start("daily", params)
-    max_retries = int(os.getenv("MAX_RETRIES", "3"))
+    max_retries = _default_max_retries()
     attempt = 0
     while attempt < max_retries:
         try:
@@ -1311,7 +1321,7 @@ def ingest_all_other_data(batch_size: int = None, sleep_between: float = 0.5):
     ts_codes = get_all_ts_codes()
     total = len(ts_codes)
     logging.info("Starting other-data ingest for %d symbols", total)
-    batch_size = batch_size or int(os.getenv("BATCH_SIZE", "100"))
+    batch_size = batch_size or _default_batch_size()
     for i in range(0, total, batch_size):
         chunk = ts_codes[i : i + batch_size]
         logging.info("Processing chunk %d - %d", i + 1, i + len(chunk))
@@ -1385,7 +1395,7 @@ def ingest_dividend_by_date_range(
 
     start_date/end_date: 'YYYY-MM-DD' or 'YYYYMMDD' accepted. Will query DB for existing ann_date.
     """
-    batch_size = batch_size or int(os.getenv("BATCH_SIZE", "100"))
+    batch_size = batch_size or _default_batch_size()
     # normalize dates for DB query
     try:
         s_norm = pd.to_datetime(start_date).date().isoformat()
@@ -1484,7 +1494,7 @@ def ingest_top10_holders_by_date_range(
     progress_cb=None,
     start_after_ts_code: str = None,
 ):
-    batch_size = batch_size or int(os.getenv("BATCH_SIZE", "100"))
+    batch_size = batch_size or _default_batch_size()
     try:
         s_norm = pd.to_datetime(start_date).date().isoformat()
         e_norm = pd.to_datetime(end_date).date().isoformat()
@@ -1556,7 +1566,7 @@ def ingest_adj_factor_by_date_range(
     progress_cb=None,
     start_after_ts_code: str = None,
 ):
-    batch_size = batch_size or int(os.getenv("BATCH_SIZE", "100"))
+    batch_size = batch_size or _default_batch_size()
     try:
         s_norm = pd.to_datetime(start_date).date().isoformat()
         e_norm = pd.to_datetime(end_date).date().isoformat()
@@ -1633,8 +1643,8 @@ def ingest_all_daily(
     - batch_size: number of symbols to process per loop iteration (uses env BATCH_SIZE if None)
     - sleep_between: seconds to sleep between individual symbol API calls to avoid rate limits
     """
-    batch_size = batch_size or int(os.getenv("BATCH_SIZE", "100"))
-    max_retries = int(os.getenv("MAX_RETRIES", "3"))
+    batch_size = batch_size or _default_batch_size()
+    max_retries = _default_max_retries()
 
     ts_codes = get_all_ts_codes()
     total = len(ts_codes)
@@ -1789,9 +1799,9 @@ except Exception as e:
 
 if __name__ == "__main__":
     # simple CLI: ingest daily for a sample ts_code
-    if os.getenv("INGEST_STOCK_BASIC"):
+    if get_runtime_bool(env_keys="INGEST_STOCK_BASIC", default=False):
         ingest_stock_basic()
-    elif os.getenv("INGEST_ALL_DAILY"):
+    elif get_runtime_bool(env_keys="INGEST_ALL_DAILY", default=False):
         ingest_all_daily()
     else:
-        ingest_daily(ts_code=os.getenv("SAMPLE_TS", ""), start_date=None, end_date=None)
+        ingest_daily(ts_code=get_runtime_str(env_keys="SAMPLE_TS", default=""), start_date=None, end_date=None)

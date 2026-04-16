@@ -9,8 +9,12 @@ from __future__ import annotations
 import logging
 from datetime import date
 
+import pandas as pd
+from sqlalchemy import text
+
 from app.datasync.base import BaseIngestInterface, InterfaceInfo, SyncResult, SyncStatus
 from app.datasync.sources.tushare import ddl
+from app.infrastructure.db.connections import get_tushare_engine
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +22,122 @@ logger = logging.getLogger(__name__)
 INDEX_CODES = ["000001.SH", "399001.SZ", "399006.SZ", "000300.SH", "000905.SH"]
 
 
+def _normalize_trade_cal_rows(df: pd.DataFrame) -> list[dict[str, object]]:
+    if df is None or df.empty:
+        return []
+
+    calendar_column = "cal_date" if "cal_date" in df.columns else "calendar_date" if "calendar_date" in df.columns else None
+    if calendar_column is None:
+        raise ValueError("trade_cal response missing cal_date/calendar_date column")
+
+    normalized = df.copy()
+    normalized[calendar_column] = pd.to_datetime(normalized[calendar_column], errors="coerce").dt.date
+    if "pretrade_date" in normalized.columns:
+        normalized["pretrade_date"] = pd.to_datetime(normalized["pretrade_date"], errors="coerce").dt.date
+    else:
+        normalized["pretrade_date"] = None
+
+    rows: list[dict[str, object]] = []
+    for _, row in normalized.iterrows():
+        cal_date = row.get(calendar_column)
+        if cal_date is None or pd.isna(cal_date):
+            continue
+        pretrade_date = row.get("pretrade_date")
+        if pretrade_date is not None and pd.isna(pretrade_date):
+            pretrade_date = None
+        rows.append(
+            {
+                "exchange": str(row.get("exchange") or "SSE").strip() or "SSE",
+                "cal_date": cal_date,
+                "is_open": int(row.get("is_open") or 0),
+                "pretrade_date": pretrade_date,
+            }
+        )
+    return rows
+
+
+def _upsert_trade_cal_rows(rows: list[dict[str, object]]) -> int:
+    if not rows:
+        return 0
+
+    engine = get_tushare_engine()
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO trade_cal (exchange, cal_date, is_open, pretrade_date) "
+                "VALUES (:exchange, :cal_date, :is_open, :pretrade_date) "
+                "ON DUPLICATE KEY UPDATE "
+                "is_open = VALUES(is_open), pretrade_date = VALUES(pretrade_date)"
+            ),
+            rows,
+        )
+    return len(rows)
+
+
+def _get_trade_cal_counts(start: date, end: date) -> dict[date, int]:
+    engine = get_tushare_engine()
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT cal_date, COUNT(*) "
+                "FROM trade_cal "
+                "WHERE cal_date BETWEEN :start_date AND :end_date "
+                "GROUP BY cal_date"
+            ),
+            {"start_date": start, "end_date": end},
+        ).fetchall()
+    return {row[0]: int(row[1]) for row in rows}
+
+
+class TushareTradeCalInterface(BaseIngestInterface):
+    @property
+    def info(self) -> InterfaceInfo:
+        return InterfaceInfo(
+            interface_key="trade_cal",
+            display_name="交易日历",
+            source_key="tushare",
+            target_database="tushare",
+            target_table="trade_cal",
+            sync_priority=5,
+            enabled_by_default=True,
+            description="交易所交易日历",
+        )
+
+    def get_ddl(self) -> str:
+        return ddl.TRADE_CAL_DDL
+
+    def backfill_mode(self) -> str:
+        return "date"
+
+    def sync_date(self, trade_date: date) -> SyncResult:
+        return self.sync_range(trade_date, trade_date)
+
+    def sync_range(self, start: date, end: date) -> SyncResult:
+        from app.datasync.service.tushare_ingest import call_pro
+
+        try:
+            df = call_pro(
+                "trade_cal",
+                exchange="SSE",
+                start_date=start.strftime("%Y%m%d"),
+                end_date=end.strftime("%Y%m%d"),
+            )
+            rows = _normalize_trade_cal_rows(df)
+            upserted = _upsert_trade_cal_rows(rows)
+            return SyncResult(SyncStatus.SUCCESS, upserted)
+        except Exception as e:
+            logger.exception("trade_cal sync failed for %s -> %s: %s", start, end, e)
+            return SyncResult(SyncStatus.ERROR, 0, str(e))
+
+    def get_backfill_rows_by_date(self, start: date, end: date) -> dict[date, int]:
+        return _get_trade_cal_counts(start, end)
+
+
 class TushareStockBasicInterface(BaseIngestInterface):
+    def supports_backfill(self) -> bool:
+        # stock_basic is a latest snapshot, not a per-trade-date historical feed.
+        return False
+
     @property
     def info(self) -> InterfaceInfo:
         return InterfaceInfo(
@@ -53,6 +172,9 @@ class TushareStockBasicInterface(BaseIngestInterface):
 
 
 class TushareStockDailyInterface(BaseIngestInterface):
+    def requires_nonempty_trading_day_data(self) -> bool:
+        return True
+
     @property
     def info(self) -> InterfaceInfo:
         return InterfaceInfo(
@@ -85,6 +207,9 @@ class TushareStockDailyInterface(BaseIngestInterface):
 
 
 class TushareBakDailyInterface(BaseIngestInterface):
+    def requires_nonempty_trading_day_data(self) -> bool:
+        return True
+
     @property
     def info(self) -> InterfaceInfo:
         return InterfaceInfo(
@@ -114,6 +239,9 @@ class TushareBakDailyInterface(BaseIngestInterface):
 
 
 class TushareMoneyflowInterface(BaseIngestInterface):
+    def requires_nonempty_trading_day_data(self) -> bool:
+        return True
+
     @property
     def info(self) -> InterfaceInfo:
         return InterfaceInfo(
@@ -204,6 +332,9 @@ class TushareSuspendInterface(BaseIngestInterface):
 
 
 class TushareAdjFactorInterface(BaseIngestInterface):
+    def requires_nonempty_trading_day_data(self) -> bool:
+        return True
+
     @property
     def info(self) -> InterfaceInfo:
         return InterfaceInfo(
@@ -252,6 +383,9 @@ class TushareDividendInterface(BaseIngestInterface):
     def get_ddl(self) -> str:
         return ddl.STOCK_DIVIDEND_DDL
 
+    def backfill_mode(self) -> str:
+        return "range"
+
     def sync_date(self, trade_date: date) -> SyncResult:
         from app.datasync.service.tushare_ingest import call_pro
         from app.domains.extdata.dao.tushare_dao import upsert_dividend_df
@@ -269,6 +403,24 @@ class TushareDividendInterface(BaseIngestInterface):
                 return SyncResult(SyncStatus.PARTIAL, 0, "Permission denied")
             logger.exception("dividend sync failed for %s: %s", trade_date, e)
             return SyncResult(SyncStatus.ERROR, 0, err_msg)
+
+    def sync_range(self, start: date, end: date) -> SyncResult:
+        from app.datasync.service.tushare_ingest import ingest_dividend_by_ann_date_range
+
+        try:
+            rows = ingest_dividend_by_ann_date_range(start.isoformat(), end.isoformat())
+            return SyncResult(SyncStatus.SUCCESS, rows or 0)
+        except Exception as e:
+            err_msg = str(e)
+            if "没有接口访问权限" in err_msg or "permission" in err_msg.lower():
+                return SyncResult(SyncStatus.PARTIAL, 0, "Permission denied")
+            logger.exception("dividend range backfill failed for %s -> %s: %s", start, end, e)
+            return SyncResult(SyncStatus.ERROR, 0, err_msg)
+
+    def get_backfill_rows_by_date(self, start: date, end: date) -> dict[date, int]:
+        from app.domains.extdata.dao.data_sync_status_dao import get_dividend_counts
+
+        return get_dividend_counts(start, end)
 
 
 class TushareTop10HoldersInterface(BaseIngestInterface):
@@ -288,6 +440,9 @@ class TushareTop10HoldersInterface(BaseIngestInterface):
 
     def get_ddl(self) -> str:
         return ddl.TOP10_HOLDERS_DDL
+
+    def backfill_mode(self) -> str:
+        return "range"
 
     def sync_date(self, trade_date: date) -> SyncResult:
         from app.datasync.service.tushare_ingest import ingest_top10_holders, get_all_ts_codes
@@ -318,6 +473,24 @@ class TushareTop10HoldersInterface(BaseIngestInterface):
         except Exception as e:
             logger.exception("top10_holders sync failed: %s", e)
             return SyncResult(SyncStatus.ERROR, 0, str(e))
+
+    def sync_range(self, start: date, end: date) -> SyncResult:
+        from app.datasync.service.tushare_ingest import ingest_top10_holders_marketwide_by_date_range
+
+        try:
+            rows = ingest_top10_holders_marketwide_by_date_range(start.isoformat(), end.isoformat())
+            return SyncResult(SyncStatus.SUCCESS, rows or 0)
+        except Exception as e:
+            err_msg = str(e)
+            if "没有接口访问权限" in err_msg or "permission" in err_msg.lower():
+                return SyncResult(SyncStatus.PARTIAL, 0, "Permission denied")
+            logger.exception("top10_holders range backfill failed for %s -> %s: %s", start, end, e)
+            return SyncResult(SyncStatus.ERROR, 0, err_msg)
+
+    def get_backfill_rows_by_date(self, start: date, end: date) -> dict[date, int]:
+        from app.domains.extdata.dao.data_sync_status_dao import get_top10_holders_counts
+
+        return get_top10_holders_counts(start, end)
 
 
 class TushareStockWeeklyInterface(BaseIngestInterface):
@@ -379,6 +552,9 @@ class TushareStockMonthlyInterface(BaseIngestInterface):
 
 
 class TushareIndexDailyInterface(BaseIngestInterface):
+    def requires_nonempty_trading_day_data(self) -> bool:
+        return True
+
     @property
     def info(self) -> InterfaceInfo:
         return InterfaceInfo(

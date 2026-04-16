@@ -11,10 +11,11 @@ independently per provider.
 from __future__ import annotations
 
 import logging
-import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from threading import Semaphore
+from dataclasses import dataclass
 from datetime import date, timedelta
+from functools import lru_cache
+from threading import Semaphore
 from typing import Optional
 
 from sqlalchemy import text
@@ -22,22 +23,56 @@ from sqlalchemy import text
 from app.datasync.base import SyncResult, SyncStatus
 from app.datasync.registry import DataSourceRegistry
 from app.datasync.table_manager import ensure_table
+from app.infrastructure.config import get_runtime_config, get_runtime_int
 from app.infrastructure.db.connections import get_quantmate_engine
 
 logger = logging.getLogger(__name__)
 
-MAX_RETRIES = int(os.getenv("MAX_RETRIES", "3"))
-LOOKBACK_DAYS = int(os.getenv("LOOKBACK_DAYS", "60"))
-PARALLEL_WORKERS = int(os.getenv("SYNC_PARALLEL_WORKERS", "4"))
-BACKFILL_WORKERS = int(os.getenv("BACKFILL_WORKERS", "10"))
+MAX_RETRIES = get_runtime_int(env_keys="MAX_RETRIES", db_key="datasync.max_retries", default=3)
+PARALLEL_WORKERS = get_runtime_int(
+    env_keys="SYNC_PARALLEL_WORKERS",
+    db_key="datasync.sync_parallel_workers",
+    default=4,
+)
+BACKFILL_WORKERS = get_runtime_int(
+    env_keys="BACKFILL_WORKERS",
+    db_key="datasync.backfill_workers",
+    default=10,
+)
+
+_FORCE_RETRY_ERROR_SIGNATURES: dict[tuple[str, str], tuple[str, ...]] = {
+    ("tushare", "trade_cal"): ("unknown column", "updated_at"),
+}
 
 # Maximum concurrent API calls per data source (respects Tushare rate limits)
 SOURCE_CONCURRENCY: dict[str, int] = {
-    "tushare": int(os.getenv("TUSHARE_CONCURRENCY", "3")),
+    "tushare": get_runtime_int(
+        env_keys="TUSHARE_CONCURRENCY",
+        db_key="datasync.source_concurrency.tushare",
+        default=3,
+    ),
 }
 
 _source_semaphores: dict[str, Semaphore] = {}
 _backfill_source_semaphores: dict[str, Semaphore] = {}
+
+
+@dataclass
+class _BackfillTask:
+    source: str
+    iface_key: str
+    iface: object
+    dates: list[date]
+    retry_counts: dict[date, int]
+    mode: str
+
+    @property
+    def start_date(self) -> date:
+        return self.dates[0]
+
+    @property
+    def end_date(self) -> date:
+        return self.dates[-1]
 
 
 def _get_source_env_key(source: str) -> str:
@@ -49,10 +84,16 @@ def _get_source_concurrency_limit(source: str) -> int | None:
 
 
 def _get_backfill_source_concurrency_limit(source: str) -> int | None:
-    override = os.getenv(f"BACKFILL_{_get_source_env_key(source)}_CONCURRENCY")
-    if override is not None:
-        return max(1, int(override))
-    return _get_source_concurrency_limit(source)
+    default_limit = _get_source_concurrency_limit(source)
+    override = get_runtime_config(
+        env_keys=f"BACKFILL_{_get_source_env_key(source)}_CONCURRENCY",
+        db_key=f"datasync.backfill_source_concurrency.{source}",
+        default=default_limit,
+        parser=int,
+    )
+    if override is None:
+        return None
+    return max(1, int(override))
 
 
 def _get_semaphore(cache: dict[str, Semaphore], source: str, limit: int | None) -> Semaphore | None:
@@ -115,43 +156,112 @@ def _write_status(
 
 
 def _get_status(sync_date: date, source: str, interface_key: str) -> Optional[str]:
+    status, _ = _get_status_snapshot(sync_date, source, interface_key)
+    return status
+
+
+def _get_status_snapshot(sync_date: date, source: str, interface_key: str) -> tuple[Optional[str], int]:
     engine = get_quantmate_engine()
     with engine.connect() as conn:
         row = conn.execute(
-            text("SELECT status FROM data_sync_status WHERE sync_date = :sd AND source = :src AND interface_key = :ik"),
+            text(
+                "SELECT status, COALESCE(rows_synced, 0) "
+                "FROM data_sync_status WHERE sync_date = :sd AND source = :src AND interface_key = :ik"
+            ),
             {"sd": sync_date, "src": source, "ik": interface_key},
         ).fetchone()
-        return row[0] if row else None
+        if row is None:
+            return None, 0
+        return row[0], int(row[1] or 0)
 
 
-def _get_failed_records(lookback_days: int = 60) -> list[tuple[date, str, str, int]]:
-    """Return (sync_date, source, interface_key, retry_count) where status is not success."""
+def _get_failed_records(lookback_days: int | None = None) -> list[tuple[date, str, str, int, str | None]]:
+    """Return retryable records with enough context to decide whether they should be reopened."""
     end = date.today() - timedelta(days=1)
-    start = end - timedelta(days=lookback_days)
-    try:
-        stale_hours = int(os.getenv("SYNC_STATUS_RUNNING_STALE_HOURS", os.getenv("BACKFILL_LOCK_STALE_HOURS", "6")))
-    except Exception:
-        stale_hours = 6
+    stale_hours = get_runtime_int(
+        env_keys=("SYNC_STATUS_RUNNING_STALE_HOURS", "BACKFILL_LOCK_STALE_HOURS"),
+        db_key="datasync.sync_status_running_stale_hours",
+        default=get_runtime_int(
+            env_keys="BACKFILL_LOCK_STALE_HOURS",
+            db_key="datasync.backfill_lock_stale_hours",
+            default=6,
+        ),
+    )
     stale_seconds = max(stale_hours, 0) * 3600
+    where_clauses = [
+        "sync_date <= :e",
+        "("
+        "status IN ('error', 'partial', 'pending') "
+        "OR ("
+        "status = 'running' "
+        "AND TIMESTAMPDIFF(SECOND, COALESCE(updated_at, started_at, created_at), CURRENT_TIMESTAMP) >= :stale_seconds"
+        ") "
+        "OR (status = 'success' AND COALESCE(rows_synced, 0) = 0)"
+        ")",
+    ]
+    params: dict[str, object] = {"e": end, "stale_seconds": stale_seconds}
+
+    if lookback_days is not None:
+        start = end - timedelta(days=lookback_days)
+        where_clauses.insert(0, "sync_date >= :s")
+        params["s"] = start
+
     engine = get_quantmate_engine()
     with engine.connect() as conn:
         rows = conn.execute(
             text(
-                "SELECT sync_date, source, interface_key, retry_count "
+                "SELECT sync_date, source, interface_key, retry_count, error_message, status, COALESCE(rows_synced, 0) "
                 "FROM data_sync_status "
-                "WHERE sync_date BETWEEN :s AND :e "
-                "AND ("
-                "status IN ('error', 'partial', 'pending') "
-                "OR ("
-                "status = 'running' "
-                "AND TIMESTAMPDIFF(SECOND, COALESCE(updated_at, started_at, created_at), CURRENT_TIMESTAMP) >= :stale_seconds"
-                ")"
-                ") "
-                "ORDER BY sync_date ASC, source, interface_key"
+                f"WHERE {' AND '.join(where_clauses)} "
+                "ORDER BY sync_date DESC, source, interface_key"
             ),
-            {"s": start, "e": end, "stale_seconds": stale_seconds},
+            params,
         ).fetchall()
-        return [(r[0], r[1], r[2], r[3]) for r in rows]
+        records: list[tuple[date, str, str, int, str | None]] = []
+        for row in rows:
+            error_message = row[4] if len(row) > 4 else None
+            status = row[5] if len(row) > 5 else None
+            rows_synced = row[6] if len(row) > 6 else 0
+            records.append((row[0], row[1], row[2], row[3], error_message, status, int(rows_synced or 0)))
+        return records
+
+
+def _can_force_retry_terminal_error(source: str, iface_key: str, error_message: str | None) -> bool:
+    if not error_message:
+        return False
+
+    signatures = _FORCE_RETRY_ERROR_SIGNATURES.get((source, iface_key))
+    if not signatures:
+        return False
+
+    normalized_error = error_message.lower()
+    return all(signature in normalized_error for signature in signatures)
+
+
+def _effective_retry_count(record: tuple[date, str, str, int] | tuple[date, str, str, int, str | None]) -> int | None:
+    sync_date, source, iface_key, retry_count = record[:4]
+    error_message = record[4] if len(record) > 4 else None
+
+    if retry_count < MAX_RETRIES:
+        return retry_count
+
+    if _can_force_retry_terminal_error(source, iface_key, error_message):
+        logger.info(
+            "Backfill reopening %s/%s@%s after recoverable terminal error at retry_count=%d",
+            source,
+            iface_key,
+            sync_date,
+            retry_count,
+        )
+        return 0
+
+    return None
+
+
+def _is_zero_row_success_record(record: tuple[object, ...]) -> bool:
+    status = record[5] if len(record) > 5 else None
+    rows_synced = record[6] if len(record) > 6 else None
+    return status == SyncStatus.SUCCESS.value and int(rows_synced or 0) == 0
 
 
 def _group_backfill_records_by_date(
@@ -186,6 +296,68 @@ def _supports_backfill(iface, source: str, iface_key: str) -> bool:
         except Exception:
             logger.exception("Failed to inspect backfill support for %s/%s", source, iface_key)
     return supports_backfill
+
+
+def _get_backfill_mode(iface, source: str, iface_key: str) -> str:
+    mode = "date"
+    method = getattr(iface, "backfill_mode", None)
+    if callable(method):
+        try:
+            candidate = method()
+            if candidate in {"date", "range"}:
+                mode = candidate
+            elif candidate is not None:
+                logger.warning(
+                    "Invalid backfill_mode=%r for %s/%s, falling back to date mode",
+                    candidate,
+                    source,
+                    iface_key,
+                )
+        except Exception:
+            logger.exception("Failed to inspect backfill mode for %s/%s", source, iface_key)
+    return mode
+
+
+def _group_contiguous_trade_dates(dates: list[date]) -> list[list[date]]:
+    ordered_dates = sorted(set(dates))
+    if not ordered_dates:
+        return []
+    if len(ordered_dates) == 1:
+        return [ordered_dates]
+
+    calendar_positions: dict[date, int] = {}
+    try:
+        trade_calendar = get_trade_calendar(ordered_dates[0], ordered_dates[-1])
+        calendar_positions = {trade_date: index for index, trade_date in enumerate(trade_calendar)}
+    except Exception:
+        logger.exception(
+            "Failed to load trade calendar for backfill range grouping %s -> %s",
+            ordered_dates[0],
+            ordered_dates[-1],
+        )
+
+    groups: list[list[date]] = []
+    current_group = [ordered_dates[0]]
+    previous_date = ordered_dates[0]
+    previous_pos = calendar_positions.get(previous_date)
+
+    for current_date in ordered_dates[1:]:
+        current_pos = calendar_positions.get(current_date)
+        is_contiguous = previous_pos is not None and current_pos is not None and current_pos == previous_pos + 1
+        if not is_contiguous and (current_date - previous_date).days == 1:
+            is_contiguous = True
+
+        if is_contiguous:
+            current_group.append(current_date)
+        else:
+            groups.append(current_group)
+            current_group = [current_date]
+
+        previous_date = current_date
+        previous_pos = current_pos
+
+    groups.append(current_group)
+    return groups
 
 
 def _normalize_log_value(value) -> str:
@@ -263,12 +435,53 @@ def _log_backfill_result(
     )
 
 
-def _execute_backfill_task(iface, source: str, sync_date: date) -> SyncResult:
-    sem = _get_backfill_source_semaphore(source)
+def _get_backfill_rows_by_date(task: _BackfillTask, result: SyncResult) -> dict[date, int]:
+    if task.mode != "range":
+        return {task.start_date: result.rows_synced}
+
+    method = getattr(task.iface, "get_backfill_rows_by_date", None)
+    if callable(method):
+        try:
+            rows_by_date = method(task.start_date, task.end_date) or {}
+            normalized: dict[date, int] = {}
+            for raw_date, raw_rows in rows_by_date.items():
+                sync_date = raw_date
+                if isinstance(raw_date, str):
+                    sync_date = date.fromisoformat(raw_date)
+                normalized[sync_date] = int(raw_rows)
+            return normalized
+        except Exception:
+            logger.exception(
+                "Failed to load per-date backfill counts for %s/%s %s -> %s",
+                task.source,
+                task.iface_key,
+                task.start_date,
+                task.end_date,
+            )
+
+    if len(task.dates) == 1:
+        return {task.start_date: result.rows_synced}
+    return {}
+
+
+def _build_backfill_log_result(task: _BackfillTask, result: SyncResult) -> SyncResult:
+    details = dict(result.details or {})
+    details.setdefault("backfill_mode", task.mode)
+    if task.mode == "range":
+        details.setdefault("range_start", task.start_date.isoformat())
+        details.setdefault("range_end", task.end_date.isoformat())
+        details.setdefault("date_count", len(task.dates))
+    return SyncResult(result.status, result.rows_synced, result.error_message, details=details)
+
+
+def _execute_backfill_task(task: _BackfillTask) -> SyncResult:
+    sem = _get_backfill_source_semaphore(task.source)
     try:
         if sem:
             sem.acquire()
-        return iface.sync_date(sync_date)
+        if task.mode == "range":
+            return task.iface.sync_range(task.start_date, task.end_date)
+        return task.iface.sync_date(task.start_date)
     finally:
         if sem:
             sem.release()
@@ -301,6 +514,11 @@ def _get_enabled_items() -> list[dict]:
         ]
 
 
+def _get_enabled_backfill_keys() -> set[tuple[str, str]]:
+    """Return the set of enabled source/interface pairs managed by the registry backfill."""
+    return {(item["source"], item["item_key"]) for item in _get_enabled_items()}
+
+
 # ---------------------------------------------------------------------------
 # Trade calendar
 # ---------------------------------------------------------------------------
@@ -317,6 +535,76 @@ def get_previous_trade_date(offset: int = 1) -> date:
     from app.datasync.service.data_sync_daemon import get_previous_trade_date as _get_prev
 
     return _get_prev(offset)
+
+
+@lru_cache(maxsize=512)
+def _is_trading_day(sync_date: date) -> bool:
+    try:
+        return sync_date in get_trade_calendar(sync_date, sync_date)
+    except Exception:
+        logger.exception("Failed to determine trading-day status for %s", sync_date)
+        return sync_date.weekday() < 5
+
+
+def _get_latest_completed_trade_date(today: date | None = None) -> date:
+    current_date = today or date.today()
+    window_start = current_date - timedelta(days=30)
+
+    try:
+        trade_days = get_trade_calendar(window_start, current_date)
+    except Exception:
+        logger.exception("Failed to load trade calendar for default daily target date")
+        trade_days = []
+
+    if not trade_days:
+        return current_date - timedelta(days=1)
+
+    latest_trade_day = trade_days[-1]
+    if latest_trade_day == current_date:
+        if len(trade_days) >= 2:
+            return trade_days[-2]
+        return current_date - timedelta(days=1)
+    return latest_trade_day
+
+
+def _requires_nonempty_trading_day_data(iface, source: str, iface_key: str) -> bool:
+    method = getattr(iface, "requires_nonempty_trading_day_data", None)
+    if not callable(method):
+        return False
+    try:
+        return bool(method())
+    except Exception:
+        logger.exception(
+            "Failed to inspect nonempty-trading-day policy for %s/%s",
+            source,
+            iface_key,
+        )
+        return False
+
+
+def _should_retry_zero_row_success(iface, sync_date: date, source: str, iface_key: str) -> bool:
+    return _requires_nonempty_trading_day_data(iface, source, iface_key) and _is_trading_day(sync_date)
+
+
+def _normalize_zero_row_success(
+    iface,
+    sync_date: date,
+    source: str,
+    iface_key: str,
+    result: SyncResult,
+) -> SyncResult:
+    if result.status != SyncStatus.SUCCESS or result.rows_synced != 0:
+        return result
+
+    if not _should_retry_zero_row_success(iface, sync_date, source, iface_key):
+        return result
+
+    return SyncResult(
+        SyncStatus.PENDING,
+        0,
+        result.error_message or "No rows synced for trading day; scheduled for retry",
+        details=result.details,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -347,23 +635,35 @@ def _sync_one_item(
             logger.warning("No interface registered for %s, skipping", label)
             return label, {"status": "skipped", "reason": "no plugin"}
 
-        existing = _get_status(target_date, source, item_key)
-        if existing == SyncStatus.SUCCESS.value:
+        existing_status, existing_rows = _get_status_snapshot(target_date, source, item_key)
+        if existing_status == SyncStatus.SUCCESS.value and not (
+            existing_rows == 0 and _should_retry_zero_row_success(iface, target_date, source, item_key)
+        ):
             logger.info("[%d/%d] %s already synced, skipping", idx, total, label)
             return label, {"status": "success", "skipped": True}
 
-        if not item["table_created"]:
-            try:
-                ensure_table(item["target_database"], item["target_table"], iface.get_ddl())
-            except Exception as e:
-                logger.exception("Failed to create table for %s: %s", label, e)
-                _write_status(target_date, source, item_key, SyncStatus.ERROR.value, 0, f"DDL failed: {e}")
-                return label, {"status": "error", "error": f"DDL failed: {e}"}
+        if existing_status == SyncStatus.SUCCESS.value and existing_rows == 0:
+            logger.info(
+                "[%d/%d] %s reopening prior zero-row success for %s",
+                idx,
+                total,
+                label,
+                target_date,
+            )
+
+        # Always verify the physical table exists because catalog.table_created can drift.
+        try:
+            ensure_table(item["target_database"], item["target_table"], iface.get_ddl())
+        except Exception as e:
+            logger.exception("Failed to create table for %s: %s", label, e)
+            _write_status(target_date, source, item_key, SyncStatus.ERROR.value, 0, f"DDL failed: {e}")
+            return label, {"status": "error", "error": f"DDL failed: {e}"}
 
         _write_status(target_date, source, item_key, SyncStatus.RUNNING.value)
 
         try:
             result: SyncResult = iface.sync_date(target_date)
+            result = _normalize_zero_row_success(iface, target_date, source, item_key, result)
             _write_status(
                 target_date, source, item_key,
                 result.status.value, result.rows_synced, result.error_message,
@@ -391,7 +691,7 @@ def daily_sync(
     while maximizing throughput across sources.
     """
     if target_date is None:
-        target_date = get_previous_trade_date()
+        target_date = _get_latest_completed_trade_date()
 
     if max_workers is None:
         max_workers = PARALLEL_WORKERS
@@ -432,15 +732,13 @@ def daily_sync(
 
 def backfill_retry(
     registry: DataSourceRegistry,
-    lookback_days: int = None,
+    lookback_days: int | None = None,
     max_workers: int | None = None,
 ) -> dict[str, dict]:
     """Retry failed/pending syncs within the lookback window.
 
     Uses DB lock from the old daemon to prevent concurrent runs.
     """
-    if lookback_days is None:
-        lookback_days = LOOKBACK_DAYS
     if max_workers is None:
         max_workers = BACKFILL_WORKERS
     max_workers = max(1, max_workers)
@@ -463,110 +761,221 @@ def backfill_retry(
 
     results: dict[str, dict] = {}
     try:
-        failed = _get_failed_records(lookback_days)
-        grouped_records = _group_backfill_records_by_date(failed)
+        enabled_backfill_keys = _get_enabled_backfill_keys()
+        failed = [
+            record
+            for record in _get_failed_records(lookback_days)
+            if (record[1], record[2]) in enabled_backfill_keys
+        ]
+        pending_range_records: dict[tuple[str, str], dict[str, object]] = {}
+        tasks: list[_BackfillTask] = []
+
+        for record in failed:
+            sync_date, source, iface_key, retry_count = record[:4]
+            label = f"{source}/{iface_key}@{sync_date}"
+            effective_retry_count = _effective_retry_count(record)
+
+            if effective_retry_count is None:
+                logger.debug("Skipping %s: max retries reached", label)
+                continue
+
+            iface = registry.get_interface(source, iface_key)
+            if iface is None:
+                logger.warning("Backfill skip date=%s interface=%s: no plugin registered", sync_date, f"{source}/{iface_key}")
+                results[label] = {"status": "skipped", "reason": "no plugin"}
+                continue
+
+            if _is_zero_row_success_record(record) and not _should_retry_zero_row_success(
+                iface,
+                sync_date,
+                source,
+                iface_key,
+            ):
+                logger.debug(
+                    "Skipping zero-row success reopen for %s: empty result is allowed on %s",
+                    label,
+                    sync_date,
+                )
+                continue
+
+            if not _supports_backfill(iface, source, iface_key):
+                logger.info("Skipping historical backfill for non-historical interface %s", label)
+                _write_status(
+                    sync_date,
+                    source,
+                    iface_key,
+                    SyncStatus.SUCCESS.value,
+                    0,
+                    "Skipped historical backfill for non-historical interface",
+                    retry_count=effective_retry_count,
+                )
+                skipped_result = SyncResult(
+                    SyncStatus.SUCCESS,
+                    0,
+                    "Skipped historical backfill for non-historical interface",
+                )
+                _log_backfill_result(sync_date, source, iface_key, skipped_result, iface)
+                results[label] = {"status": SyncStatus.SUCCESS.value, "rows": 0, "skipped": True}
+                continue
+
+            mode = _get_backfill_mode(iface, source, iface_key)
+            if mode == "range":
+                task_key = (source, iface_key)
+                bucket = pending_range_records.setdefault(
+                    task_key,
+                    {"iface": iface, "records": []},
+                )
+                bucket["records"].append((sync_date, effective_retry_count))
+                continue
+
+            tasks.append(
+                _BackfillTask(
+                    source=source,
+                    iface_key=iface_key,
+                    iface=iface,
+                    dates=[sync_date],
+                    retry_counts={sync_date: effective_retry_count + 1},
+                    mode="date",
+                )
+            )
+
+        for (source, iface_key), bucket in pending_range_records.items():
+            records = bucket["records"]
+            iface = bucket["iface"]
+            retry_by_date = {sync_date: retry_count + 1 for sync_date, retry_count in records}
+            for grouped_dates in _group_contiguous_trade_dates([sync_date for sync_date, _ in records]):
+                tasks.append(
+                    _BackfillTask(
+                        source=source,
+                        iface_key=iface_key,
+                        iface=iface,
+                        dates=grouped_dates,
+                        retry_counts={sync_date: retry_by_date[sync_date] for sync_date in grouped_dates},
+                        mode="range",
+                    )
+                )
+
+        tasks.sort(
+            key=lambda task: (
+                -task.end_date.toordinal(),
+                -task.start_date.toordinal(),
+                task.source,
+                task.iface_key,
+            )
+        )
         logger.info(
-            "Backfill starting: records=%d dates=%d workers=%d lookback_days=%d",
+            "Backfill starting: records=%d tasks=%d workers=%d lookback_days=%s",
             len(failed),
-            len(grouped_records),
+            len(tasks),
             max_workers,
-            lookback_days,
+            lookback_days if lookback_days is not None else "all",
         )
 
         with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="datasync-backfill") as executor:
-            for sync_date, date_records in grouped_records:
-                logger.info(
-                    "Backfill dispatch date=%s tasks=%d workers=%d",
-                    sync_date,
-                    len(date_records),
-                    max_workers,
-                )
-                future_map = {}
+            future_map = {}
 
-                for _, source, iface_key, retry_count in date_records:
-                    label = f"{source}/{iface_key}@{sync_date}"
-
-                    if retry_count >= MAX_RETRIES:
-                        logger.debug("Skipping %s: max retries reached", label)
-                        continue
-
-                    iface = registry.get_interface(source, iface_key)
-                    if iface is None:
-                        logger.warning("Backfill skip date=%s interface=%s: no plugin registered", sync_date, f"{source}/{iface_key}")
-                        results[label] = {"status": "skipped", "reason": "no plugin"}
-                        continue
-
-                    if not _supports_backfill(iface, source, iface_key):
-                        logger.info("Skipping historical backfill for non-historical interface %s", label)
-                        _write_status(
-                            sync_date,
-                            source,
-                            iface_key,
-                            SyncStatus.SUCCESS.value,
-                            0,
-                            "Skipped historical backfill for non-historical interface",
-                            retry_count=retry_count,
-                        )
-                        skipped_result = SyncResult(
-                            SyncStatus.SUCCESS,
-                            0,
-                            "Skipped historical backfill for non-historical interface",
-                        )
-                        _log_backfill_result(sync_date, source, iface_key, skipped_result, iface)
-                        results[label] = {"status": SyncStatus.SUCCESS.value, "rows": 0, "skipped": True}
-                        continue
-
-                    attempt_retry_count = retry_count + 1
+            for task in tasks:
+                for sync_date in task.dates:
+                    attempt_retry_count = task.retry_counts[sync_date]
                     _write_status(
                         sync_date,
-                        source,
-                        iface_key,
+                        task.source,
+                        task.iface_key,
                         SyncStatus.RUNNING.value,
                         retry_count=attempt_retry_count,
                     )
-                    logger.info(
-                        "Backfill submit date=%s interface=%s retry=%d",
-                        sync_date,
-                        f"{source}/{iface_key}",
-                        attempt_retry_count,
-                    )
-                    future = executor.submit(_execute_backfill_task, iface, source, sync_date)
-                    future_map[future] = (sync_date, source, iface_key, attempt_retry_count, iface)
+                logger.info(
+                    "Backfill submit mode=%s range=%s->%s interface=%s retry_dates=%d",
+                    task.mode,
+                    task.start_date,
+                    task.end_date,
+                    f"{task.source}/{task.iface_key}",
+                    len(task.dates),
+                )
+                future = executor.submit(_execute_backfill_task, task)
+                future_map[future] = task
 
-                for future in as_completed(future_map):
-                    task_date, source, iface_key, retry_count, iface = future_map[future]
-                    label = f"{source}/{iface_key}@{task_date}"
-                    try:
-                        result = future.result()
-                        _write_status(
-                            task_date,
-                            source,
-                            iface_key,
-                            result.status.value,
-                            result.rows_synced,
-                            result.error_message,
-                            retry_count=retry_count,
+            for future in as_completed(future_map):
+                task = future_map[future]
+                log_label = f"{task.source}/{task.iface_key}@{task.start_date}"
+                if task.mode == "range" and task.end_date != task.start_date:
+                    log_label = f"{task.source}/{task.iface_key}@{task.start_date}->{task.end_date}"
+                try:
+                    result = future.result()
+                    rows_by_date = _get_backfill_rows_by_date(task, result)
+                    log_result = _build_backfill_log_result(task, result)
+                    if task.mode == "date" and len(task.dates) == 1:
+                        log_result = _normalize_zero_row_success(
+                            task.iface,
+                            task.start_date,
+                            task.source,
+                            task.iface_key,
+                            log_result,
                         )
-                        _log_backfill_result(task_date, source, iface_key, result, iface)
-                        results[label] = {
-                            "status": result.status.value,
-                            "rows": result.rows_synced,
-                            "error": result.error_message,
-                        }
-                    except Exception as e:
-                        logger.exception("Backfill %s failed: %s", label, e)
+                    _log_backfill_result(task.end_date, task.source, task.iface_key, log_result, task.iface)
+
+                    for sync_date in task.dates:
+                        normalized_result = _normalize_zero_row_success(
+                            task.iface,
+                            sync_date,
+                            task.source,
+                            task.iface_key,
+                            SyncResult(
+                                result.status,
+                                rows_by_date.get(sync_date, 0),
+                                result.error_message,
+                                details=result.details,
+                            ),
+                        )
                         _write_status(
-                            task_date,
-                            source,
-                            iface_key,
+                            sync_date,
+                            task.source,
+                            task.iface_key,
+                            normalized_result.status.value,
+                            normalized_result.rows_synced,
+                            normalized_result.error_message,
+                            retry_count=task.retry_counts[sync_date],
+                        )
+                        results[f"{task.source}/{task.iface_key}@{sync_date}"] = {
+                            "status": normalized_result.status.value,
+                            "rows": normalized_result.rows_synced,
+                            "error": normalized_result.error_message,
+                            "backfill_mode": task.mode,
+                            "range_start": task.start_date.isoformat(),
+                            "range_end": task.end_date.isoformat(),
+                        }
+                except Exception as e:
+                    logger.exception("Backfill %s failed: %s", log_label, e)
+                    error_result = SyncResult(
+                        SyncStatus.ERROR,
+                        0,
+                        str(e),
+                        details={
+                            "backfill_mode": task.mode,
+                            "range_start": task.start_date.isoformat(),
+                            "range_end": task.end_date.isoformat(),
+                            "date_count": len(task.dates),
+                        },
+                    )
+                    _log_backfill_result(task.end_date, task.source, task.iface_key, error_result, task.iface)
+                    for sync_date in task.dates:
+                        _write_status(
+                            sync_date,
+                            task.source,
+                            task.iface_key,
                             SyncStatus.ERROR.value,
                             0,
                             str(e),
-                            retry_count=retry_count,
+                            retry_count=task.retry_counts[sync_date],
                         )
-                        error_result = SyncResult(SyncStatus.ERROR, 0, str(e))
-                        _log_backfill_result(task_date, source, iface_key, error_result, iface)
-                        results[label] = {"status": SyncStatus.ERROR.value, "rows": 0, "error": str(e)}
+                        results[f"{task.source}/{task.iface_key}@{sync_date}"] = {
+                            "status": SyncStatus.ERROR.value,
+                            "rows": 0,
+                            "error": str(e),
+                            "backfill_mode": task.mode,
+                            "range_start": task.start_date.isoformat(),
+                            "range_end": task.end_date.isoformat(),
+                        }
     finally:
         try:
             release_backfill_lock()

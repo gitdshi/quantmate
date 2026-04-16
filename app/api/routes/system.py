@@ -1,6 +1,5 @@
 """System status routes."""
 
-import os
 from datetime import datetime, timezone
 from typing import Dict, Any
 
@@ -9,7 +8,7 @@ from fastapi import APIRouter, Depends
 from app.api.dependencies.permissions import require_permission
 from app.api.services.auth_service import get_current_user
 from app.api.models.user import TokenData
-from app.infrastructure.config import get_settings
+from app.infrastructure.config import get_runtime_str, get_settings
 
 from app.domains.extdata.service import SyncStatusService
 
@@ -28,6 +27,10 @@ async def get_version_info() -> Dict[str, str]:
     return {
         "name": settings.app_name,
         "version": settings.app_version,
-        "build_time": os.getenv("APP_BUILD_TIME", DEFAULT_BUILD_TIME),
+        "build_time": get_runtime_str(
+            env_keys="APP_BUILD_TIME",
+            db_key="app.build_time",
+            default=DEFAULT_BUILD_TIME,
+        ),
         "environment": settings.environment,
     }

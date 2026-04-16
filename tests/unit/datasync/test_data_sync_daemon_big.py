@@ -11,6 +11,7 @@ DataSyncDaemon.
 
 from __future__ import annotations
 
+import argparse
 from datetime import date, timedelta
 from unittest.mock import MagicMock, patch, call
 import pytest
@@ -434,6 +435,58 @@ class TestSchedulerJobs:
     def test_run_backfill_job_error(self, mock_backfill):
         from app.datasync.service.data_sync_daemon import run_backfill_job
         run_backfill_job()  # should not raise
+
+
+class TestLegacySchedulerDelegation:
+    def test_run_daemon_delegates_to_dynamic_scheduler(self):
+        import app.datasync.service.data_sync_daemon as mod
+
+        scheduler = MagicMock()
+        with patch(f"{_MOD}._get_dynamic_scheduler", return_value=scheduler):
+            mod.run_daemon()
+
+        scheduler.daemon_loop.assert_called_once_with()
+
+    def test_main_daily_delegates_to_dynamic_scheduler(self):
+        import app.datasync.service.data_sync_daemon as mod
+
+        scheduler = MagicMock()
+        args = argparse.Namespace(
+            daemon=False,
+            daily=True,
+            backfill=False,
+            init=False,
+            lookback_days=30,
+            lookback_years=15,
+            date=date(2024, 3, 15),
+            refresh_calendar=False,
+        )
+
+        with patch("argparse.ArgumentParser.parse_args", return_value=args), \
+             patch(f"{_MOD}._get_dynamic_scheduler", return_value=scheduler):
+            mod.main()
+
+        scheduler.run_daily_sync.assert_called_once_with(target_date=date(2024, 3, 15))
+
+    def test_main_init_delegates_to_dynamic_reconcile(self):
+        import app.datasync.service.data_sync_daemon as mod
+
+        args = argparse.Namespace(
+            daemon=False,
+            daily=False,
+            backfill=False,
+            init=True,
+            lookback_days=30,
+            lookback_years=2,
+            date=date(2024, 3, 15),
+            refresh_calendar=False,
+        )
+
+        with patch("argparse.ArgumentParser.parse_args", return_value=args), \
+             patch(f"{_MOD}._run_dynamic_reconcile") as mock_reconcile:
+            mod.main()
+
+        mock_reconcile.assert_called_once_with(target_date=date(2024, 3, 15), lookback_years=2)
 
 
 # ═══ sync_daily_for_date ══════════════════════════════════════════════

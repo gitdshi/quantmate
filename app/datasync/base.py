@@ -63,6 +63,18 @@ class BaseIngestInterface(ABC):
         """Whether this interface should participate in historical backfill."""
         return True
 
+    def backfill_mode(self) -> str:
+        """Backfill execution mode: `date` or `range`."""
+        return "date"
+
+    def get_backfill_rows_by_date(self, start: date, end: date) -> dict[date, int]:
+        """Return optional per-date row counts for range backfills."""
+        return {}
+
+    def requires_nonempty_trading_day_data(self) -> bool:
+        """Whether a completed trading day should normally produce at least one row."""
+        return False
+
     def sync_range(self, start: date, end: date) -> SyncResult:
         """Sync data for a date range (default: iterate sync_date).
 

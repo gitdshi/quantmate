@@ -39,9 +39,13 @@ class SystemConfigDao:
         with self.engine.begin() as conn:
             conn.execute(
                 text("""
-                INSERT INTO system_configs (config_key, config_value, category, description, user_overridable)
+                INSERT INTO system_configs (config_key, config_value, category, description, is_user_overridable)
                 VALUES (:key, :value, :category, :desc, :overridable)
-                ON DUPLICATE KEY UPDATE config_value = :value, description = :desc, user_overridable = :overridable
+                ON DUPLICATE KEY UPDATE
+                    config_value = :value,
+                    category = :category,
+                    description = :desc,
+                    is_user_overridable = :overridable
             """),
                 {
                     "key": key,

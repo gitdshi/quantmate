@@ -68,6 +68,28 @@ class TestDatasyncRoutes:
         resp = client.get("/api/v1/datasync/status/latest")
         assert resp.status_code == 200
 
+    @patch("app.datasync.service.init_service.get_initialization_state")
+    def test_get_sync_initialization_status(self, mock_get_state, client):
+        mock_get_state.return_value = {
+            "bootstrap_completed": True,
+            "sync_status_initialized": False,
+            "needs_initialization": True,
+            "sync_status_window_start": "2025-04-16",
+            "sync_status_window_end": "2026-04-16",
+            "trade_days_in_window": 243,
+            "enabled_sync_items": 15,
+            "sync_status_missing_items": [{"source": "tushare", "item_key": "trade_cal"}],
+            "sync_status_incomplete_items": [],
+            "sync_status_unsupported_enabled_items": [],
+        }
+
+        resp = client.get("/api/v1/datasync/status/initialization")
+
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["needs_initialization"] is True
+        assert payload["sync_status_missing_items"] == [{"source": "tushare", "item_key": "trade_cal"}]
+
     def test_trigger_manual_sync(self, client):
         with patch("app.worker.service.config.get_queue") as mock_q:
             queue = MagicMock()

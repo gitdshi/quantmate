@@ -133,3 +133,15 @@ class TestIngestAllIndexes:
             result = ingest_all_indexes()
         assert mock_ingest.call_count == len(INDEX_MAPPING)
         assert isinstance(result, dict)
+
+    def test_passes_start_date_to_each_symbol(self):
+        from app.datasync.service.akshare_ingest import ingest_all_indexes, INDEX_MAPPING
+
+        with patch(f"{_MOD}.ingest_index_daily", return_value=100) as mock_ingest, \
+             patch(f"{_MOD}.time.sleep"):
+            result = ingest_all_indexes(start_date="2024-01-01")
+
+        assert isinstance(result, dict)
+        assert mock_ingest.call_count == len(INDEX_MAPPING)
+        for call in mock_ingest.call_args_list:
+            assert call.kwargs["start_date"] == "2024-01-01"

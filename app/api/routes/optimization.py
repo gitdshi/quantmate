@@ -11,6 +11,7 @@ from app.api.models.user import TokenData
 from app.api.errors import ErrorCode
 from app.api.exception_handlers import APIError
 from app.domains.system.dao.optimization_dao import OptimizationTaskDao
+from app.infrastructure.config import get_runtime_int
 from app.worker.service.config import get_queue
 
 router = APIRouter(prefix="/optimization", tags=["Optimization"])
@@ -70,8 +71,16 @@ async def create_optimization_task(req: OptimizationCreateRequest, current_user:
             "app.worker.service.tasks.run_optimization_record_task",
             kwargs={"task_id": task_id},
             job_id=f"opt_task_{task_id}",
-            job_timeout=14400,
-            result_ttl=86400 * 3,
+            job_timeout=get_runtime_int(
+                env_keys="OPTIMIZATION_TASK_JOB_TIMEOUT_SECONDS",
+                db_key="backtest.optimization.task_job_timeout_seconds",
+                default=14400,
+            ),
+            result_ttl=get_runtime_int(
+                env_keys="OPTIMIZATION_TASK_RESULT_TTL_SECONDS",
+                db_key="backtest.optimization.task_result_ttl_seconds",
+                default=86400 * 3,
+            ),
         )
     except Exception:
         logger.exception("Failed to enqueue optimization task %s", task_id)

@@ -21,16 +21,38 @@ except Exception as _e:  # pragma: no cover - environment dependent
     _AKSHARE_IMPORT_ERROR = _e
 import pandas as pd
 
+from app.infrastructure.config import get_runtime_float, get_runtime_int
+
 logger = logging.getLogger(__name__)
 
 # ── In-memory TTL cache for expensive AkShare bulk calls ──────────────────
 _BULK_CACHE: dict[str, tuple[float, pd.DataFrame]] = {}
 _BULK_CACHE_LOCK = threading.Lock()
-_BULK_CACHE_TTL = 60  # seconds
-_AKSHARE_TIMEOUT = 15  # seconds — max wait per AkShare bulk call
-_TENCENT_TIMEOUT = 8  # seconds
-_TENCENT_RETRIES = 2
-_TENCENT_BACKOFF = 1.0  # seconds
+_BULK_CACHE_TTL = get_runtime_int(
+    env_keys="REALTIME_QUOTE_BULK_CACHE_TTL_SECONDS",
+    db_key="realtime_quote.bulk_cache_ttl_seconds",
+    default=60,
+)
+_AKSHARE_TIMEOUT = get_runtime_float(
+    env_keys="REALTIME_QUOTE_AKSHARE_TIMEOUT_SECONDS",
+    db_key="realtime_quote.akshare_timeout_seconds",
+    default=15.0,
+)
+_TENCENT_TIMEOUT = get_runtime_float(
+    env_keys="REALTIME_QUOTE_TENCENT_TIMEOUT_SECONDS",
+    db_key="realtime_quote.tencent_timeout_seconds",
+    default=8.0,
+)
+_TENCENT_RETRIES = get_runtime_int(
+    env_keys="REALTIME_QUOTE_TENCENT_RETRIES",
+    db_key="realtime_quote.tencent_retries",
+    default=2,
+)
+_TENCENT_BACKOFF = get_runtime_float(
+    env_keys="REALTIME_QUOTE_TENCENT_BACKOFF_SECONDS",
+    db_key="realtime_quote.tencent_backoff_seconds",
+    default=1.0,
+)
 
 _executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="akshare")
 

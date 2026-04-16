@@ -24,10 +24,13 @@ def _engine_conn(engine_mock):
 @pytest.fixture(autouse=True)
 def _patch_engines(monkeypatch):
     """Replace all four engines with MagicMock objects."""
+    _mod._load_step_resolution_metadata.cache_clear()
     monkeypatch.setattr(_mod, "engine_tm", MagicMock())
     monkeypatch.setattr(_mod, "engine_ts", MagicMock())
     monkeypatch.setattr(_mod, "engine_vn", MagicMock())
     monkeypatch.setattr(_mod, "engine_ak", MagicMock())
+    yield
+    _mod._load_step_resolution_metadata.cache_clear()
 
 
 # ── Pure helpers ──────────────────────────────────────────────────
@@ -38,6 +41,11 @@ class TestStepMapping:
         assert src == "tushare"
         assert iface == "stock_daily"
 
+    def test_legacy_alias_step(self):
+        src, iface = _mod._step_to_source_interface("akshare_index")
+        assert src == "akshare"
+        assert iface == "index_daily"
+
     def test_unknown_step(self):
         src, iface = _mod._step_to_source_interface("unknown_xyz")
         assert src == "legacy"
@@ -47,6 +55,16 @@ class TestStepMapping:
         src, iface = _mod._step_to_source_interface("tushare_stock_daily")
         step = _mod._source_interface_to_step(src, iface)
         assert step == "tushare_stock_daily"
+
+    def test_dynamic_source_from_catalog(self):
+        conn = _engine_conn(_mod.engine_tm)
+        conn.execute.return_value = MagicMock(fetchall=MagicMock(return_value=[("customfeed", "bars", "bars_daily")]))
+
+        src, iface = _mod._step_to_source_interface("customfeed_bars")
+        step = _mod._source_interface_to_step("customfeed", "bars")
+
+        assert (src, iface) == ("customfeed", "bars")
+        assert step == "customfeed_bars"
 
 
 # ── write_step_status / get_step_status ──────────────────────────

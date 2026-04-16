@@ -11,6 +11,8 @@ import logging
 from dataclasses import dataclass
 from typing import Optional
 
+from app.infrastructure.config import get_runtime_float
+
 logger = logging.getLogger(__name__)
 
 
@@ -103,7 +105,11 @@ class FillResult:
 # ── Matching logic ──────────────────────────────────────────
 
 
-_DEFAULT_SLIPPAGE = 0.001  # 0.1% default slippage
+_DEFAULT_SLIPPAGE = get_runtime_float(
+    env_keys="TRADING_DEFAULT_SLIPPAGE",
+    db_key="trading.default_slippage",
+    default=0.001,
+)
 
 
 def try_fill_market_order(

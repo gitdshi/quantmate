@@ -7,16 +7,20 @@ and provides helpers for switching between data providers.
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 from typing import Optional
+
+from app.infrastructure.config import get_runtime_str
 
 logger = logging.getLogger(__name__)
 
 _qlib_initialized = False
 
 # Default data directory for Qlib binary format files
-QLIB_DATA_DIR = os.environ.get("QLIB_DATA_DIR", str(Path.home() / ".qlib" / "qlib_data" / "cn_data"))
+QLIB_DATA_DIR = get_runtime_str(
+    env_keys="QLIB_DATA_DIR",
+    default=str(Path.home() / ".qlib" / "qlib_data" / "cn_data"),
+)
 
 # Supported Qlib model types
 SUPPORTED_MODELS = {

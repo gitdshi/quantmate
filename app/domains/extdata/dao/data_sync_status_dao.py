@@ -4,10 +4,12 @@ import os
 import logging
 import socket
 import subprocess
+from functools import lru_cache
 from datetime import date, timedelta
 from typing import Dict, List, Tuple, Any
 
 from sqlalchemy import text
+from app.infrastructure.config import get_runtime_int
 from app.infrastructure.db.connections import (
     get_quantmate_engine,
     get_tushare_engine,
@@ -17,24 +19,12 @@ from app.infrastructure.db.connections import (
 
 logger = logging.getLogger(__name__)
 
-_STEP_TO_INTERFACE = {
+_LEGACY_STEP_ALIASES = {
     "akshare_index": ("akshare", "index_daily"),
-    "tushare_stock_basic": ("tushare", "stock_basic"),
-    "tushare_stock_daily": ("tushare", "stock_daily"),
-    "tushare_bak_daily": ("tushare", "bak_daily"),
-    "tushare_moneyflow": ("tushare", "moneyflow"),
-    "tushare_suspend_d": ("tushare", "suspend_d"),
-    "tushare_suspend": ("tushare", "suspend"),
-    "tushare_adj_factor": ("tushare", "adj_factor"),
-    "tushare_dividend": ("tushare", "dividend"),
-    "tushare_top10_holders": ("tushare", "top10_holders"),
     "vnpy_sync": ("vnpy", "vnpy_sync"),
-    "tushare_stock_weekly": ("tushare", "stock_weekly"),
-    "tushare_stock_monthly": ("tushare", "stock_monthly"),
-    "tushare_index_daily": ("tushare", "index_daily"),
-    "tushare_index_weekly": ("tushare", "index_weekly"),
 }
-_INTERFACE_TO_STEP = {value: key for key, value in _STEP_TO_INTERFACE.items()}
+_LEGACY_INTERFACE_ALIASES = {value: key for key, value in _LEGACY_STEP_ALIASES.items()}
+_DEFAULT_SOURCE_HINTS = ("tushare", "akshare", "vnpy")
 
 # Engines provided by infrastructure connection helpers
 engine_tm = get_quantmate_engine()
@@ -76,11 +66,101 @@ CREATE TABLE IF NOT EXISTS trade_cal (
 
 
 def _step_to_source_interface(step_name: str) -> tuple[str, str]:
-    return _STEP_TO_INTERFACE.get(step_name, ("legacy", step_name))
+    normalized = (step_name or "").strip()
+    if not normalized:
+        return ("legacy", normalized)
+
+    legacy_alias = _LEGACY_STEP_ALIASES.get(normalized)
+    if legacy_alias is not None:
+        return legacy_alias
+
+    for delimiter in ("/", ":"):
+        if normalized.count(delimiter) == 1:
+            source, interface_key = (part.strip() for part in normalized.split(delimiter, 1))
+            if source and interface_key:
+                return source, interface_key
+
+    for source in sorted(_DEFAULT_SOURCE_HINTS, key=len, reverse=True):
+        prefix = f"{source}_"
+        if normalized.startswith(prefix) and len(normalized) > len(prefix):
+            return source, normalized[len(prefix) :]
+
+    for refresh in (False, True):
+        known_sources, _, alias_map = _get_step_resolution_metadata(refresh=refresh)
+        resolved = alias_map.get(normalized)
+        if resolved is not None:
+            return resolved
+
+        for source in sorted(known_sources, key=len, reverse=True):
+            prefix = f"{source}_"
+            if normalized.startswith(prefix) and len(normalized) > len(prefix):
+                return source, normalized[len(prefix) :]
+
+    return ("legacy", normalized)
 
 
 def _source_interface_to_step(source: str, interface_key: str) -> str:
-    return _INTERFACE_TO_STEP.get((source, interface_key), f"{source}:{interface_key}")
+    normalized_source = (source or "").strip()
+    normalized_interface = (interface_key or "").strip()
+    if not normalized_source or not normalized_interface:
+        return f"{normalized_source}:{normalized_interface}".strip(":")
+
+    legacy_alias = _LEGACY_INTERFACE_ALIASES.get((normalized_source, normalized_interface))
+    if legacy_alias is not None:
+        return legacy_alias
+
+    if normalized_source in _DEFAULT_SOURCE_HINTS:
+        return f"{normalized_source}_{normalized_interface}"
+
+    for refresh in (False, True):
+        known_sources, known_pairs, _ = _get_step_resolution_metadata(refresh=refresh)
+        if (normalized_source, normalized_interface) in known_pairs or normalized_source in known_sources:
+            return f"{normalized_source}_{normalized_interface}"
+
+    return f"{normalized_source}:{normalized_interface}"
+
+
+@lru_cache(maxsize=8)
+def _load_step_resolution_metadata(engine_identity: int) -> tuple[set[str], set[tuple[str, str]], dict[str, tuple[str, str]]]:
+    del engine_identity
+
+    known_sources = set(_DEFAULT_SOURCE_HINTS)
+    known_pairs: set[tuple[str, str]] = set()
+    alias_map = dict(_LEGACY_STEP_ALIASES)
+
+    try:
+        with engine_tm.connect() as conn:
+            result = conn.execute(text("SELECT source, item_key, target_table FROM data_source_items"))
+            rows = result.fetchall()
+    except Exception:
+        logger.debug("Failed to load dynamic step resolution metadata from data_source_items", exc_info=True)
+        return known_sources, known_pairs, alias_map
+
+    if not isinstance(rows, (list, tuple)):
+        return known_sources, known_pairs, alias_map
+
+    for row in rows:
+        source = (row[0] or "").strip() if isinstance(row[0], str) else str(row[0] or "").strip()
+        item_key = (row[1] or "").strip() if isinstance(row[1], str) else str(row[1] or "").strip()
+        target_table = (row[2] or "").strip() if isinstance(row[2], str) else str(row[2] or "").strip()
+        if not source or not item_key:
+            continue
+
+        known_sources.add(source)
+        known_pairs.add((source, item_key))
+
+        for candidate in {item_key, target_table} - {""}:
+            alias_map.setdefault(f"{source}_{candidate}", (source, candidate))
+            alias_map.setdefault(f"{source}/{candidate}", (source, candidate))
+            alias_map.setdefault(f"{source}:{candidate}", (source, candidate))
+
+    return known_sources, known_pairs, alias_map
+
+
+def _get_step_resolution_metadata(refresh: bool = False) -> tuple[set[str], set[tuple[str, str]], dict[str, tuple[str, str]]]:
+    if refresh:
+        _load_step_resolution_metadata.cache_clear()
+    return _load_step_resolution_metadata(id(engine_tm))
 
 
 def ensure_tables():
@@ -267,6 +347,44 @@ def get_adj_factor_count_for_date(d: date) -> int:
         res = conn.execute(text("SELECT COUNT(*) FROM adj_factor WHERE trade_date = :d"), {"d": d})
         row = res.fetchone()
         return int(row[0] if row and row[0] is not None else 0)
+
+
+def get_dividend_counts(start: date, end: date) -> Dict[date, int]:
+    res_map: Dict[date, int] = {}
+    with engine_ts.connect() as conn:
+        res = conn.execute(
+            text(
+                """
+            SELECT ann_date, COUNT(*) as cnt
+            FROM stock_dividend
+            WHERE ann_date BETWEEN :s AND :e
+            GROUP BY ann_date
+        """
+            ),
+            {"s": start, "e": end},
+        )
+        for row in res.fetchall():
+            res_map[row[0]] = int(row[1])
+    return res_map
+
+
+def get_top10_holders_counts(start: date, end: date) -> Dict[date, int]:
+    res_map: Dict[date, int] = {}
+    with engine_ts.connect() as conn:
+        res = conn.execute(
+            text(
+                """
+            SELECT end_date, COUNT(*) as cnt
+            FROM top10_holders
+            WHERE end_date BETWEEN :s AND :e
+            GROUP BY end_date
+        """
+            ),
+            {"s": start, "e": end},
+        )
+        for row in res.fetchall():
+            res_map[row[0]] = int(row[1])
+    return res_map
 
 
 def get_stock_daily_ts_codes_for_date(d: date) -> List[str]:
@@ -534,10 +652,11 @@ def acquire_backfill_lock() -> bool:
     except Exception:
         logger.exception("Failed to release orphaned backfill lock")
     # Clear stale locks before attempting to acquire
-    try:
-        stale_hours = int(os.getenv("BACKFILL_LOCK_STALE_HOURS", "6"))
-    except Exception:
-        stale_hours = 6
+    stale_hours = get_runtime_int(
+        env_keys="BACKFILL_LOCK_STALE_HOURS",
+        db_key="datasync.backfill_lock_stale_hours",
+        default=6,
+    )
     try:
         release_stale_backfill_lock(stale_hours)
     except Exception:
@@ -616,10 +735,11 @@ def acquire_backfill_lock_with_token(token: str) -> bool:
         release_orphaned_backfill_lock()
     except Exception:
         logger.exception("Failed to release orphaned backfill lock")
-    try:
-        stale_hours = int(os.getenv("BACKFILL_LOCK_STALE_HOURS", "6"))
-    except Exception:
-        stale_hours = 6
+    stale_hours = get_runtime_int(
+        env_keys="BACKFILL_LOCK_STALE_HOURS",
+        db_key="datasync.backfill_lock_stale_hours",
+        default=6,
+    )
     try:
         release_stale_backfill_lock(stale_hours)
     except Exception:
@@ -703,10 +823,11 @@ def is_backfill_locked() -> bool:
         release_orphaned_backfill_lock()
     except Exception:
         logger.exception("Failed to release orphaned backfill lock during lock check")
-    try:
-        stale_hours = int(os.getenv("BACKFILL_LOCK_STALE_HOURS", "6"))
-    except Exception:
-        stale_hours = 6
+    stale_hours = get_runtime_int(
+        env_keys="BACKFILL_LOCK_STALE_HOURS",
+        db_key="datasync.backfill_lock_stale_hours",
+        default=6,
+    )
     try:
         release_stale_backfill_lock(stale_hours)
     except Exception:

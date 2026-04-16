@@ -1,25 +1,15 @@
-"""
-Data Sync Daemon for QuantMate
+"""Legacy data sync daemon helpers for QuantMate.
 
-Handles scheduled data synchronization with two main jobs:
-1. Daily ingest at 2:00 AM Shanghai time (incremental sync)
-2. Backfill job every 6 hours (historical gap-filling with DB lock)
-
-Startup behavior:
-- Synchronously runs daily ingest first
-- Continues with other dates if any fail
-- Then runs backfill
-- Finally enters scheduler loop
-
-Architecture:
-- akshare: Index data from AkShare API
-- tushare: Stock data from Tushare API
-- vnpy: Converted data for vnpy trading platform
+Operational CLI entrypoints now delegate to ``app.datasync.scheduler`` so the
+DB-driven registry remains the source of truth for enabled interfaces. The
+older helper functions in this module stay importable for backward
+compatibility and focused unit tests.
 
 Usage:
-    python -m app.datasync.service.data_sync_daemon --daemon        # Run as daemon
-    python -m app.datasync.service.data_sync_daemon --daily         # Run daily ingest once
+    python -m app.datasync.service.data_sync_daemon --daemon        # Run scheduler daemon
+    python -m app.datasync.service.data_sync_daemon --daily         # Run daily sync once
     python -m app.datasync.service.data_sync_daemon --backfill      # Run backfill once
+    python -m app.datasync.service.data_sync_daemon --init          # Reconcile sync status once
 """
 
 import os
@@ -27,9 +17,7 @@ import sys
 import time
 import logging
 import argparse
-import schedule
 from datetime import datetime, date, timedelta
-from zoneinfo import ZoneInfo
 from typing import List, Optional, Tuple, Dict
 from enum import Enum
 
@@ -40,6 +28,7 @@ sys.path.insert(0, str(os.path.dirname(os.path.dirname(os.path.dirname(os.path.a
 
 # Import ingest modules
 from app.infrastructure.logging.logging_setup import configure_logging
+from app.infrastructure.config import get_runtime_bool, get_runtime_int, get_runtime_str
 from app.datasync.service.tushare_ingest import (
     ingest_daily,
     ingest_stock_basic,
@@ -105,7 +94,7 @@ from app.domains.extdata.dao.sync_log_dao import (
 )
 
 # Tushare daemon compatibility flags
-DRY_RUN = os.getenv("DRY_RUN", "0") == "1"
+DRY_RUN = get_runtime_bool(env_keys="DRY_RUN", db_key="datasync.dry_run", default=False)
 
 
 # Import AkShare for trade calendar
@@ -117,19 +106,27 @@ except ImportError:
     AKSHARE_AVAILABLE = False
     ak = None
 
-LOG_LEVEL = getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO)
+LOG_LEVEL = getattr(
+    logging,
+    get_runtime_str(env_keys="LOG_LEVEL", db_key="logging.level", default="INFO").upper(),
+    logging.INFO,
+)
 configure_logging(LOG_LEVEL)
 logger = logging.getLogger(__name__)
 
 # Configuration
-SYNC_HOUR = int(os.getenv("SYNC_HOUR", "2"))
-SYNC_MINUTE = int(os.getenv("SYNC_MINUTE", "0"))
-BACKFILL_INTERVAL_HOURS = int(os.getenv("BACKFILL_INTERVAL_HOURS", "6"))
-BACKFILL_DAYS = int(os.getenv("BACKFILL_DAYS", "30"))  # How many days to look back for missing data
-LOOKBACK_DAYS = int(os.getenv("LOOKBACK_DAYS", "60"))
-BATCH_SIZE = int(os.getenv("BATCH_SIZE", "100"))
-MAX_RETRIES = int(os.getenv("MAX_RETRIES", "3"))
-TIMEZONE = "Asia/Shanghai"
+SYNC_HOUR = get_runtime_int(env_keys="SYNC_HOUR", db_key="datasync.sync_hour", default=2)
+SYNC_MINUTE = get_runtime_int(env_keys="SYNC_MINUTE", db_key="datasync.sync_minute", default=0)
+BACKFILL_INTERVAL_HOURS = get_runtime_int(
+    env_keys="BACKFILL_INTERVAL_HOURS",
+    db_key="datasync.backfill_interval_hours",
+    default=6,
+)
+BACKFILL_DAYS = get_runtime_int(env_keys="BACKFILL_DAYS", db_key="datasync.backfill_days", default=30)
+LOOKBACK_DAYS = get_runtime_int(env_keys="LOOKBACK_DAYS", db_key="datasync.lookback_days", default=60)
+BATCH_SIZE = get_runtime_int(env_keys="BATCH_SIZE", db_key="datasync.batch_size", default=100)
+MAX_RETRIES = get_runtime_int(env_keys="MAX_RETRIES", db_key="datasync.max_retries", default=3)
+TIMEZONE = get_runtime_str(env_keys="DATASYNC_TIMEZONE", db_key="datasync.timezone", default="Asia/Shanghai")
 
 # Endpoints that must be synced (used by SyncStatusService)
 REQUIRED_ENDPOINTS = [
@@ -1155,6 +1152,29 @@ def initialize_sync_status_table(lookback_years: int = 15):
     logger.info("Initialization complete: %d step statuses inserted for %d dates", processed, len(trade_days))
 
 
+def _get_dynamic_scheduler():
+    """Load the dynamic scheduler lazily to avoid import cycles at module import time."""
+    from app.datasync import scheduler as scheduler_module
+
+    return scheduler_module
+
+
+def _run_dynamic_reconcile(target_date: Optional[date], lookback_years: int):
+    """Delegate legacy init CLI usage to the dynamic reconciliation flow."""
+    scheduler_module = _get_dynamic_scheduler()
+    env_key = "DATASYNC_INIT_LOOKBACK_DAYS"
+    previous_value = os.getenv(env_key)
+
+    try:
+        os.environ[env_key] = str(max(1, lookback_years * 365))
+        return scheduler_module.run_reconcile(target_end_date=target_date)
+    finally:
+        if previous_value is None:
+            os.environ.pop(env_key, None)
+        else:
+            os.environ[env_key] = previous_value
+
+
 # =============================================================================
 # Scheduler
 # =============================================================================
@@ -1183,70 +1203,11 @@ def run_backfill_job():
 
 
 def run_daemon():
-    """Run as daemon with scheduled jobs."""
-    logger.info("=" * 80)
-    logger.info("QuantMate Data Sync Daemon Starting")
-    logger.info("Timezone: %s", TIMEZONE)
-    logger.info("Daily ingest: %02d:%02d", SYNC_HOUR, SYNC_MINUTE)
-    logger.info("Backfill: Every %d hours", BACKFILL_INTERVAL_HOURS)
-    logger.info("=" * 80)
-
-    # Ensure tables exist
-    logger.info("[Startup] Verifying database tables...")
-    try:
-        ensure_tables()
-    except Exception as e:
-        logger.warning("Failed to ensure tables: %s", e)
-
-    # Synchronously run daily ingest first
-    logger.info("[Startup] Running daily ingest synchronously...")
-    try:
-        daily_ingest(continue_on_error=True)
-    except Exception as e:
-        logger.exception("[Startup] Daily ingest failed: %s", e)
-
-    # Then run backfill
-    logger.info("[Startup] Running backfill...")
-    try:
-        missing_data_backfill()
-    except Exception as e:
-        logger.exception("[Startup] Backfill failed: %s", e)
-
-    logger.info("[Startup] Initialization complete. Entering scheduler loop...")
-    logger.info("=" * 80)
-
-    # Schedule jobs with Shanghai timezone
-    try:
-        shanghai_tz = ZoneInfo(TIMEZONE)
-
-        # Daily job at 2:00 AM Shanghai time
-        # Convert to local system time for scheduling
-        now_shanghai = datetime.now(tz=shanghai_tz)
-        now_local = datetime.now()
-        tz_offset_hours = (
-            now_shanghai.utcoffset().total_seconds() - now_local.astimezone().utcoffset().total_seconds()
-        ) / 3600
-
-        local_hour = int(SYNC_HOUR - tz_offset_hours) % 24
-        schedule_time = f"{local_hour:02d}:{SYNC_MINUTE:02d}"
-
-        schedule.every().day.at(schedule_time).do(run_daily_job)
-        logger.info(
-            "Scheduled daily job at %s (local time, %02d:%02d Shanghai time)", schedule_time, SYNC_HOUR, SYNC_MINUTE
-        )
-
-    except Exception as e:
-        logger.warning("Timezone conversion failed, using system local time: %s", e)
-        schedule.every().day.at(f"{SYNC_HOUR:02d}:{SYNC_MINUTE:02d}").do(run_daily_job)
-
-    # Backfill every 6 hours
-    schedule.every(BACKFILL_INTERVAL_HOURS).hours.do(run_backfill_job)
-    logger.info("Scheduled backfill job every %d hours", BACKFILL_INTERVAL_HOURS)
-
-    # Run scheduler loop
-    while True:
-        schedule.run_pending()
-        time.sleep(60)
+    """Run the modern scheduler daemon via the legacy entrypoint."""
+    logger.warning(
+        "Legacy data_sync_daemon.run_daemon() is deprecated; delegating to app.datasync.scheduler.daemon_loop()"
+    )
+    return _get_dynamic_scheduler().daemon_loop()
 
 
 # =============================================================================
@@ -1264,18 +1225,27 @@ def main():
         "--lookback-days", type=int, default=LOOKBACK_DAYS, help="Backfill lookback days (used with --backfill)"
     )
     parser.add_argument("--lookback-years", type=int, default=15, help="Init lookback years (used with --init)")
+    parser.add_argument("--date", type=lambda raw: datetime.strptime(raw, "%Y-%m-%d").date(), help="Target date (YYYY-MM-DD)")
     parser.add_argument("--refresh-calendar", action="store_true", help="Refresh trade calendar")
 
     args = parser.parse_args()
 
     if args.init:
-        initialize_sync_status_table(lookback_years=args.lookback_years)
+        logger.warning(
+            "Legacy --init entrypoint is deprecated; delegating to dynamic sync-status reconciliation"
+        )
+        result = _run_dynamic_reconcile(target_date=args.date, lookback_years=args.lookback_years)
+        logger.info("Reconcile result: %s", result)
     elif args.refresh_calendar:
         refresh_trade_calendar()
     elif args.daily:
-        daily_ingest()
+        logger.warning("Legacy --daily entrypoint is deprecated; delegating to dynamic scheduler daily sync")
+        results = _get_dynamic_scheduler().run_daily_sync(target_date=args.date)
+        logger.info("Daily sync results: %s", results)
     elif args.backfill:
-        missing_data_backfill(lookback_days=args.lookback_days)
+        logger.warning("Legacy --backfill entrypoint is deprecated; delegating to dynamic scheduler backfill")
+        results = _get_dynamic_scheduler().run_backfill(lookback_days=args.lookback_days)
+        logger.info("Backfill results: %s", results)
     elif args.daemon:
         run_daemon()
     else:

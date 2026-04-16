@@ -169,5 +169,5 @@ def _read_json(path: Path) -> dict | None:
 
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", "8001"))
+    port = int(os.getenv("RDAGENT_SERVICE_PORT", os.getenv("PORT", "8001")))
     app.run(host="0.0.0.0", port=port)

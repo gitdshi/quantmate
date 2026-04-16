@@ -66,6 +66,20 @@ CREATE TABLE IF NOT EXISTS new_share (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 """
 
+TRADE_CAL_DDL = """
+CREATE TABLE IF NOT EXISTS trade_cal (
+    exchange VARCHAR(16) NOT NULL DEFAULT 'SSE',
+    cal_date DATE NOT NULL,
+    is_open TINYINT NOT NULL DEFAULT 0,
+    pretrade_date DATE DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (exchange, cal_date),
+    INDEX idx_trade_cal_date (cal_date),
+    INDEX idx_trade_cal_is_open (is_open)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+"""
+
 STOCK_DAILY_DDL = """
 CREATE TABLE IF NOT EXISTS stock_daily (
     ts_code VARCHAR(32) NOT NULL,

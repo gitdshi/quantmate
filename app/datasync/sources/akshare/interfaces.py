@@ -14,6 +14,9 @@ logger = logging.getLogger(__name__)
 
 
 class AkShareIndexDailyInterface(BaseIngestInterface):
+    def requires_nonempty_trading_day_data(self) -> bool:
+        return True
+
     @property
     def info(self) -> InterfaceInfo:
         return InterfaceInfo(
@@ -131,6 +134,9 @@ class AkShareETFDailyInterface(BaseIngestInterface):
 
     # Popular ETFs to sync
     ETF_SYMBOLS = ["159919", "510300", "510050", "510500", "159915"]
+
+    def requires_nonempty_trading_day_data(self) -> bool:
+        return True
 
     def _sina_symbol(self, symbol: str) -> str:
         if symbol.startswith(("sh", "sz")):

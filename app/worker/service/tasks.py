@@ -27,10 +27,11 @@ from vnpy.trader.setting import SETTINGS as VNPY_SETTINGS
 
 def _configure_vnpy_mysql_from_env() -> None:
     """Force vn.py to use MySQL (vnpy DB) based on the application's MYSQL_* env vars."""
-    host = os.getenv("MYSQL_HOST")
-    user = os.getenv("MYSQL_USER")
-    password = os.getenv("MYSQL_PASSWORD")
-    port = int(os.getenv("MYSQL_PORT", "3306"))
+    settings = get_settings()
+    host = settings.mysql_host
+    user = settings.mysql_user
+    password = settings.mysql_password
+    port = settings.mysql_port
 
     if not host or not user or not password:
         logger.warning("[worker] VNPy MySQL config skipped: missing MYSQL_* env")
@@ -44,9 +45,6 @@ def _configure_vnpy_mysql_from_env() -> None:
     VNPY_SETTINGS["database.database"] = "vnpy"
 
     logger.info("[worker] VNPy DB backend set to mysql %s:%s db=vnpy user=%s", host, port, user)
-
-
-_configure_vnpy_mysql_from_env()
 
 from vnpy_ctastrategy.backtesting import BacktestingEngine, BacktestingMode, evaluate
 
@@ -72,6 +70,18 @@ from app.domains.backtests.dao.backtest_history_dao import BacktestHistoryDao
 from app.domains.backtests.dao.bulk_backtest_dao import BulkBacktestDao
 from app.domains.backtests.dao.strategy_source_dao import StrategySourceDao
 from app.domains.system.dao.optimization_dao import OptimizationTaskDao
+from app.infrastructure.config import get_runtime_float, get_runtime_int, get_runtime_str, get_settings
+
+
+_configure_vnpy_mysql_from_env()
+
+
+def _optimization_max_workers() -> int:
+    return get_runtime_int(
+        env_keys="OPTIMIZATION_MAX_WORKERS",
+        db_key="backtest.optimization.max_workers",
+        default=4,
+    )
 
 
 def convert_to_vnpy_symbol(symbol: str) -> str:
@@ -150,11 +160,16 @@ def resolve_symbol_name(input_symbol: str) -> str:
 
 
 def get_benchmark_data_for_worker(
-    start_date: str, end_date: str, benchmark_symbol: str = "399300.SZ"
+    start_date: str, end_date: str, benchmark_symbol: str | None = None
 ) -> Optional[Dict]:
     """
     Fetch HS300 benchmark data for the given period (worker version).
     """
+    benchmark_symbol = benchmark_symbol or get_runtime_str(
+        env_keys="BACKTEST_DEFAULT_BENCHMARK",
+        db_key="backtest.default_benchmark",
+        default="399300.SZ",
+    )
     try:
         start_dt = datetime.strptime(start_date, "%Y-%m-%d").date() if isinstance(start_date, str) else start_date
         end_dt = datetime.strptime(end_date, "%Y-%m-%d").date() if isinstance(end_date, str) else end_date
@@ -258,7 +273,7 @@ def run_backtest_task(
     size: int,
     pricetick: float,
     parameters: Optional[Dict[str, Any]] = None,
-    benchmark: str = "399300.SZ",
+    benchmark: str | None = None,
     user_id: int = None,
     strategy_id: int = None,
 ) -> Dict[str, Any]:
@@ -287,6 +302,11 @@ def run_backtest_task(
     # Get job_id from RQ context (RQ uses job_id kwarg as the actual job ID)
     current_job = get_current_job()
     job_id = current_job.id if current_job else None
+    benchmark = benchmark or get_runtime_str(
+        env_keys="BACKTEST_DEFAULT_BENCHMARK",
+        db_key="backtest.default_benchmark",
+        default="399300.SZ",
+    )
 
     try:
         strategy_settings: Dict[str, Any] = {}
@@ -571,7 +591,7 @@ def run_bulk_backtest_task(
     size: int,
     pricetick: float,
     parameters: Optional[Dict[str, Any]] = None,
-    benchmark: str = "399300.SZ",
+    benchmark: str | None = None,
     bulk_job_id: str = None,
     user_id: int = None,
     strategy_id: int = None,
@@ -588,6 +608,11 @@ def run_bulk_backtest_task(
     # Resolve the actual RQ job ID (should match bulk_job_id)
     current_job = get_current_job()
     job_id = current_job.id if current_job else bulk_job_id
+    benchmark = benchmark or get_runtime_str(
+        env_keys="BACKTEST_DEFAULT_BENCHMARK",
+        db_key="backtest.default_benchmark",
+        default="399300.SZ",
+    )
 
     job_storage = get_job_storage()
     total = len(symbols)
@@ -1295,7 +1320,7 @@ def run_optimization_task(
             optimization_result = engine.run_ga_optimization(
                 optimization_setting=setting,
                 output=False,
-                max_workers=4,
+                max_workers=_optimization_max_workers(),
                 ngen_size=1,
             )
         else:
@@ -1303,7 +1328,7 @@ def run_optimization_task(
             optimization_result = engine.run_bf_optimization(
                 optimization_setting=setting,
                 output=False,
-                max_workers=4,
+                max_workers=_optimization_max_workers(),
             )
 
         # Format results
@@ -1362,11 +1387,31 @@ def run_optimization_record_task(task_id: int) -> Dict[str, Any]:
             symbol=symbol,
             start_date=start_date,
             end_date=end_date,
-            initial_capital=100000.0,
-            rate=0.0003,
-            slippage=0.0001,
-            size=1,
-            pricetick=0.01,
+            initial_capital=get_runtime_float(
+                env_keys="BACKTEST_DEFAULT_CAPITAL",
+                db_key="backtest.default_capital",
+                default=100000.0,
+            ),
+            rate=get_runtime_float(
+                env_keys="OPTIMIZATION_DEFAULT_RATE",
+                db_key="backtest.optimization.default_rate",
+                default=0.0003,
+            ),
+            slippage=get_runtime_float(
+                env_keys="OPTIMIZATION_DEFAULT_SLIPPAGE",
+                db_key="backtest.optimization.default_slippage",
+                default=0.0001,
+            ),
+            size=get_runtime_int(
+                env_keys="BACKTEST_DEFAULT_SIZE",
+                db_key="backtest.default_size",
+                default=1,
+            ),
+            pricetick=get_runtime_float(
+                env_keys="BACKTEST_DEFAULT_PRICETICK",
+                db_key="backtest.default_pricetick",
+                default=0.01,
+            ),
             optimization_settings=param_space,
             job_id=f"opt_task_{task_id}",
             search_method=search_method,

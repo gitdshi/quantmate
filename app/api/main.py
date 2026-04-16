@@ -28,7 +28,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import RedirectResponse
 from typing import Optional
 
-from app.infrastructure.config import get_settings
+from app.infrastructure.config import get_runtime_int, get_runtime_str, get_settings
 
 # Note: schema creation/migrations are handled outside the running app.
 from app.api.routes import auth, strategies, data, backtest, queue
@@ -112,7 +112,11 @@ async def ensure_password_changed(
             code=ErrorCode.AUTH_INVALID_TOKEN,
             message="Invalid or expired token",
         )
-    if token_data.must_change_password and token_data.username != os.getenv("ADMIN_USERNAME", "admin"):
+    if token_data.must_change_password and token_data.username != get_runtime_str(
+        env_keys="ADMIN_USERNAME",
+        db_key="auth.admin_username",
+        default="admin",
+    ):
         raise APIError(
             status_code=status.HTTP_403_FORBIDDEN,
             code=ErrorCode.AUTH_PASSWORD_CHANGE_REQUIRED,
@@ -129,9 +133,17 @@ async def lifespan(app: FastAPI):
 
     # Admin user initialization
     try:
-        admin_username = os.getenv("ADMIN_USERNAME", "admin")
-        admin_email = os.getenv("ADMIN_EMAIL", "admin@quantmate.local")
-        admin_password = os.getenv("ADMIN_PASSWORD")
+        admin_username = get_runtime_str(
+            env_keys="ADMIN_USERNAME",
+            db_key="auth.admin_username",
+            default="admin",
+        )
+        admin_email = get_runtime_str(
+            env_keys="ADMIN_EMAIL",
+            db_key="auth.admin_email",
+            default="admin@quantmate.local",
+        )
+        admin_password = get_runtime_str(env_keys="ADMIN_PASSWORD", default="") or None
         is_production = not settings.debug
 
         user_dao = UserDao()
@@ -355,4 +367,9 @@ async def metrics():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("app.api.main:app", host="0.0.0.0", port=8000, reload=settings.debug)
+    uvicorn.run(
+        "app.api.main:app",
+        host=get_runtime_str(env_keys="API_HOST", db_key="api.host", default="0.0.0.0"),
+        port=get_runtime_int(env_keys="API_PORT", db_key="api.port", default=8000),
+        reload=settings.debug,
+    )

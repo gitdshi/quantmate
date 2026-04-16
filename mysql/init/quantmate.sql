@@ -332,15 +332,14 @@ INSERT INTO data_source_items (source, item_key, item_name, enabled, description
 ('tushare', 'stock_basic',     '股票基本信息',  1, 'A股基本资料',                   NULL,      'tushare', 'stock_basic',     1, 10),
 ('tushare', 'stock_daily',     '日线行情',      1, 'A股日K线',                      NULL,      'tushare', 'stock_daily',     1, 20),
 ('tushare', 'adj_factor',      '复权因子',      1, '前复权因子',                     NULL,      'tushare', 'adj_factor',      1, 30),
-('tushare', 'trade_cal',       '交易日历',      1, '交易所交易日历',                  NULL,      'akshare', 'trade_cal',       1, 5),
-('tushare', 'stock_dividend',  '分红送股',      0, '分红送转信息',                   'premium', 'tushare', 'stock_dividend',  1, 50),
+('tushare', 'trade_cal',       '交易日历',      1, '交易所交易日历',                  NULL,      'tushare', 'trade_cal',       1, 5),
 -- Weekly/Monthly/Index items
 ('tushare', 'stock_weekly',    '周线行情',      1, 'A股周K线',                      NULL,      'tushare', 'stock_weekly',    1, 25),
 ('tushare', 'stock_monthly',   '月线行情',      1, 'A股月K线',                      NULL,      'tushare', 'stock_monthly',   1, 26),
 ('tushare', 'index_weekly',    '指数周线',      1, '指数周K线',                      NULL,      'tushare', 'index_weekly',    1, 28),
 ('tushare', 'index_daily',     '指数日线',      1, '指数日K线',                      NULL,      'tushare', 'index_daily',     1, 27),
 -- Extended tushare items
-('tushare', 'money_flow',      '资金流向',      1, '个股资金流向数据(大中小单)',       '0',       'tushare', 'moneyflow',       1, 60),
+('tushare', 'moneyflow',       '资金流向',      1, '个股资金流向数据',                '0',       'tushare', 'stock_moneyflow', 1, 25),
 ('tushare', 'stk_limit',       '涨跌停统计',    1, '涨跌停数据(封单/强度)',           '0',       'tushare', 'stk_limit',       1, 70),
 ('tushare', 'margin_detail',   '融资融券',      1, '融资融券余额明细',                '0',       'tushare', 'margin',          1, 80),
 ('tushare', 'block_trade',     '大宗交易',      1, '大宗交易数据',                   '0',       'tushare', 'block_trade',     1, 90),
@@ -350,7 +349,6 @@ INSERT INTO data_source_items (source, item_key, item_name, enabled, description
 ('tushare', 'income',          '利润表',        0, '利润表数据(需高级权限)',           '1',       'tushare', 'income',          1, 56),
 ('tushare', 'top10_holders',   '十大股东',      0, '十大股东数据(需高级权限)',         '1',       'tushare', 'top10_holders',   1, 57),
 -- AkShare items
-('akshare', 'stock_zh_index',  '指数行情',      0, 'A股指数实时行情',                NULL,      'akshare', 'stock_zh_index_spot', 1, 40),
 ('akshare', 'stock_zh_index_spot', '指数实时行情', 1, 'A股指数实时报价',              '0',       'akshare', 'stock_zh_index_spot', 1, 40),
 ('akshare', 'fund_etf_daily',  'ETF日线',       1, 'ETF基金日K线数据',               '0',       'akshare', 'fund_etf_daily',  1, 45),
 -- AkShare index_daily (for index OHLCV)

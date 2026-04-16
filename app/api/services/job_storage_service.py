@@ -11,7 +11,7 @@ from redis import Redis
 from rq.job import Job
 from rq import Queue
 
-from app.infrastructure.config import get_settings
+from app.infrastructure.config import get_runtime_int, get_settings
 
 settings = get_settings()
 
@@ -31,7 +31,11 @@ class JobStorage:
         )
         self.prefix = "quantmate:job:"
         self.result_prefix = "quantmate:result:"
-        self.ttl = 86400 * 7  # Keep results for 7 days
+        self.ttl = get_runtime_int(
+            env_keys="JOB_STORAGE_TTL_SECONDS",
+            db_key="jobs.storage_ttl_seconds",
+            default=86400 * 7,
+        )
 
     def save_job_metadata(self, job_id: str, metadata: Dict[str, Any]) -> None:
         key = f"{self.prefix}{job_id}"

@@ -33,6 +33,7 @@ except Exception as exc:
     _VNPY_IMPORT_ERROR = exc
 
 from app.api.models.backtest import BacktestResult
+from app.infrastructure.config import get_runtime_float, get_runtime_int, get_runtime_str
 from app.worker.service.config import get_queue
 from app.worker.service.tasks import (
     run_backtest_task,
@@ -92,7 +93,12 @@ def calculate_alpha_beta(strategy_returns: np.ndarray, benchmark_returns: np.nda
         return None, None
 
 
-def get_benchmark_data(start_date: date, end_date: date, benchmark_symbol: str = "399300.SZ") -> Optional[Dict]:
+def get_benchmark_data(start_date: date, end_date: date, benchmark_symbol: str | None = None) -> Optional[Dict]:
+    benchmark_symbol = benchmark_symbol or get_runtime_str(
+        env_keys="BACKTEST_DEFAULT_BENCHMARK",
+        db_key="backtest.default_benchmark",
+        default="399300.SZ",
+    )
     try:
         return AkshareBenchmarkDao().get_benchmark_data(
             start=start_date, end=end_date, benchmark_symbol=benchmark_symbol
@@ -143,6 +149,74 @@ def ensure_vnpy_history_data(vt_symbol: str, start_date: date) -> int:
     return synced
 
 
+def _default_backtest_capital() -> float:
+    return get_runtime_float(env_keys="BACKTEST_DEFAULT_CAPITAL", db_key="backtest.default_capital", default=100000.0)
+
+
+def _default_backtest_rate() -> float:
+    return get_runtime_float(env_keys="BACKTEST_DEFAULT_RATE", db_key="backtest.default_rate", default=0.0001)
+
+
+def _default_backtest_slippage() -> float:
+    return get_runtime_float(
+        env_keys="BACKTEST_DEFAULT_SLIPPAGE",
+        db_key="backtest.default_slippage",
+        default=0.0,
+    )
+
+
+def _default_backtest_size() -> int:
+    return get_runtime_int(env_keys="BACKTEST_DEFAULT_SIZE", db_key="backtest.default_size", default=1)
+
+
+def _default_backtest_pricetick() -> float:
+    return get_runtime_float(
+        env_keys="BACKTEST_DEFAULT_PRICETICK",
+        db_key="backtest.default_pricetick",
+        default=0.01,
+    )
+
+
+def _default_backtest_benchmark() -> str:
+    return get_runtime_str(
+        env_keys="BACKTEST_DEFAULT_BENCHMARK",
+        db_key="backtest.default_benchmark",
+        default="399300.SZ",
+    )
+
+
+def _backtest_job_timeout_seconds() -> int:
+    return get_runtime_int(
+        env_keys="BACKTEST_JOB_TIMEOUT_SECONDS",
+        db_key="backtest.job_timeout_seconds",
+        default=3600,
+    )
+
+
+def _bulk_backtest_job_timeout_seconds() -> int:
+    return get_runtime_int(
+        env_keys="BACKTEST_BULK_JOB_TIMEOUT_SECONDS",
+        db_key="backtest.bulk_job_timeout_seconds",
+        default=7200,
+    )
+
+
+def _optimization_job_timeout_seconds() -> int:
+    return get_runtime_int(
+        env_keys="BACKTEST_OPTIMIZATION_JOB_TIMEOUT_SECONDS",
+        db_key="backtest.optimization_job_timeout_seconds",
+        default=14400,
+    )
+
+
+def _backtest_result_ttl_seconds() -> int:
+    return get_runtime_int(
+        env_keys="BACKTEST_RESULT_TTL_SECONDS",
+        db_key="backtest.result_ttl_seconds",
+        default=86400 * 7,
+    )
+
+
 class BacktestServiceV2:
     """Service for managing backtests with RQ workers."""
 
@@ -163,16 +237,23 @@ class BacktestServiceV2:
         symbol: str,
         start_date: date,
         end_date: date,
-        initial_capital: float = 100000.0,
-        rate: float = 0.0001,
-        slippage: float = 0.0,
-        size: int = 1,
-        pricetick: float = 0.01,
+        initial_capital: float | None = None,
+        rate: float | None = None,
+        slippage: float | None = None,
+        size: int | None = None,
+        pricetick: float | None = None,
         parameters: Optional[Dict[str, Any]] = None,
         symbol_name: str = "",
         strategy_name: str = "",
-        benchmark: str = "399300.SZ",
+        benchmark: str | None = None,
     ) -> str:
+        initial_capital = _default_backtest_capital() if initial_capital is None else initial_capital
+        rate = _default_backtest_rate() if rate is None else rate
+        slippage = _default_backtest_slippage() if slippage is None else slippage
+        size = _default_backtest_size() if size is None else size
+        pricetick = _default_backtest_pricetick() if pricetick is None else pricetick
+        benchmark = _default_backtest_benchmark() if benchmark is None else benchmark
+
         job_id = f"bt_{uuid.uuid4().hex[:16]}"
         strategy_code = None
         strategy_version = version_id
@@ -226,8 +307,8 @@ class BacktestServiceV2:
             job_id=job_id,
             user_id=user_id,
             strategy_id=strategy_id,
-            job_timeout=3600,
-            result_ttl=86400 * 7,
+            job_timeout=_backtest_job_timeout_seconds(),
+            result_ttl=_backtest_result_ttl_seconds(),
         )
 
         return job_id
@@ -242,15 +323,22 @@ class BacktestServiceV2:
         symbols: List[str],
         start_date: date,
         end_date: date,
-        initial_capital: float = 100000.0,
-        rate: float = 0.0001,
-        slippage: float = 0.0,
-        size: int = 1,
-        pricetick: float = 0.01,
+        initial_capital: float | None = None,
+        rate: float | None = None,
+        slippage: float | None = None,
+        size: int | None = None,
+        pricetick: float | None = None,
         parameters: Optional[Dict[str, Any]] = None,
         strategy_name: str = "",
-        benchmark: str = "399300.SZ",
+        benchmark: str | None = None,
     ) -> str:
+        initial_capital = _default_backtest_capital() if initial_capital is None else initial_capital
+        rate = _default_backtest_rate() if rate is None else rate
+        slippage = _default_backtest_slippage() if slippage is None else slippage
+        size = _default_backtest_size() if size is None else size
+        pricetick = _default_backtest_pricetick() if pricetick is None else pricetick
+        benchmark = _default_backtest_benchmark() if benchmark is None else benchmark
+
         job_id = f"bulk_{uuid.uuid4().hex[:16]}"
         strategy_code = None
         strategy_version = version_id
@@ -325,8 +413,8 @@ class BacktestServiceV2:
                 "strategy_id": strategy_id,
             },
             job_id=job_id,
-            job_timeout=7200,
-            result_ttl=86400 * 7,
+            job_timeout=_bulk_backtest_job_timeout_seconds(),
+            result_ttl=_backtest_result_ttl_seconds(),
         )
 
         return job_id
@@ -340,12 +428,18 @@ class BacktestServiceV2:
         start_date: date,
         end_date: date,
         optimization_settings: Dict[str, Any],
-        initial_capital: float = 100000.0,
-        rate: float = 0.0001,
-        slippage: float = 0.0,
-        size: int = 1,
-        pricetick: float = 0.01,
+        initial_capital: float | None = None,
+        rate: float | None = None,
+        slippage: float | None = None,
+        size: int | None = None,
+        pricetick: float | None = None,
     ) -> str:
+        initial_capital = _default_backtest_capital() if initial_capital is None else initial_capital
+        rate = _default_backtest_rate() if rate is None else rate
+        slippage = _default_backtest_slippage() if slippage is None else slippage
+        size = _default_backtest_size() if size is None else size
+        pricetick = _default_backtest_pricetick() if pricetick is None else pricetick
+
         job_id = f"opt_{uuid.uuid4().hex[:16]}"
         strategy_code = None
         if strategy_id:
@@ -382,8 +476,8 @@ class BacktestServiceV2:
             pricetick=pricetick,
             optimization_settings=optimization_settings,
             job_id=job_id,
-            job_timeout=14400,
-            result_ttl=86400 * 7,
+            job_timeout=_optimization_job_timeout_seconds(),
+            result_ttl=_backtest_result_ttl_seconds(),
         )
 
         return job_id
@@ -559,13 +653,19 @@ class BacktestService(BacktestServiceV2):
         start_date: date,
         end_date: date,
         parameters: Dict[str, Any],
-        capital: float = 100000.0,
-        rate: float = 0.0001,
-        slippage: float = 0.0,
-        size: int = 1,
+        capital: float | None = None,
+        rate: float | None = None,
+        slippage: float | None = None,
+        size: int | None = None,
         benchmark: Optional[str] = None,
         period: str = "daily",
     ) -> Optional[BacktestResult]:
+        capital = _default_backtest_capital() if capital is None else capital
+        rate = _default_backtest_rate() if rate is None else rate
+        slippage = _default_backtest_slippage() if slippage is None else slippage
+        size = _default_backtest_size() if size is None else size
+        benchmark = _default_backtest_benchmark() if benchmark is None else benchmark
+
         interval_enum, backtesting_engine_cls, backtesting_mode_enum = _require_vnpy_backtesting()
         strategy_cls = self._get_strategy_class(strategy_id, strategy_class)
         interval_map = {

@@ -16,6 +16,7 @@ from app.api.services.auth_service import get_current_user
 from app.api.models.user import TokenData
 from app.api.errors import ErrorCode
 from app.api.exception_handlers import APIError
+from app.infrastructure.config import get_runtime_int, get_settings
 
 router = APIRouter(prefix="/datasync", tags=["DataSync"])
 
@@ -158,6 +159,16 @@ async def get_latest_sync_status(
         }
 
 
+@router.get("/status/initialization", dependencies=[require_permission("system", "read")])
+async def get_sync_initialization_status(
+    current_user: TokenData = Depends(get_current_user),
+):
+    """Return whether all enabled sync-supported interfaces are initialized for the current coverage window."""
+    from app.datasync.service.init_service import get_initialization_state
+
+    return get_initialization_state()
+
+
 # ---------------------------------------------------------------------------
 # Manual sync trigger
 # ---------------------------------------------------------------------------
@@ -175,7 +186,11 @@ async def trigger_manual_sync(
     job = queue.enqueue(
         "app.worker.service.tasks.run_datasync_task",
         body.target_date,
-        job_timeout=1800,
+        job_timeout=get_runtime_int(
+            env_keys="MANUAL_DATASYNC_JOB_TIMEOUT_SECONDS",
+            db_key="api.manual_datasync_job_timeout_seconds",
+            default=1800,
+        ),
     )
     return {"status": "queued", "job_id": job.id}
 
@@ -188,9 +203,8 @@ async def get_datasync_job_status(
     """Poll RQ job status for a previously triggered datasync."""
     from redis import Redis
     from rq.job import Job, NoSuchJobError
-    import os
 
-    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    redis_url = get_settings().redis_url
     conn = Redis.from_url(redis_url)
     try:
         job = Job.fetch(job_id, connection=conn)

@@ -9,12 +9,23 @@ from datetime import date, timedelta
 from sqlalchemy import text
 
 from app.datasync.registry import DataSourceRegistry
+from app.infrastructure.config import get_runtime_int, get_runtime_str
 from app.infrastructure.db.connections import get_quantmate_engine
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_START_DATE = date(2020, 1, 1)
-BATCH_SIZE = int(os.getenv("SYNC_INIT_BATCH_SIZE", "500"))
+DEFAULT_START_DATE = date.fromisoformat(
+    get_runtime_str(
+        env_keys="SYNC_INIT_DEFAULT_START_DATE",
+        db_key="datasync.sync_init.default_start_date",
+        default="2020-01-01",
+    )
+)
+BATCH_SIZE = get_runtime_int(
+    env_keys="SYNC_INIT_BATCH_SIZE",
+    db_key="datasync.sync_init.batch_size",
+    default=500,
+)
 
 SYNC_STATUS_INIT_SQL = """
 CREATE TABLE IF NOT EXISTS sync_status_init (
@@ -45,6 +56,21 @@ def _already_initialized(source: str, item_key: str) -> bool:
         return row is not None
 
 
+def _get_initialized_bounds(source: str, item_key: str) -> tuple[date, date] | None:
+    engine = get_quantmate_engine()
+    with engine.connect() as conn:
+        row = conn.execute(
+            text(
+                "SELECT initialized_from, initialized_to "
+                "FROM sync_status_init WHERE source = :s AND interface_key = :k LIMIT 1"
+            ),
+            {"s": source, "k": item_key},
+        ).fetchone()
+    if row is None:
+        return None
+    return row[0], row[1]
+
+
 def _record_init(source: str, item_key: str, start: date, end: date) -> None:
     engine = get_quantmate_engine()
     with engine.begin() as conn:
@@ -61,39 +87,9 @@ def _record_init(source: str, item_key: str, start: date, end: date) -> None:
         )
 
 
-def initialize_sync_status(
-    source: str,
-    item_key: str,
-    start_date: date | None = None,
-    end_date: date | None = None,
-    reconcile_missing: bool = True,
-) -> int:
-    """Seed pending ``data_sync_status`` rows for every trading day in range.
-
-    Returns the number of rows inserted or reconciled.
-    """
-    ensure_sync_status_init_table()
-
-    if not reconcile_missing and _already_initialized(source, item_key):
-        logger.info("Sync status already initialized for %s/%s, skipping", source, item_key)
-        return 0
-
-    if start_date is None:
-        start_date = DEFAULT_START_DATE
-    if end_date is None:
-        end_date = date.today() - timedelta(days=1)
-
-    from app.datasync.service.sync_engine import get_trade_calendar
-
-    trade_days = get_trade_calendar(start_date, end_date)
+def _insert_pending_rows(source: str, item_key: str, trade_days: list[date]) -> int:
     if not trade_days:
-        logger.warning("No trading days found between %s and %s", start_date, end_date)
         return 0
-
-    logger.info(
-        "Initializing sync status for %s/%s: %d trading days (%s -> %s)",
-        source, item_key, len(trade_days), trade_days[0], trade_days[-1],
-    )
 
     engine = get_quantmate_engine()
     inserted = 0
@@ -112,6 +108,57 @@ def initialize_sync_status(
             )
         rowcount = getattr(result, "rowcount", None)
         inserted += int(rowcount) if isinstance(rowcount, int) and rowcount >= 0 else len(batch)
+
+    return inserted
+
+
+def initialize_sync_status(
+    source: str,
+    item_key: str,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    reconcile_missing: bool = True,
+) -> int:
+    """Seed pending ``data_sync_status`` rows for every trading day in range.
+
+    Returns the number of rows inserted or reconciled.
+    """
+    ensure_sync_status_init_table()
+
+    initialized_bounds = _get_initialized_bounds(source, item_key)
+    if not reconcile_missing and initialized_bounds is not None:
+        logger.info("Sync status already initialized for %s/%s, skipping", source, item_key)
+        return 0
+
+    if start_date is None:
+        start_date = DEFAULT_START_DATE
+    if end_date is None:
+        end_date = date.today() - timedelta(days=1)
+
+    from app.datasync.service.sync_engine import get_trade_calendar
+
+    ranges: list[tuple[date, date]] = []
+    if initialized_bounds is None:
+        ranges.append((start_date, end_date))
+    else:
+        initialized_from, initialized_to = initialized_bounds
+        if start_date < initialized_from:
+            ranges.append((start_date, min(end_date, initialized_from - timedelta(days=1))))
+        if end_date > initialized_to:
+            ranges.append((max(start_date, initialized_to + timedelta(days=1)), end_date))
+
+    inserted = 0
+    for range_start, range_end in ranges:
+        trade_days = get_trade_calendar(range_start, range_end)
+        if not trade_days:
+            logger.warning("No trading days found between %s and %s", range_start, range_end)
+            continue
+
+        logger.info(
+            "Initializing sync status for %s/%s: %d trading days (%s -> %s)",
+            source, item_key, len(trade_days), trade_days[0], trade_days[-1],
+        )
+        inserted += _insert_pending_rows(source, item_key, trade_days)
 
     _record_init(source, item_key, start_date, end_date)
     logger.info("Reconciled %d sync status rows for %s/%s", inserted, source, item_key)

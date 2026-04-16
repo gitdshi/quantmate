@@ -11,6 +11,7 @@ from app.api.services.auth_service import get_current_user
 from app.api.models.user import TokenData
 from app.api.exception_handlers import APIError
 from app.domains.system.dao.system_config_dao import SystemConfigDao, DataSourceConfigDao
+from app.infrastructure.config import clear_runtime_config_cache
 
 router = APIRouter(prefix="/system", tags=["System Configuration"])
 
@@ -70,6 +71,7 @@ async def upsert_system_config(req: ConfigUpsertRequest, current_user: TokenData
         description=req.description,
         user_overridable=req.user_overridable,
     )
+    clear_runtime_config_cache()
     return {"message": "Config saved"}
 
 
@@ -79,6 +81,7 @@ async def delete_system_config(key: str, current_user: TokenData = Depends(_requ
     dao = SystemConfigDao()
     if not dao.delete(key):
         raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Config not found")
+    clear_runtime_config_cache()
     return {"message": "Config deleted"}
 
 

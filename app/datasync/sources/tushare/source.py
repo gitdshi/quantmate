@@ -24,6 +24,7 @@ class TushareDataSource(BaseDataSource):
 
     def get_interfaces(self) -> list[BaseIngestInterface]:
         from app.datasync.sources.tushare.interfaces import (
+            TushareTradeCalInterface,
             TushareStockBasicInterface,
             TushareStockDailyInterface,
             TushareBakDailyInterface,
@@ -40,6 +41,7 @@ class TushareDataSource(BaseDataSource):
         )
 
         return [
+            TushareTradeCalInterface(),
             TushareStockBasicInterface(),
             TushareStockDailyInterface(),
             TushareBakDailyInterface(),

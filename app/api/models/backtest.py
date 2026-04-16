@@ -5,6 +5,24 @@ from typing import Optional, Dict, Any, List
 from enum import Enum
 from pydantic import BaseModel, Field
 
+from app.infrastructure.config import get_runtime_float, get_runtime_int
+
+
+def _default_backtest_capital() -> float:
+    return get_runtime_float(env_keys="BACKTEST_DEFAULT_CAPITAL", db_key="backtest.default_capital", default=100000.0)
+
+
+def _default_backtest_rate() -> float:
+    return get_runtime_float(env_keys="BACKTEST_DEFAULT_RATE", db_key="backtest.default_rate", default=0.0001)
+
+
+def _default_backtest_slippage() -> float:
+    return get_runtime_float(env_keys="BACKTEST_DEFAULT_SLIPPAGE", db_key="backtest.default_slippage", default=0.0)
+
+
+def _default_backtest_size() -> int:
+    return get_runtime_int(env_keys="BACKTEST_DEFAULT_SIZE", db_key="backtest.default_size", default=1)
+
 
 class BacktestStatus(str, Enum):
     """Backtest job status."""
@@ -27,10 +45,10 @@ class BacktestRequest(BaseModel):
     start_date: date
     end_date: date
     parameters: Dict[str, Any] = Field(default_factory=dict)
-    capital: float = 100000.0
-    rate: float = 0.0001  # Commission rate
-    slippage: float = 0.0
-    size: int = 1  # Contract size
+    capital: float = Field(default_factory=_default_backtest_capital)
+    rate: float = Field(default_factory=_default_backtest_rate)  # Commission rate
+    slippage: float = Field(default_factory=_default_backtest_slippage)
+    size: int = Field(default_factory=_default_backtest_size)  # Contract size
     benchmark: Optional[str] = None
     period: str = Field("daily", description="Data period: daily, weekly, monthly, minute")
 
@@ -46,10 +64,10 @@ class BatchBacktestRequest(BaseModel):
     start_date: date
     end_date: date
     parameters: Dict[str, Any] = Field(default_factory=dict)
-    capital: float = 100000.0
-    rate: float = 0.0001
-    slippage: float = 0.0
-    size: int = 1
+    capital: float = Field(default_factory=_default_backtest_capital)
+    rate: float = Field(default_factory=_default_backtest_rate)
+    slippage: float = Field(default_factory=_default_backtest_slippage)
+    size: int = Field(default_factory=_default_backtest_size)
     top_n: int = 10  # Return top N results
     benchmark: Optional[str] = None
     period: str = Field("daily", description="Data period: daily, weekly, monthly, minute")

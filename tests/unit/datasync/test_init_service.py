@@ -47,17 +47,178 @@ class TestLookbackDays:
     def test_staging(self):
         from app.datasync.service.init_service import _lookback_days
         with patch(f"{_MOD}._get_env", return_value="staging"):
-            assert _lookback_days() == 5 * 365
+            assert _lookback_days() == 10 * 365
 
     def test_prod(self):
         from app.datasync.service.init_service import _lookback_days
         with patch(f"{_MOD}._get_env", return_value="prod"):
-            assert _lookback_days() == 30 * 365
+            assert _lookback_days() == 20 * 365
+
+    def test_env_specific_override(self):
+        from app.datasync.service.init_service import _lookback_days
+        with patch.dict("os.environ", {"DATASYNC_INIT_LOOKBACK_STAGING_DAYS": "1200"}, clear=True):
+            assert _lookback_days("staging") == 1200
+
+    def test_generic_override(self):
+        from app.datasync.service.init_service import _lookback_days
+        with patch.dict("os.environ", {"DATASYNC_INIT_LOOKBACK_DAYS": "900"}, clear=True):
+            assert _lookback_days("prod") == 900
 
     def test_unknown_fallback(self):
         from app.datasync.service.init_service import _lookback_days
         with patch(f"{_MOD}._get_env", return_value="unknown"):
             assert _lookback_days() == 365
+
+
+class TestCoverageWindow:
+    def test_builds_window(self):
+        from app.datasync.service.init_service import get_coverage_window
+
+        target_end = date(2026, 4, 15)
+        with patch(f"{_MOD}._get_env", return_value="prod"), \
+             patch(f"{_MOD}._lookback_days", return_value=7300):
+            result = get_coverage_window(target_end)
+
+        assert result["env"] == "prod"
+        assert result["lookback_days"] == 7300
+        assert result["end_date"] == target_end
+        assert result["start_date"] == date(2006, 4, 20)
+
+
+class TestInitializationState:
+    def test_detects_incomplete_init(self):
+        from app.datasync.service.init_service import get_initialization_state
+
+        engine, conn = _engine_ctx()
+        conn.execute.side_effect = [MagicMock(fetchone=MagicMock(return_value=None))]
+
+        with patch(f"{_MOD}.get_quantmate_engine", return_value=engine), \
+             patch("app.datasync.cli.init_market_data.ensure_init_progress_table"), \
+             patch(f"{_MOD}.ensure_sync_status_init_table"), \
+             patch(f"{_MOD}._get_sync_status_coverage_state", return_value={
+                 "window_start": date(2025, 4, 15),
+                 "window_end": date(2026, 4, 15),
+                 "trade_days_in_window": 244,
+                 "enabled_sync_items": 15,
+                 "missing_items": [{"source": "tushare", "item_key": "trade_cal"}],
+                 "incomplete_items": [],
+                 "unsupported_items": [],
+             }):
+            state = get_initialization_state()
+
+        assert state["bootstrap_completed"] is False
+        assert state["sync_status_initialized"] is False
+        assert state["needs_initialization"] is True
+        assert state["sync_status_missing_items"] == [{"source": "tushare", "item_key": "trade_cal"}]
+
+    def test_detects_completed_init(self):
+        from app.datasync.service.init_service import get_initialization_state
+
+        engine, conn = _engine_ctx()
+        conn.execute.side_effect = [MagicMock(fetchone=MagicMock(return_value=(1,)))]
+
+        with patch(f"{_MOD}.get_quantmate_engine", return_value=engine), \
+             patch("app.datasync.cli.init_market_data.ensure_init_progress_table"), \
+             patch(f"{_MOD}.ensure_sync_status_init_table"), \
+             patch(f"{_MOD}._get_sync_status_coverage_state", return_value={
+                 "window_start": date(2025, 4, 15),
+                 "window_end": date(2026, 4, 15),
+                 "trade_days_in_window": 244,
+                 "enabled_sync_items": 15,
+                 "missing_items": [],
+                 "incomplete_items": [],
+                 "unsupported_items": [],
+             }):
+            state = get_initialization_state()
+
+        assert state["bootstrap_completed"] is True
+        assert state["sync_status_initialized"] is True
+        assert state["needs_initialization"] is False
+        assert state["enabled_sync_items"] == 15
+
+
+class TestSyncStatusCoverageState:
+    def test_detects_missing_enabled_item_coverage(self):
+        from app.datasync.service.init_service import _get_sync_status_coverage_state
+
+        engine, conn = _engine_ctx()
+        conn.execute.side_effect = [
+            MagicMock(fetchall=MagicMock(return_value=[("tushare", "trade_cal")])),
+            MagicMock(fetchall=MagicMock(return_value=[])),
+            MagicMock(fetchall=MagicMock(return_value=[])),
+            MagicMock(fetchall=MagicMock(return_value=[])),
+        ]
+
+        registry = MagicMock()
+        iface = MagicMock()
+        iface.supports_backfill.return_value = True
+        registry.get_interface.return_value = iface
+
+        with patch(f"{_MOD}.get_quantmate_engine", return_value=engine), \
+             patch("app.datasync.registry.build_default_registry", return_value=registry), \
+             patch(
+                 f"{_MOD}.get_coverage_window",
+                 return_value={
+                     "env": "dev",
+                     "lookback_days": 365,
+                     "start_date": date(2025, 4, 15),
+                     "end_date": date(2026, 4, 15),
+                 },
+             ), \
+             patch(
+                 "app.domains.extdata.dao.data_sync_status_dao.get_cached_trade_dates",
+                 return_value=[date(2026, 4, 15)],
+             ):
+            state = _get_sync_status_coverage_state()
+
+        assert state["enabled_sync_items"] == 1
+        assert state["missing_items"] == [{"source": "tushare", "item_key": "trade_cal"}]
+        assert state["incomplete_items"] == []
+
+    def test_detects_latest_only_item_missing_latest_status(self):
+        from app.datasync.service.init_service import _get_sync_status_coverage_state
+
+        engine, conn = _engine_ctx()
+        conn.execute.side_effect = [
+            MagicMock(fetchall=MagicMock(return_value=[("tushare", "stock_basic")])),
+            MagicMock(fetchall=MagicMock(return_value=[("tushare", "stock_basic", date(2025, 4, 15), date(2026, 4, 14))])),
+            MagicMock(fetchall=MagicMock(return_value=[])),
+            MagicMock(fetchall=MagicMock(return_value=[])),
+        ]
+
+        registry = MagicMock()
+        iface = MagicMock()
+        iface.supports_backfill.return_value = False
+        registry.get_interface.return_value = iface
+
+        with patch(f"{_MOD}.get_quantmate_engine", return_value=engine), \
+             patch("app.datasync.registry.build_default_registry", return_value=registry), \
+             patch(
+                 f"{_MOD}.get_coverage_window",
+                 return_value={
+                     "env": "dev",
+                     "lookback_days": 365,
+                     "start_date": date(2025, 4, 15),
+                     "end_date": date(2026, 4, 15),
+                 },
+             ), \
+             patch(
+                 "app.domains.extdata.dao.data_sync_status_dao.get_cached_trade_dates",
+                 return_value=[date(2026, 4, 15)],
+             ):
+            state = _get_sync_status_coverage_state()
+
+        assert state["missing_items"] == []
+        assert state["incomplete_items"] == [
+            {
+                "source": "tushare",
+                "item_key": "stock_basic",
+                "initialized_from": "2025-04-15",
+                "initialized_to": "2026-04-14",
+                "expected_rows": 1,
+                "actual_rows": 0,
+            }
+        ]
 
 
 class TestInitialize:
@@ -75,10 +236,15 @@ class TestInitialize:
                patch(f"{_MOD}.ensure_tables"), \
                patch(f"{_MOD}.ensure_backfill_lock_table"), \
                patch(f"{_MOD}.ensure_sync_status_init_table"), \
+               patch(f"{_MOD}.get_coverage_window", return_value={"env": "dev", "lookback_days": 365, "start_date": date(2025, 4, 15), "end_date": date(2026, 4, 15)}), \
+               patch(f"{_MOD}._sync_registry_state", return_value={"items_normalized": 1, "tables_created": 2}), \
+               patch(f"{_MOD}._ensure_trade_calendar_window", return_value=([date(2026, 4, 15)], True)), \
                patch(f"{_MOD}._reconcile_pending_records", return_value={"pending_records": 0, "items_reconciled": 0, "skipped_unsupported": []}):
             result = initialize(registry, run_backfill=False)
         assert "env" in result
+        assert result["items_normalized"] == 1
         assert "tables_created" in result
+        assert result["trade_calendar_refreshed"] is True
 
     def test_with_backfill(self):
         from app.datasync.service.init_service import initialize
@@ -94,10 +260,45 @@ class TestInitialize:
                patch(f"{_MOD}.ensure_tables"), \
                patch(f"{_MOD}.ensure_backfill_lock_table"), \
                patch(f"{_MOD}.ensure_sync_status_init_table"), \
+             patch(f"{_MOD}.get_coverage_window", return_value={"env": "dev", "lookback_days": 365, "start_date": date(2025, 4, 15), "end_date": date(2026, 4, 15)}), \
+             patch(f"{_MOD}._sync_registry_state", return_value={"items_normalized": 0, "tables_created": 0}), \
+             patch(f"{_MOD}._ensure_trade_calendar_window", return_value=([date(2026, 4, 15)], False)), \
                patch(f"{_MOD}._reconcile_pending_records", return_value={"pending_records": 0, "items_reconciled": 0, "skipped_unsupported": []}), \
              patch("app.datasync.service.sync_engine.backfill_retry", return_value={"step": {"status": "success"}}):
             result = initialize(registry, run_backfill=True)
         assert "backfill" in result
+
+
+class TestRuntimeReconcile:
+    def test_reconciles_runtime_state(self):
+        from app.datasync.service.init_service import reconcile_runtime_state
+
+        registry = MagicMock()
+        engine, conn = _engine_ctx()
+        conn.execute.return_value = MagicMock(fetchall=MagicMock(return_value=[]))
+
+        coverage_window = {
+            "env": "staging",
+            "lookback_days": 3650,
+            "start_date": date(2016, 4, 17),
+            "end_date": date(2026, 4, 15),
+        }
+
+        with patch(f"{_MOD}.get_quantmate_engine", return_value=engine), \
+             patch(f"{_MOD}.ensure_tables"), \
+             patch(f"{_MOD}.ensure_backfill_lock_table"), \
+             patch(f"{_MOD}.ensure_sync_status_init_table"), \
+             patch(f"{_MOD}.get_coverage_window", return_value=coverage_window), \
+             patch(f"{_MOD}._sync_registry_state", return_value={"items_normalized": 0, "tables_created": 3}), \
+             patch(f"{_MOD}._ensure_trade_calendar_window", return_value=([date(2026, 4, 15)], True)), \
+             patch(f"{_MOD}._reconcile_pending_records", return_value={"pending_records": 4, "items_reconciled": 3, "skipped_unsupported": []}):
+            result = reconcile_runtime_state(registry)
+
+        assert result["env"] == "staging"
+        assert result["tables_created"] == 3
+        assert result["pending_records"] == 4
+        assert result["trade_calendar_days"] == 1
+        assert result["trade_calendar_refreshed"] is True
 
 
 class TestSeedConfigs:
@@ -132,6 +333,23 @@ class TestSeedItems:
         registry.all_interfaces.return_value = [iface]
         _seed_items(engine, registry)
         conn.execute.assert_called()
+
+
+class TestNormalizeItemTargets:
+    def test_normalizes_mismatched_target_database(self):
+        from app.datasync.service.init_service import _normalize_item_targets
+
+        engine, conn = _engine_ctx()
+        execute_result = MagicMock()
+        execute_result.rowcount = 2
+        conn.execute.return_value = execute_result
+
+        normalized = _normalize_item_targets(engine)
+
+        assert normalized == 2
+        sql = conn.execute.call_args.args[0].text
+        assert "SET target_database = source" in sql
+        assert "WHERE target_database <> source" in sql
 
 
 class TestEnsureTables:

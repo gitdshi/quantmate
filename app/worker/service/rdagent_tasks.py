@@ -143,10 +143,14 @@ def _call_sidecar_mining(
     """
     import httpx
 
-    from app.infrastructure.config import get_settings
+    from app.infrastructure.config import get_runtime_float, get_runtime_str, get_settings
 
     settings = get_settings()
-    sidecar_url = getattr(settings, "rdagent_sidecar_url", "http://rdagent-service:8001")
+    sidecar_url = get_runtime_str(
+        env_keys="RDAGENT_SIDECAR_URL",
+        db_key="rdagent.sidecar_url",
+        default=getattr(settings, "rdagent_sidecar_url", "http://rdagent-service:8001"),
+    )
 
     payload = {
         "run_id": run_id,
@@ -155,7 +159,15 @@ def _call_sidecar_mining(
     }
 
     try:
-        with httpx.Client(timeout=httpx.Timeout(timeout=14400.0)) as client:
+        with httpx.Client(
+            timeout=httpx.Timeout(
+                timeout=get_runtime_float(
+                    env_keys="RDAGENT_REQUEST_TIMEOUT_SECONDS",
+                    db_key="rdagent.request_timeout_seconds",
+                    default=14400.0,
+                )
+            )
+        ) as client:
             resp = client.post(f"{sidecar_url}/mine", json=payload)
             resp.raise_for_status()
             return resp.json()

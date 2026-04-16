@@ -14,6 +14,7 @@ from app.api.services.auth_service import get_current_user
 from app.api.models.user import TokenData
 from app.api.errors import ErrorCode
 from app.api.exception_handlers import APIError
+from app.infrastructure.config import get_runtime_int
 
 router = APIRouter(prefix="/settings", tags=["Settings"])
 logger = logging.getLogger(__name__)
@@ -326,7 +327,16 @@ def _trigger_sync_init(source: str, item_key: str) -> Optional[str]:
         from app.worker.service.datasync_tasks import run_backfill_task
 
         queue = get_queue("low")
-        job = queue.enqueue(run_backfill_task, source, item_key, job_timeout=3600)
+        job = queue.enqueue(
+            run_backfill_task,
+            source,
+            item_key,
+            job_timeout=get_runtime_int(
+                env_keys="DATASYNC_BACKFILL_JOB_TIMEOUT_SECONDS",
+                db_key="datasync.backfill_job_timeout_seconds",
+                default=3600,
+            ),
+        )
         return job.id
     except Exception:
         logger.warning("Sync init for %s/%s failed (non-fatal)", source, item_key, exc_info=True)

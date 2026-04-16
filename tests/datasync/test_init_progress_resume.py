@@ -151,5 +151,36 @@ class TestMainQuotaPause:
         assert save_progress.call_args_list[-1].kwargs['cursor_date'] == '2025-06-20'
 
 
+class TestAkshareWindowAlignment:
+    def test_indexes_phase_uses_same_daily_start_as_tushare(self):
+        argv = ['init_market_data.py', '--skip-schema', '--skip-aux', '--skip-vnpy']
+        parsed_args = imd.argparse.Namespace(
+            start_date='2010-01-01',
+            skip_schema=True,
+            skip_aux=True,
+            skip_vnpy=True,
+            stock_statuses='L',
+            batch_size=100,
+            sleep_between=0.02,
+            daily_start_date='2024-01-15',
+            daily_lookback_days=None,
+            resume=True,
+            reset_progress=False,
+        )
+
+        with patch('sys.argv', argv), \
+             patch.object(imd.argparse.ArgumentParser, 'parse_args', return_value=parsed_args), \
+             patch.object(imd, 'ensure_init_progress_table'), \
+             patch.object(imd, 'load_progress', return_value=None), \
+             patch.object(imd, 'should_run_phase', side_effect=lambda progress, phase, resume: phase == 'indexes'), \
+             patch.object(imd, 'ingest_all_indexes') as ingest_all_indexes, \
+             patch.object(imd, 'save_progress'), \
+             patch.object(imd, 'print_summary'):
+            result = imd.main()
+
+        assert result == 0
+        ingest_all_indexes.assert_called_once_with(start_date='2024-01-15')
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

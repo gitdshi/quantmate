@@ -30,6 +30,11 @@ class TestTushareStockBasicInterface:
         assert info.interface_key == "stock_basic"
         assert info.source_key == "tushare"
 
+    def test_is_latest_only_for_backfill(self):
+        from app.datasync.sources.tushare.interfaces import TushareStockBasicInterface
+
+        assert TushareStockBasicInterface().supports_backfill() is False
+
     def test_get_ddl(self):
         from app.datasync.sources.tushare.interfaces import TushareStockBasicInterface
         assert "stock_basic" in TushareStockBasicInterface().get_ddl().lower()
@@ -50,11 +55,66 @@ class TestTushareStockBasicInterface:
             assert result.status == SyncStatus.ERROR
 
 
+class TestTushareTradeCalInterface:
+    def test_info(self):
+        from app.datasync.sources.tushare.interfaces import TushareTradeCalInterface
+
+        info = TushareTradeCalInterface().info
+        assert info.interface_key == "trade_cal"
+        assert info.target_table == "trade_cal"
+
+    def test_backfill_mode(self):
+        from app.datasync.sources.tushare.interfaces import TushareTradeCalInterface
+
+        assert TushareTradeCalInterface().backfill_mode() == "date"
+
+    def test_sync_date_success(self):
+        from app.datasync.sources.tushare.interfaces import TushareTradeCalInterface
+
+        df = pd.DataFrame(
+            {
+                "exchange": ["SSE"],
+                "cal_date": ["20240105"],
+                "is_open": [1],
+                "pretrade_date": ["20240104"],
+            }
+        )
+        engine = MagicMock()
+        begin_conn = MagicMock()
+        engine.begin.return_value.__enter__.return_value = begin_conn
+
+        with patch(f"{_INGEST}.call_pro", return_value=df), \
+             patch(f"{_MOD}.get_tushare_engine", return_value=engine):
+            result = TushareTradeCalInterface().sync_date(date(2024, 1, 5))
+
+        assert result.status == SyncStatus.SUCCESS
+        assert result.rows_synced == 1
+        begin_conn.execute.assert_called_once()
+
+    def test_get_backfill_rows_by_date(self):
+        from app.datasync.sources.tushare.interfaces import TushareTradeCalInterface
+
+        engine = MagicMock()
+        connect_conn = MagicMock()
+        connect_conn.execute.return_value.fetchall.return_value = [(date(2024, 1, 5), 1)]
+        engine.connect.return_value.__enter__.return_value = connect_conn
+
+        with patch(f"{_MOD}.get_tushare_engine", return_value=engine):
+            counts = TushareTradeCalInterface().get_backfill_rows_by_date(date(2024, 1, 5), date(2024, 1, 8))
+
+        assert counts == {date(2024, 1, 5): 1}
+
+
 class TestTushareStockDailyInterface:
     def test_info(self):
         from app.datasync.sources.tushare.interfaces import TushareStockDailyInterface
         info = TushareStockDailyInterface().info
         assert info.interface_key == "stock_daily"
+
+    def test_requires_nonempty_trading_day_data(self):
+        from app.datasync.sources.tushare.interfaces import TushareStockDailyInterface
+
+        assert TushareStockDailyInterface().requires_nonempty_trading_day_data() is True
 
     def test_sync_date_success(self):
         from app.datasync.sources.tushare.interfaces import TushareStockDailyInterface
@@ -86,6 +146,11 @@ class TestTushareBakDailyInterface:
         info = TushareBakDailyInterface().info
         assert info.interface_key == "bak_daily"
 
+    def test_requires_nonempty_trading_day_data(self):
+        from app.datasync.sources.tushare.interfaces import TushareBakDailyInterface
+
+        assert TushareBakDailyInterface().requires_nonempty_trading_day_data() is True
+
     def test_sync_date_success(self):
         from app.datasync.sources.tushare.interfaces import TushareBakDailyInterface
         with patch(f"{_INGEST}.ingest_bak_daily", return_value=12):
@@ -104,6 +169,11 @@ class TestTushareSuspendDInterface:
 
 
 class TestTushareMoneyflowInterface:
+    def test_requires_nonempty_trading_day_data(self):
+        from app.datasync.sources.tushare.interfaces import TushareMoneyflowInterface
+
+        assert TushareMoneyflowInterface().requires_nonempty_trading_day_data() is True
+
     def test_sync_date_success(self):
         from app.datasync.sources.tushare.interfaces import TushareMoneyflowInterface
         df = pd.DataFrame({"ts_code": ["000001.SZ"], "trade_date": ["20240105"]})
@@ -124,6 +194,11 @@ class TestTushareSuspendInterface:
 
 
 class TestTushareAdjFactorInterface:
+    def test_requires_nonempty_trading_day_data(self):
+        from app.datasync.sources.tushare.interfaces import TushareAdjFactorInterface
+
+        assert TushareAdjFactorInterface().requires_nonempty_trading_day_data() is True
+
     def test_sync_date(self):
         from app.datasync.sources.tushare.interfaces import TushareAdjFactorInterface
         with patch(f"{_INGEST}.ingest_adj_factor") as m, \
@@ -135,6 +210,10 @@ class TestTushareAdjFactorInterface:
 
 
 class TestTushareDividendInterface:
+    def test_backfill_mode(self):
+        from app.datasync.sources.tushare.interfaces import TushareDividendInterface
+        assert TushareDividendInterface().backfill_mode() == "range"
+
     def test_sync_date_success(self):
         from app.datasync.sources.tushare.interfaces import TushareDividendInterface
         df = pd.DataFrame({"ts_code": ["000001.SZ"], "div_proc": ["实施"]})
@@ -142,6 +221,21 @@ class TestTushareDividendInterface:
              patch(f"{_TS_DAO}.upsert_dividend_df", return_value=1):
             result = TushareDividendInterface().sync_date(date(2024, 1, 5))
             assert result.status == SyncStatus.SUCCESS
+
+    def test_sync_range_success(self):
+        from app.datasync.sources.tushare.interfaces import TushareDividendInterface
+        with patch(f"{_INGEST}.ingest_dividend_by_ann_date_range", return_value=7) as mock_ingest:
+            result = TushareDividendInterface().sync_range(date(2024, 1, 5), date(2024, 1, 8))
+            assert result.status == SyncStatus.SUCCESS
+            assert result.rows_synced == 7
+            mock_ingest.assert_called_once_with("2024-01-05", "2024-01-08")
+
+    def test_get_backfill_rows_by_date(self):
+        from app.datasync.sources.tushare.interfaces import TushareDividendInterface
+        counts = {date(2024, 1, 5): 2}
+        with patch(f"{_STATUS_DAO}.get_dividend_counts", return_value=counts):
+            result = TushareDividendInterface().get_backfill_rows_by_date(date(2024, 1, 5), date(2024, 1, 8))
+        assert result == counts
 
     def test_sync_date_permission_denied(self):
         from app.datasync.sources.tushare.interfaces import TushareDividendInterface
@@ -178,6 +272,11 @@ class TestTushareStockMonthlyInterface:
 
 
 class TestTushareIndexDailyInterface:
+    def test_requires_nonempty_trading_day_data(self):
+        from app.datasync.sources.tushare.interfaces import TushareIndexDailyInterface
+
+        assert TushareIndexDailyInterface().requires_nonempty_trading_day_data() is True
+
     def test_sync_date_all_succeed(self):
         from app.datasync.sources.tushare.interfaces import TushareIndexDailyInterface
         with patch(f"{_INGEST}.ingest_index_daily", return_value=10):
@@ -217,6 +316,10 @@ class TestTushareIndexWeeklyInterface:
 
 
 class TestTushareTop10HoldersInterface:
+    def test_backfill_mode(self):
+        from app.datasync.sources.tushare.interfaces import TushareTop10HoldersInterface
+        assert TushareTop10HoldersInterface().backfill_mode() == "range"
+
     def test_sync_date_success(self):
         from app.datasync.sources.tushare.interfaces import TushareTop10HoldersInterface
         with patch(f"{_INGEST}.get_all_ts_codes", return_value=["000001.SZ"] * 100), \
@@ -224,6 +327,21 @@ class TestTushareTop10HoldersInterface:
             result = TushareTop10HoldersInterface().sync_date(date(2024, 1, 5))
             assert result.status == SyncStatus.SUCCESS
             assert result.rows_synced == 50  # min(50, 100) sampled
+
+    def test_sync_range_success(self):
+        from app.datasync.sources.tushare.interfaces import TushareTop10HoldersInterface
+        with patch(f"{_INGEST}.ingest_top10_holders_marketwide_by_date_range", return_value=11) as mock_ingest:
+            result = TushareTop10HoldersInterface().sync_range(date(2024, 1, 5), date(2024, 1, 8))
+            assert result.status == SyncStatus.SUCCESS
+            assert result.rows_synced == 11
+            mock_ingest.assert_called_once_with("2024-01-05", "2024-01-08")
+
+    def test_get_backfill_rows_by_date(self):
+        from app.datasync.sources.tushare.interfaces import TushareTop10HoldersInterface
+        counts = {date(2024, 1, 5): 3}
+        with patch(f"{_STATUS_DAO}.get_top10_holders_counts", return_value=counts):
+            result = TushareTop10HoldersInterface().get_backfill_rows_by_date(date(2024, 1, 5), date(2024, 1, 8))
+        assert result == counts
 
     def test_sync_date_partial(self):
         from app.datasync.sources.tushare.interfaces import TushareTop10HoldersInterface

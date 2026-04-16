@@ -11,11 +11,12 @@ Key APIs used:
 - stock_zh_index_daily: Index daily data (HS300, SSE50, etc.)
 """
 
-import os
 import time
 import logging
 import pandas as pd
 import akshare as ak
+
+from app.infrastructure.config import get_runtime_int
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -23,14 +24,19 @@ logger = logging.getLogger(__name__)
 # Engine is provided by the akshare DAO (DB URL moved to infrastructure.connections)
 
 # Rate limiting
-DEFAULT_CALLS_PER_MIN = int(os.getenv("AKSHARE_CALLS_PER_MIN", "30"))
+DEFAULT_CALLS_PER_MIN = get_runtime_int(
+    env_keys="AKSHARE_CALLS_PER_MIN",
+    db_key="datasync.akshare.calls_per_min.default",
+    default=30,
+)
 
 
 def _env_rate(name, default):
-    try:
-        return int(os.getenv(f"AKSHARE_RATE_{name}", str(default)))
-    except Exception:
-        return default
+    return get_runtime_int(
+        env_keys=f"AKSHARE_RATE_{name}",
+        db_key=f"datasync.akshare.calls_per_min.{name}",
+        default=default,
+    )
 
 
 RATE_LIMITS = {
@@ -45,8 +51,21 @@ def _min_interval_for(api_name: str) -> float:
     return 60.0 / max(1, int(calls))
 
 
-def call_ak(api_name: str, fn, max_retries: int = 3, backoff_base: int = 5, **kwargs):
+def call_ak(api_name: str, fn, max_retries: int | None = None, backoff_base: int | None = None, **kwargs):
     """Call an AkShare function with per-endpoint rate limiting and retry/backoff."""
+    if max_retries is None:
+        max_retries = get_runtime_int(
+            env_keys="AKSHARE_MAX_RETRIES",
+            db_key="datasync.akshare.max_retries",
+            default=3,
+        )
+    if backoff_base is None:
+        backoff_base = get_runtime_int(
+            env_keys="AKSHARE_BACKOFF_BASE_SECONDS",
+            db_key="datasync.akshare.backoff_base_seconds",
+            default=5,
+        )
+
     if not hasattr(call_ak, "_last_call"):
         call_ak._last_call = {}
 
@@ -235,12 +254,16 @@ def ingest_index_daily(symbol: str = "sh000300", start_date: str = None) -> int:
         raise
 
 
-def ingest_all_indexes() -> dict:
-    """Ingest daily data for all major indexes."""
+def ingest_all_indexes(start_date: str | None = None) -> dict:
+    """Ingest daily data for all major indexes.
+
+    Args:
+        start_date: Optional lower bound in YYYY-MM-DD format.
+    """
     results = {}
     for ak_symbol, ts_code in INDEX_MAPPING.items():
         try:
-            rows = ingest_index_daily(symbol=ak_symbol)
+            rows = ingest_index_daily(symbol=ak_symbol, start_date=start_date)
             results[ts_code] = {"status": "success", "rows": rows}
         except Exception as e:
             results[ts_code] = {"status": "error", "error": str(e)}

@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-import os
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, Optional
 
 from sqlalchemy import text
 
+from app.infrastructure.config import get_runtime_int
 from app.infrastructure.db.connections import get_quantmate_engine
 
-SYNC_HOUR = int(os.getenv("SYNC_HOUR", "2"))
-SYNC_MINUTE = int(os.getenv("SYNC_MINUTE", "0"))
-LOOKBACK_DAYS = int(os.getenv("LOOKBACK_DAYS", "60"))
+SYNC_HOUR = get_runtime_int(env_keys="SYNC_HOUR", db_key="datasync.sync_hour", default=2)
+SYNC_MINUTE = get_runtime_int(env_keys="SYNC_MINUTE", db_key="datasync.sync_minute", default=0)
+LOOKBACK_DAYS = get_runtime_int(env_keys="LOOKBACK_DAYS", db_key="datasync.lookback_days", default=60)
 
 
 def _status_from_last_run(last_run_at: Optional[datetime], running_count: int) -> str:

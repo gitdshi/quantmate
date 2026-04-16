@@ -179,9 +179,20 @@ def run_backfill_task(source: str, item_key: str, batch_size: int = 30) -> dict:
     if remaining > 0:
         try:
             from app.worker.service.config import get_queue
+            from app.infrastructure.config import get_runtime_int
 
             queue = get_queue("low")
-            queue.enqueue(run_backfill_task, source, item_key, batch_size, job_timeout=3600)
+            queue.enqueue(
+                run_backfill_task,
+                source,
+                item_key,
+                batch_size,
+                job_timeout=get_runtime_int(
+                    env_keys="DATASYNC_BACKFILL_JOB_TIMEOUT_SECONDS",
+                    db_key="datasync.backfill_job_timeout_seconds",
+                    default=3600,
+                ),
+            )
             summary["next_job_enqueued"] = True
         except Exception:
             logger.warning("Failed to enqueue next backfill batch for %s/%s", source, item_key, exc_info=True)

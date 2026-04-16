@@ -17,6 +17,10 @@ class TestAkShareIndexDailyInterface:
         assert info.interface_key == "index_daily"
         assert info.source_key == "akshare"
 
+    def test_requires_nonempty_trading_day_data(self):
+        iface = _mod.AkShareIndexDailyInterface()
+        assert iface.requires_nonempty_trading_day_data() is True
+
     def test_get_ddl(self):
         iface = _mod.AkShareIndexDailyInterface()
         ddl = iface.get_ddl()
@@ -97,6 +101,10 @@ class TestAkShareETFDailyInterface:
         iface = _mod.AkShareETFDailyInterface()
         info = iface.info
         assert info.interface_key == "fund_etf_daily"
+
+    def test_requires_nonempty_trading_day_data(self):
+        iface = _mod.AkShareETFDailyInterface()
+        assert iface.requires_nonempty_trading_day_data() is True
 
     def test_get_ddl(self):
         iface = _mod.AkShareETFDailyInterface()

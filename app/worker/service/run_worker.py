@@ -21,6 +21,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from app.infrastructure.config import get_runtime_csv
 from app.infrastructure.logging import configure_logging, get_logger  # noqa: E402
 
 configure_logging()
@@ -31,7 +32,11 @@ from app.worker.service import tasks  # noqa
 from app.worker.service.config import redis_conn, QUEUES
 
 
-DEFAULT_QUEUE_NAMES = ["backtest", "optimization", "default", "low"]
+DEFAULT_QUEUE_NAMES = get_runtime_csv(
+    env_keys="WORKER_DEFAULT_QUEUE_NAMES",
+    db_key="worker.default_queue_names",
+    default=["backtest", "optimization", "default", "low"],
+)
 
 
 def main():

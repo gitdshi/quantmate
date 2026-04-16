@@ -35,8 +35,18 @@ def cmd_health(args):
 
     try:
         import redis
+        from app.infrastructure.config import get_runtime_float, get_settings
 
-        r = redis.Redis(host="localhost", port=6379, socket_timeout=2)
+        settings = get_settings()
+        r = redis.Redis(
+            host=settings.redis_host,
+            port=settings.redis_port,
+            socket_timeout=get_runtime_float(
+                env_keys="CLI_REDIS_SOCKET_TIMEOUT_SECONDS",
+                db_key="cli.redis_socket_timeout_seconds",
+                default=2.0,
+            ),
+        )
         r.ping()
         print("Redis: OK")
     except Exception:

@@ -14,6 +14,7 @@ import uuid
 from app.domains.composite.dao.strategy_component_dao import StrategyComponentDao
 from app.domains.composite.dao.composite_strategy_dao import CompositeStrategyDao
 from app.domains.composite.dao.composite_backtest_dao import CompositeBacktestDao
+from app.infrastructure.config import get_runtime_int
 
 
 class CompositeStrategyService:
@@ -346,8 +347,16 @@ class CompositeStrategyService:
             "app.domains.composite.tasks.run_composite_backtest_task",
             kwargs={"job_id": job_id},
             job_id=job_id,
-            job_timeout=3600,
-            result_ttl=86400 * 7,
+            job_timeout=get_runtime_int(
+                env_keys="BACKTEST_JOB_TIMEOUT_SECONDS",
+                db_key="backtest.job_timeout_seconds",
+                default=3600,
+            ),
+            result_ttl=get_runtime_int(
+                env_keys="BACKTEST_RESULT_TTL_SECONDS",
+                db_key="backtest.result_ttl_seconds",
+                default=86400 * 7,
+            ),
         )
 
         return self._backtest_dao.get_by_job_id(job_id)
