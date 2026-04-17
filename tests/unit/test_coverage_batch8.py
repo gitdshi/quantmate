@@ -614,6 +614,8 @@ class TestVnpyTradingServiceExtended:
 from app.api.main import app
 from app.api.services.auth_service import get_current_user
 from app.api.models.user import TokenData
+from app.api.exception_handlers import register_exception_handlers
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 
@@ -641,6 +643,25 @@ def _bypass_rbac(monkeypatch):
 
 def _client():
     return TestClient(app, raise_server_exceptions=False)
+
+
+def _route_client(*routers):
+    test_app = FastAPI()
+    register_exception_handlers(test_app)
+    test_app.dependency_overrides[get_current_user] = lambda: _user()
+
+    for router in routers:
+        for route in router.routes:
+            dependant = getattr(route, "dependant", None)
+            if not dependant:
+                continue
+            for dep in dependant.dependencies:
+                call = getattr(dep, "call", None)
+                if call and getattr(call, "__name__", "") == "require_permission":
+                    dep.call = lambda *a, **kw: None
+        test_app.include_router(router, prefix="/api/v1")
+
+    return TestClient(test_app, raise_server_exceptions=False)
 
 
 # --- Auth routes ---
@@ -995,41 +1016,46 @@ class TestSettingsRoutesB8:
 
     def test_list_datasource_configs(self, monkeypatch):
         from app.domains.market.dao.data_source_item_dao import DataSourceConfigDao
+        from app.api.routes.settings import router as settings_router
         monkeypatch.setattr(DataSourceConfigDao, "list_all", lambda self: [])
-        resp = _client().get("/api/v1/settings/datasource-configs")
+        resp = _route_client(settings_router).get("/api/v1/settings/datasource-configs")
         assert resp.status_code == 200
 
     def test_update_datasource_config(self, monkeypatch):
         from app.domains.market.dao.data_source_item_dao import DataSourceConfigDao
+        from app.api.routes.settings import router as settings_router
         monkeypatch.setattr(DataSourceConfigDao, "get_by_key", lambda self, k: {"source_key": k})
         monkeypatch.setattr(DataSourceConfigDao, "update_config", lambda self, *a, **kw: None)
-        resp = _client().put("/api/v1/settings/datasource-configs/tushare", json={
+        resp = _route_client(settings_router).put("/api/v1/settings/datasource-configs/tushare", json={
             "enabled": True,
         })
         assert resp.status_code == 200
 
     def test_update_datasource_config_not_found(self, monkeypatch):
         from app.domains.market.dao.data_source_item_dao import DataSourceConfigDao
+        from app.api.routes.settings import router as settings_router
         monkeypatch.setattr(DataSourceConfigDao, "get_by_key", lambda self, k: None)
-        resp = _client().put("/api/v1/settings/datasource-configs/bad", json={"enabled": True})
+        resp = _route_client(settings_router).put("/api/v1/settings/datasource-configs/bad", json={"enabled": True})
         assert resp.status_code == 404
 
     def test_test_datasource_connection(self, monkeypatch):
+        from app.api.routes.settings import router as settings_router
         registry = MagicMock()
         ds = MagicMock()
         ds.test_connection.return_value = (True, "OK")
         registry.get_source.return_value = ds
         monkeypatch.setattr("app.datasync.registry.build_default_registry", lambda: registry)
-        resp = _client().post("/api/v1/settings/datasource-items/test/tushare")
+        resp = _route_client(settings_router).post("/api/v1/settings/datasource-items/test/tushare")
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
 
     def test_test_datasource_connection_unknown(self, monkeypatch):
+        from app.api.routes.settings import router as settings_router
         registry = MagicMock()
         registry.get_source.return_value = None
         registry.all_sources.return_value = []
         monkeypatch.setattr("app.datasync.registry.build_default_registry", lambda: registry)
-        resp = _client().post("/api/v1/settings/datasource-items/test/unknown")
+        resp = _route_client(settings_router).post("/api/v1/settings/datasource-items/test/unknown")
         assert resp.status_code == 400
 
 

@@ -470,7 +470,7 @@ class TestSyncEngine:
     def test_get_status_found(self, mock_engine):
         m = self._m()
         row = MagicMock()
-        row.__getitem__ = lambda s, idx: "success"
+        row.__getitem__ = lambda s, idx: {0: "success", 1: 0}[idx]
         mock_engine.return_value.connect.return_value.__enter__.return_value.execute.return_value.fetchone.return_value = row
         s = m._get_status(date(2024, 1, 15), "tushare", "stock_daily")
         assert s == "success"
@@ -501,46 +501,46 @@ class TestSyncEngine:
         assert result[0]["source"] == "tushare"
 
     @patch("app.datasync.service.sync_engine._write_status")
-    @patch("app.datasync.service.sync_engine._get_status")
+    @patch("app.datasync.service.sync_engine._get_status_snapshot")
     @patch("app.datasync.service.sync_engine._get_enabled_items")
-    def test_daily_sync_skip_already_synced(self, mock_items, mock_status, mock_write):
+    def test_daily_sync_skip_already_synced(self, mock_items, mock_snapshot, mock_write):
         m = self._m()
         mock_items.return_value = [{
             "source": "tushare", "item_key": "stock_daily", "target_database": "tushare",
             "target_table": "stock_daily", "table_created": True, "sync_priority": 20,
         }]
-        mock_status.return_value = "success"
+        mock_snapshot.return_value = ("success", 1)
         registry = MagicMock()
         results = m.daily_sync(registry, target_date=date(2024, 1, 15))
         assert results["tushare/stock_daily"]["skipped"] is True
 
     @patch("app.datasync.service.sync_engine._write_status")
-    @patch("app.datasync.service.sync_engine._get_status")
+    @patch("app.datasync.service.sync_engine._get_status_snapshot")
     @patch("app.datasync.service.sync_engine._get_enabled_items")
-    def test_daily_sync_no_interface(self, mock_items, mock_status, mock_write):
+    def test_daily_sync_no_interface(self, mock_items, mock_snapshot, mock_write):
         m = self._m()
         mock_items.return_value = [{
             "source": "tushare", "item_key": "unknown", "target_database": "tushare",
             "target_table": "unknown", "table_created": True, "sync_priority": 99,
         }]
-        mock_status.return_value = None
+        mock_snapshot.return_value = (None, 0)
         registry = MagicMock()
         registry.get_interface.return_value = None
         results = m.daily_sync(registry, target_date=date(2024, 1, 15))
         assert results["tushare/unknown"]["status"] == "skipped"
 
     @patch("app.datasync.service.sync_engine._write_status")
-    @patch("app.datasync.service.sync_engine._get_status")
+    @patch("app.datasync.service.sync_engine._get_status_snapshot")
     @patch("app.datasync.service.sync_engine._get_enabled_items")
     @patch("app.datasync.service.sync_engine.ensure_table")
-    def test_daily_sync_run_interface(self, mock_ensure, mock_items, mock_status, mock_write):
+    def test_daily_sync_run_interface(self, mock_ensure, mock_items, mock_snapshot, mock_write):
         from app.datasync.base import SyncResult, SyncStatus
         m = self._m()
         mock_items.return_value = [{
             "source": "tushare", "item_key": "stock_daily", "target_database": "tushare",
             "target_table": "stock_daily", "table_created": True, "sync_priority": 20,
         }]
-        mock_status.return_value = None  # Not yet synced
+        mock_snapshot.return_value = (None, 0)
         iface = MagicMock()
         iface.sync_date.return_value = SyncResult(SyncStatus.SUCCESS, 500)
         registry = MagicMock()
@@ -550,16 +550,16 @@ class TestSyncEngine:
         assert results["tushare/stock_daily"]["rows"] == 500
 
     @patch("app.datasync.service.sync_engine._write_status")
-    @patch("app.datasync.service.sync_engine._get_status")
+    @patch("app.datasync.service.sync_engine._get_status_snapshot")
     @patch("app.datasync.service.sync_engine._get_enabled_items")
     @patch("app.datasync.service.sync_engine.ensure_table")
-    def test_daily_sync_table_creation_failure(self, mock_ensure, mock_items, mock_status, mock_write):
+    def test_daily_sync_table_creation_failure(self, mock_ensure, mock_items, mock_snapshot, mock_write):
         m = self._m()
         mock_items.return_value = [{
             "source": "tushare", "item_key": "stock_daily", "target_database": "tushare",
             "target_table": "stock_daily", "table_created": False, "sync_priority": 20,
         }]
-        mock_status.return_value = None
+        mock_snapshot.return_value = (None, 0)
         iface = MagicMock()
         registry = MagicMock()
         registry.get_interface.return_value = iface
@@ -568,15 +568,15 @@ class TestSyncEngine:
         assert results["tushare/stock_daily"]["status"] == "error"
 
     @patch("app.datasync.service.sync_engine._write_status")
-    @patch("app.datasync.service.sync_engine._get_status")
+    @patch("app.datasync.service.sync_engine._get_status_snapshot")
     @patch("app.datasync.service.sync_engine._get_enabled_items")
-    def test_daily_sync_exception_in_sync(self, mock_items, mock_status, mock_write):
+    def test_daily_sync_exception_in_sync(self, mock_items, mock_snapshot, mock_write):
         m = self._m()
         mock_items.return_value = [{
             "source": "tushare", "item_key": "stock_daily", "target_database": "tushare",
             "target_table": "stock_daily", "table_created": True, "sync_priority": 20,
         }]
-        mock_status.return_value = None
+        mock_snapshot.return_value = (None, 0)
         iface = MagicMock()
         iface.sync_date.side_effect = RuntimeError("sync fail")
         registry = MagicMock()
@@ -584,12 +584,13 @@ class TestSyncEngine:
         results = m.daily_sync(registry, target_date=date(2024, 1, 15))
         assert results["tushare/stock_daily"]["status"] == "error"
 
+    @patch("app.datasync.service.sync_engine._get_enabled_backfill_keys", return_value={("tushare", "stock_daily")})
     @patch("app.datasync.service.sync_engine._write_status")
     @patch("app.datasync.service.sync_engine._get_failed_records")
     @patch("app.domains.extdata.dao.data_sync_status_dao.is_backfill_locked", return_value=False)
     @patch("app.domains.extdata.dao.data_sync_status_dao.acquire_backfill_lock")
     @patch("app.domains.extdata.dao.data_sync_status_dao.release_backfill_lock")
-    def test_backfill_retry_max_retries(self, mock_rel, mock_acq, mock_locked, mock_failed, mock_write):
+    def test_backfill_retry_max_retries(self, mock_rel, mock_acq, mock_locked, mock_failed, mock_write, mock_enabled):
         m = self._m()
         mock_failed.return_value = [(date(2024, 1, 10), "tushare", "stock_daily", 5)]  # 5 >= MAX_RETRIES(3)
         registry = MagicMock()
@@ -603,12 +604,13 @@ class TestSyncEngine:
         results = m.backfill_retry(registry)
         assert results == {}
 
+    @patch("app.datasync.service.sync_engine._get_enabled_backfill_keys", return_value={("tushare", "stock_daily")})
     @patch("app.datasync.service.sync_engine._write_status")
     @patch("app.datasync.service.sync_engine._get_failed_records")
     @patch("app.domains.extdata.dao.data_sync_status_dao.is_backfill_locked", return_value=False)
     @patch("app.domains.extdata.dao.data_sync_status_dao.acquire_backfill_lock")
     @patch("app.domains.extdata.dao.data_sync_status_dao.release_backfill_lock")
-    def test_backfill_retry_success(self, mock_rel, mock_acq, mock_locked, mock_failed, mock_write):
+    def test_backfill_retry_success(self, mock_rel, mock_acq, mock_locked, mock_failed, mock_write, mock_enabled):
         from app.datasync.base import SyncResult, SyncStatus
         m = self._m()
         mock_failed.return_value = [(date(2024, 1, 10), "tushare", "stock_daily", 0)]
@@ -650,7 +652,7 @@ class TestInitService:
     def test_lookback_days_prod(self):
         m = self._m()
         with patch.object(m, "_get_env", return_value="production"):
-            assert m._lookback_days() == 365 * 30
+            assert m._lookback_days() == 365 * 20
 
     @patch("app.datasync.service.init_service._reconcile_pending_records", return_value={"pending_records": 100, "items_reconciled": 5, "skipped_unsupported": []})
     @patch("app.datasync.service.init_service._ensure_tables", return_value=3)

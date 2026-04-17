@@ -263,7 +263,10 @@ def ingest_all_indexes(start_date: str | None = None) -> dict:
     results = {}
     for ak_symbol, ts_code in INDEX_MAPPING.items():
         try:
-            rows = ingest_index_daily(symbol=ak_symbol, start_date=start_date)
+            if start_date is None:
+                rows = ingest_index_daily(symbol=ak_symbol)
+            else:
+                rows = ingest_index_daily(symbol=ak_symbol, start_date=start_date)
             results[ts_code] = {"status": "success", "rows": rows}
         except Exception as e:
             results[ts_code] = {"status": "error", "error": str(e)}

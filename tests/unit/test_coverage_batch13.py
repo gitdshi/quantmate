@@ -339,13 +339,14 @@ class TestSyncEngineBranches:
 
     @patch("app.datasync.service.sync_engine.ensure_table")
     @patch("app.datasync.service.sync_engine._write_status")
-    @patch("app.datasync.service.sync_engine._get_status")
+    @patch("app.datasync.service.sync_engine._get_status_snapshot")
     @patch("app.datasync.service.sync_engine._get_enabled_items")
     @patch("app.datasync.service.sync_engine.get_previous_trade_date")
-    def test_daily_sync_no_interface(self, mock_prev, mock_items, mock_status, mock_write, mock_ensure):
+    def test_daily_sync_no_interface(self, mock_prev, mock_items, mock_snapshot, mock_write, mock_ensure):
         from app.datasync.service.sync_engine import daily_sync
         mock_prev.return_value = date(2024, 1, 15)
         mock_items.return_value = [{"source": "tushare", "item_key": "adj_factor", "table_created": True}]
+        mock_snapshot.return_value = (None, 0)
         registry = MagicMock()
         registry.get_interface.return_value = None  # no interface
         results = daily_sync(registry)
@@ -353,14 +354,20 @@ class TestSyncEngineBranches:
 
     @patch("app.datasync.service.sync_engine.ensure_table")
     @patch("app.datasync.service.sync_engine._write_status")
-    @patch("app.datasync.service.sync_engine._get_status")
+    @patch("app.datasync.service.sync_engine._get_status_snapshot")
     @patch("app.datasync.service.sync_engine._get_enabled_items")
     @patch("app.datasync.service.sync_engine.get_previous_trade_date")
-    def test_daily_sync_already_success(self, mock_prev, mock_items, mock_status, mock_write, mock_ensure):
+    def test_daily_sync_already_success(self, mock_prev, mock_items, mock_snapshot, mock_write, mock_ensure):
         from app.datasync.service.sync_engine import daily_sync
         mock_prev.return_value = date(2024, 1, 15)
-        mock_items.return_value = [{"source": "tushare", "item_key": "daily", "table_created": True}]
-        mock_status.return_value = "success"
+        mock_items.return_value = [{
+            "source": "tushare",
+            "item_key": "daily",
+            "table_created": True,
+            "target_database": "tushare",
+            "target_table": "daily",
+        }]
+        mock_snapshot.return_value = ("success", 1)
         registry = MagicMock()
         registry.get_interface.return_value = MagicMock()
         results = daily_sync(registry)
@@ -368,14 +375,20 @@ class TestSyncEngineBranches:
 
     @patch("app.datasync.service.sync_engine.ensure_table")
     @patch("app.datasync.service.sync_engine._write_status")
-    @patch("app.datasync.service.sync_engine._get_status")
+    @patch("app.datasync.service.sync_engine._get_status_snapshot")
     @patch("app.datasync.service.sync_engine._get_enabled_items")
     @patch("app.datasync.service.sync_engine.get_previous_trade_date")
-    def test_daily_sync_ddl_failure(self, mock_prev, mock_items, mock_status, mock_write, mock_ensure):
+    def test_daily_sync_ddl_failure(self, mock_prev, mock_items, mock_snapshot, mock_write, mock_ensure):
         from app.datasync.service.sync_engine import daily_sync
         mock_prev.return_value = date(2024, 1, 15)
-        mock_items.return_value = [{"source": "tushare", "item_key": "test", "table_created": False}]
-        mock_status.return_value = None
+        mock_items.return_value = [{
+            "source": "tushare",
+            "item_key": "test",
+            "table_created": False,
+            "target_database": "tushare",
+            "target_table": "test",
+        }]
+        mock_snapshot.return_value = (None, 0)
         mock_ensure.side_effect = Exception("DDL error")
         iface = MagicMock()
         iface.get_ddl.return_value = "CREATE TABLE..."
@@ -386,15 +399,22 @@ class TestSyncEngineBranches:
 
     @patch("app.datasync.service.sync_engine.ensure_table")
     @patch("app.datasync.service.sync_engine._write_status")
-    @patch("app.datasync.service.sync_engine._get_status")
+    @patch("app.datasync.service.sync_engine._get_status_snapshot")
     @patch("app.datasync.service.sync_engine._get_enabled_items")
     @patch("app.datasync.service.sync_engine.get_previous_trade_date")
-    def test_daily_sync_execution_exception(self, mock_prev, mock_items, mock_status, mock_write, mock_ensure):
+    def test_daily_sync_execution_exception(self, mock_prev, mock_items, mock_snapshot, mock_write, mock_ensure):
         from app.datasync.service.sync_engine import daily_sync
         mock_prev.return_value = date(2024, 1, 15)
-        mock_items.return_value = [{"source": "tushare", "item_key": "daily", "table_created": True}]
-        mock_status.return_value = None
+        mock_items.return_value = [{
+            "source": "tushare",
+            "item_key": "daily",
+            "table_created": True,
+            "target_database": "tushare",
+            "target_table": "daily",
+        }]
+        mock_snapshot.return_value = (None, 0)
         iface = MagicMock()
+        iface.get_ddl.return_value = "CREATE TABLE..."
         iface.sync_date.side_effect = Exception("sync failed")
         registry = MagicMock()
         registry.get_interface.return_value = iface
@@ -410,12 +430,13 @@ class TestSyncEngineBranches:
         results = backfill_retry(registry)
         assert results == {}
 
+    @patch("app.datasync.service.sync_engine._get_enabled_backfill_keys", return_value={("tushare", "daily"), ("tushare", "adj")})
     @patch("app.domains.extdata.dao.data_sync_status_dao.release_backfill_lock")
     @patch("app.domains.extdata.dao.data_sync_status_dao.acquire_backfill_lock")
     @patch("app.domains.extdata.dao.data_sync_status_dao.is_backfill_locked", return_value=False)
     @patch("app.datasync.service.sync_engine._get_failed_records")
     @patch("app.datasync.service.sync_engine._write_status")
-    def test_backfill_max_retries_and_exception(self, mock_write, mock_failed, mock_locked, mock_acquire, mock_release):
+    def test_backfill_max_retries_and_exception(self, mock_write, mock_failed, mock_locked, mock_acquire, mock_release, mock_enabled):
         from app.datasync.service.sync_engine import backfill_retry
         mock_failed.return_value = [
             (date(2024, 1, 15), "tushare", "daily", 5),  # max retries
@@ -424,7 +445,7 @@ class TestSyncEngineBranches:
         iface = MagicMock()
         iface.sync_date.side_effect = Exception("retry failed")
         registry = MagicMock()
-        registry.get_interface.side_effect = [None, iface]  # first None for max-retries, then iface
+        registry.get_interface.return_value = iface
         results = backfill_retry(registry, lookback_days=7)
         mock_release.assert_called_once()
 

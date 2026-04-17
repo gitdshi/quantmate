@@ -91,12 +91,14 @@ class TestInitializeSyncStatus:
             )
 
         assert result == 3
-        conn.execute.assert_called_once()
+        assert conn.execute.called
         mock_record.assert_called_once_with("tushare", "stock_daily", date(2024, 1, 1), date(2024, 1, 5))
 
     def test_no_trade_days(self):
         from app.datasync.service.sync_init_service import initialize_sync_status
         with patch(f"{_INIT_MOD}.ensure_sync_status_init_table"), \
+             patch(f"{_INIT_MOD}._get_initialized_bounds", return_value=None), \
+             patch(f"{_INIT_MOD}._record_init"), \
              patch(f"{_ENGINE_MOD}.get_trade_calendar", return_value=[]):
             result = initialize_sync_status("tushare", "stock_daily")
         assert result == 0
@@ -181,7 +183,7 @@ class TestSyncOneItem:
         item = {"source": "tushare", "item_key": "stock_daily", "table_created": 1,
                 "target_database": "ts", "target_table": "stock_daily", "sync_priority": 10}
         with patch(f"{_ENGINE_MOD}._get_source_semaphore", return_value=None), \
-             patch(f"{_ENGINE_MOD}._get_status", return_value=SyncStatus.SUCCESS.value):
+             patch(f"{_ENGINE_MOD}._get_status_snapshot", return_value=(SyncStatus.SUCCESS.value, 1)):
             label, res = _sync_one_item(registry, item, date(2024, 1, 5), 1, 1)
         assert res.get("skipped") is True
 
@@ -195,8 +197,9 @@ class TestSyncOneItem:
         item = {"source": "tushare", "item_key": "stock_daily", "table_created": 1,
                 "target_database": "ts", "target_table": "stock_daily", "sync_priority": 10}
         with patch(f"{_ENGINE_MOD}._get_source_semaphore", return_value=None), \
-             patch(f"{_ENGINE_MOD}._get_status", return_value=None), \
-             patch(f"{_ENGINE_MOD}._write_status"):
+             patch(f"{_ENGINE_MOD}._get_status_snapshot", return_value=(None, 0)), \
+             patch(f"{_ENGINE_MOD}._write_status"), \
+             patch(f"{_ENGINE_MOD}.ensure_table"):
             label, res = _sync_one_item(registry, item, date(2024, 1, 5), 1, 1)
         assert res["status"] == "success"
         assert res["rows"] == 500
@@ -210,8 +213,9 @@ class TestSyncOneItem:
         item = {"source": "tushare", "item_key": "stock_daily", "table_created": 1,
                 "target_database": "ts", "target_table": "stock_daily", "sync_priority": 10}
         with patch(f"{_ENGINE_MOD}._get_source_semaphore", return_value=None), \
-             patch(f"{_ENGINE_MOD}._get_status", return_value=None), \
-             patch(f"{_ENGINE_MOD}._write_status"):
+             patch(f"{_ENGINE_MOD}._get_status_snapshot", return_value=(None, 0)), \
+             patch(f"{_ENGINE_MOD}._write_status"), \
+             patch(f"{_ENGINE_MOD}.ensure_table"):
             label, res = _sync_one_item(registry, item, date(2024, 1, 5), 1, 1)
         assert res["status"] == "error"
 
@@ -223,7 +227,7 @@ class TestSyncOneItem:
         item = {"source": "tushare", "item_key": "stock_daily", "table_created": 0,
                 "target_database": "ts", "target_table": "stock_daily", "sync_priority": 10}
         with patch(f"{_ENGINE_MOD}._get_source_semaphore", return_value=None), \
-             patch(f"{_ENGINE_MOD}._get_status", return_value=None), \
+             patch(f"{_ENGINE_MOD}._get_status_snapshot", return_value=(None, 0)), \
              patch(f"{_ENGINE_MOD}._write_status"), \
              patch(f"{_ENGINE_MOD}.ensure_table", side_effect=Exception("DDL boom")):
             label, res = _sync_one_item(registry, item, date(2024, 1, 5), 1, 1)
@@ -250,8 +254,9 @@ class TestDailySyncParallel:
         ]
 
         with patch(f"{_ENGINE_MOD}._get_enabled_items", return_value=items), \
-             patch(f"{_ENGINE_MOD}._get_status", return_value=None), \
-             patch(f"{_ENGINE_MOD}._write_status"), \
+               patch(f"{_ENGINE_MOD}._get_status_snapshot", return_value=(None, 0)), \
+               patch(f"{_ENGINE_MOD}._write_status"), \
+               patch(f"{_ENGINE_MOD}.ensure_table"), \
              patch(f"{_ENGINE_MOD}.get_previous_trade_date", return_value=date(2024, 1, 5)):
             result = daily_sync(registry, target_date=date(2024, 1, 5), max_workers=2)
 

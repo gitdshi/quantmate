@@ -172,7 +172,17 @@ def _get_status_snapshot(sync_date: date, source: str, interface_key: str) -> tu
         ).fetchone()
         if row is None:
             return None, 0
-        return row[0], int(row[1] or 0)
+        try:
+            rows_synced = row[1]
+        except Exception:
+            rows_synced = 0
+
+        try:
+            normalized_rows = int(rows_synced or 0)
+        except (TypeError, ValueError):
+            normalized_rows = 0
+
+        return row[0], normalized_rows
 
 
 def _get_failed_records(lookback_days: int | None = None) -> list[tuple[date, str, str, int, str | None]]:

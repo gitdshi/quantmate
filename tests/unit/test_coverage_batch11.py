@@ -62,10 +62,10 @@ class TestConfigureVnpyMysql:
     def test_sets_vnpy_settings(self, monkeypatch):
         settings = {}
         monkeypatch.setattr("app.worker.service.tasks.VNPY_SETTINGS", settings)
-        monkeypatch.setenv("MYSQL_HOST", "db.local")
-        monkeypatch.setenv("MYSQL_USER", "root")
-        monkeypatch.setenv("MYSQL_PASSWORD", "pass")
-        monkeypatch.setenv("MYSQL_PORT", "3307")
+        monkeypatch.setattr(
+            "app.worker.service.tasks.get_settings",
+            lambda: SimpleNamespace(mysql_host="db.local", mysql_user="root", mysql_password="pass", mysql_port=3307),
+        )
         from app.worker.service.tasks import _configure_vnpy_mysql_from_env
         _configure_vnpy_mysql_from_env()
         assert settings["database.name"] == "mysql"
@@ -75,9 +75,10 @@ class TestConfigureVnpyMysql:
     def test_skips_when_missing_env(self, monkeypatch):
         settings = {}
         monkeypatch.setattr("app.worker.service.tasks.VNPY_SETTINGS", settings)
-        monkeypatch.delenv("MYSQL_HOST", raising=False)
-        monkeypatch.delenv("MYSQL_USER", raising=False)
-        monkeypatch.delenv("MYSQL_PASSWORD", raising=False)
+        monkeypatch.setattr(
+            "app.worker.service.tasks.get_settings",
+            lambda: SimpleNamespace(mysql_host="", mysql_user="", mysql_password="", mysql_port=3306),
+        )
         from app.worker.service.tasks import _configure_vnpy_mysql_from_env
         _configure_vnpy_mysql_from_env()
         assert "database.name" not in settings
@@ -440,7 +441,7 @@ class TestSyncEngineBatch11:
     def test_get_status(self, mock_get_eng):
         eng, ctx, _ = _fake_engine()
         mock_get_eng.return_value = eng
-        ctx.execute.return_value.fetchone.return_value = ("ok",)
+        ctx.execute.return_value.fetchone.return_value = ("ok", 0)
         from app.datasync.service.sync_engine import _get_status
         result = _get_status("2024-01-01", "tushare", "daily_bar")
         assert result is not None

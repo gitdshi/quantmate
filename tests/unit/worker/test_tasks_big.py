@@ -30,20 +30,25 @@ _MOD = "app.worker.service.tasks"
 class TestConfigureVnpyMysql:
     def test_skips_when_missing_env(self, monkeypatch):
         from app.worker.service.tasks import _configure_vnpy_mysql_from_env
+        from vnpy.trader.setting import SETTINGS as VNPY_SETTINGS
 
-        monkeypatch.delenv("MYSQL_HOST", raising=False)
-        monkeypatch.delenv("MYSQL_USER", raising=False)
+        monkeypatch.setattr(
+            "app.worker.service.tasks.get_settings",
+            lambda: MagicMock(mysql_host="", mysql_user="", mysql_password="", mysql_port=3306),
+        )
+        VNPY_SETTINGS.clear()
         # Should not raise
         _configure_vnpy_mysql_from_env()  # just returns early
+        assert "database.name" not in VNPY_SETTINGS
 
     def test_sets_settings(self, monkeypatch):
         from app.worker.service.tasks import _configure_vnpy_mysql_from_env
         from vnpy.trader.setting import SETTINGS as VNPY_SETTINGS
 
-        monkeypatch.setenv("MYSQL_HOST", "db-host")
-        monkeypatch.setenv("MYSQL_USER", "root")
-        monkeypatch.setenv("MYSQL_PASSWORD", "secret")
-        monkeypatch.setenv("MYSQL_PORT", "3307")
+        monkeypatch.setattr(
+            "app.worker.service.tasks.get_settings",
+            lambda: MagicMock(mysql_host="db-host", mysql_user="root", mysql_password="secret", mysql_port=3307),
+        )
 
         _configure_vnpy_mysql_from_env()
         assert VNPY_SETTINGS["database.name"] == "mysql"

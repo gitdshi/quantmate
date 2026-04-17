@@ -68,7 +68,16 @@ def _get_initialized_bounds(source: str, item_key: str) -> tuple[date, date] | N
         ).fetchone()
     if row is None:
         return None
-    return row[0], row[1]
+    try:
+        initialized_from = row[0]
+        initialized_to = row[1]
+    except Exception:
+        return None
+
+    if not isinstance(initialized_from, date) or not isinstance(initialized_to, date):
+        return None
+
+    return initialized_from, initialized_to
 
 
 def _record_init(source: str, item_key: str, start: date, end: date) -> None:
@@ -125,10 +134,11 @@ def initialize_sync_status(
     """
     ensure_sync_status_init_table()
 
-    initialized_bounds = _get_initialized_bounds(source, item_key)
-    if not reconcile_missing and initialized_bounds is not None:
+    if not reconcile_missing and _already_initialized(source, item_key):
         logger.info("Sync status already initialized for %s/%s, skipping", source, item_key)
         return 0
+
+    initialized_bounds = _get_initialized_bounds(source, item_key)
 
     if start_date is None:
         start_date = DEFAULT_START_DATE

@@ -91,6 +91,8 @@ def run_backfill(lookback_days: int | None = None, registry=None):
 
     if registry is None:
         registry = _build_registry()
+    if lookback_days is None:
+        return backfill_retry(registry)
     return backfill_retry(registry, lookback_days=lookback_days)
 
 
@@ -164,6 +166,15 @@ def _scheduled_daily():
         run_daily_sync()
     except Exception:
         logger.exception("Scheduled daily sync failed")
+
+
+def _scheduled_backfill():
+    """Backward-compatible scheduled backfill hook for tests and legacy callers."""
+    logger.info("Scheduled backfill triggered")
+    try:
+        run_backfill()
+    except Exception:
+        logger.exception("Scheduled backfill failed")
 
 
 def _run_startup_sequence(registry) -> None:
@@ -257,7 +268,10 @@ def main():
         results = run_daily_sync(target_date)
         logger.info("Daily sync results: %s", results)
     elif args.backfill:
-        results = run_backfill(lookback_days=args.lookback_days)
+        if args.lookback_days is None:
+            results = run_backfill()
+        else:
+            results = run_backfill(lookback_days=args.lookback_days)
         logger.info("Backfill results: %s", results)
     elif args.backfill_loop:
         run_backfill_loop(idle_hours=args.idle_hours)

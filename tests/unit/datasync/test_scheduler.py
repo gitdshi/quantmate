@@ -157,11 +157,13 @@ class TestScheduledFlows:
     def test_daemon_loop_starts_without_initial_backfill(self):
         import app.datasync.scheduler as mod
 
-        mod.schedule.every.return_value.day.at.return_value.do.return_value = None
+        fake_schedule = MagicMock()
+        fake_schedule.every.return_value.day.at.return_value.do.return_value = None
         fake_metrics = MagicMock()
         fake_metrics.init_metrics = MagicMock()
 
-        with patch(f"{_MOD}._build_registry", return_value=MagicMock()), \
+        with patch.object(mod, "schedule", fake_schedule), \
+             patch(f"{_MOD}._build_registry", return_value=MagicMock()), \
              patch(f"{_MOD}._run_startup_sequence") as mock_startup, \
              patch(f"{_MOD}.run_backfill") as mock_backfill, \
              patch(f"{_MOD}.time.sleep", side_effect=KeyboardInterrupt), \

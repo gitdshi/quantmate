@@ -287,15 +287,19 @@ class TestDaemonMainCLI:
 
     def test_main_daily(self, monkeypatch):
         monkeypatch.setattr("sys.argv", ["prog", "--daily"])
-        with patch.object(self.mod, "daily_ingest") as m:
+        scheduler = MagicMock()
+        scheduler.run_daily_sync.return_value = {}
+        with patch.object(self.mod, "_get_dynamic_scheduler", return_value=scheduler):
             self.mod.main()
-            m.assert_called_once()
+            scheduler.run_daily_sync.assert_called_once_with(target_date=None)
 
     def test_main_backfill(self, monkeypatch):
         monkeypatch.setattr("sys.argv", ["prog", "--backfill"])
-        with patch.object(self.mod, "missing_data_backfill") as m:
+        scheduler = MagicMock()
+        scheduler.run_backfill.return_value = {}
+        with patch.object(self.mod, "_get_dynamic_scheduler", return_value=scheduler):
             self.mod.main()
-            m.assert_called_once()
+            scheduler.run_backfill.assert_called_once_with(lookback_days=self.mod.LOOKBACK_DAYS)
 
     def test_main_daemon(self, monkeypatch):
         monkeypatch.setattr("sys.argv", ["prog", "--daemon"])
@@ -305,9 +309,9 @@ class TestDaemonMainCLI:
 
     def test_main_init(self, monkeypatch):
         monkeypatch.setattr("sys.argv", ["prog", "--init"])
-        with patch.object(self.mod, "initialize_sync_status_table") as m:
+        with patch.object(self.mod, "_run_dynamic_reconcile", return_value={}) as m:
             self.mod.main()
-            m.assert_called_once()
+            m.assert_called_once_with(target_date=None, lookback_years=15)
 
     def test_main_refresh_calendar(self, monkeypatch):
         monkeypatch.setattr("sys.argv", ["prog", "--refresh-calendar"])
