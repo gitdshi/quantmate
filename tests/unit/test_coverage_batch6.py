@@ -237,19 +237,26 @@ class TestDataSyncDaemonMainCLI:
         self.mod = __import__("app.datasync.service.data_sync_daemon", fromlist=["x"])
 
     def test_main_init(self, monkeypatch):
-        monkeypatch.setattr(self.mod, "initialize_sync_status_table", lambda **kw: None)
         monkeypatch.setattr("sys.argv", ["prog", "--init"])
-        self.mod.main()
+        with patch.object(self.mod, "_run_dynamic_reconcile", return_value={}) as mocked_reconcile:
+            self.mod.main()
+            mocked_reconcile.assert_called_once_with(target_date=None, lookback_years=15)
 
     def test_main_daily(self, monkeypatch):
-        monkeypatch.setattr(self.mod, "daily_ingest", lambda **kw: {})
         monkeypatch.setattr("sys.argv", ["prog", "--daily"])
-        self.mod.main()
+        scheduler = MagicMock()
+        scheduler.run_daily_sync.return_value = {}
+        with patch.object(self.mod, "_get_dynamic_scheduler", return_value=scheduler):
+            self.mod.main()
+            scheduler.run_daily_sync.assert_called_once_with(target_date=None)
 
     def test_main_backfill(self, monkeypatch):
-        monkeypatch.setattr(self.mod, "missing_data_backfill", lambda **kw: None)
         monkeypatch.setattr("sys.argv", ["prog", "--backfill"])
-        self.mod.main()
+        scheduler = MagicMock()
+        scheduler.run_backfill.return_value = {}
+        with patch.object(self.mod, "_get_dynamic_scheduler", return_value=scheduler):
+            self.mod.main()
+            scheduler.run_backfill.assert_called_once_with(lookback_days=self.mod.LOOKBACK_DAYS)
 
     def test_main_refresh_calendar(self, monkeypatch):
         monkeypatch.setattr(self.mod, "refresh_trade_calendar", lambda: None)
