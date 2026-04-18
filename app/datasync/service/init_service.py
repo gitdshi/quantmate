@@ -11,17 +11,17 @@ from app.datasync.registry import DataSourceRegistry
 from app.datasync.service.sync_init_service import ensure_sync_status_init_table, reconcile_enabled_sync_status
 from app.datasync.table_manager import ensure_table
 from app.domains.extdata.dao.data_sync_status_dao import ensure_backfill_lock_table, ensure_tables
-from app.infrastructure.config import get_runtime_int, get_runtime_str
+from app.infrastructure.config import get_runtime_str
 from app.infrastructure.db.connections import get_quantmate_engine
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_ENV_LOOKBACK = {
-    "dev": 365,
-    "development": 365,
-    "staging": 365 * 10,
-    "prod": 365 * 20,
-    "production": 365 * 20,
+DEFAULT_ENV_WINDOW_YEARS = {
+    "dev": 1,
+    "development": 1,
+    "staging": 10,
+    "prod": 20,
+    "production": 20,
 }
 
 ENV_ALIASES = {
@@ -45,58 +45,55 @@ def _get_env() -> str:
     )
 
 
-def _iter_lookback_env_keys(env: str) -> list[str]:
-    keys: list[str] = []
-    seen: set[str] = set()
-    for candidate_env in {env, _normalize_env_name(env)}:
-        env_key = "".join(char if char.isalnum() else "_" for char in candidate_env.upper())
-        for key in (
-            f"DATASYNC_INIT_LOOKBACK_{env_key}_DAYS",
-            f"INIT_LOOKBACK_{env_key}_DAYS",
-        ):
-            if key not in seen:
-                keys.append(key)
-                seen.add(key)
-
-    for key in ("DATASYNC_INIT_LOOKBACK_DAYS", "INIT_LOOKBACK_DAYS"):
-        if key not in seen:
-            keys.append(key)
-            seen.add(key)
-
-    return keys
-
-
-def _lookback_days(env: str | None = None) -> int:
+def _get_env_window_years(env: str | None = None) -> int:
     resolved_env = _normalize_env_name(env or _get_env())
-    default_days = DEFAULT_ENV_LOOKBACK.get(resolved_env, DEFAULT_ENV_LOOKBACK["dev"])
-    configured_days = get_runtime_int(
-        env_keys=_iter_lookback_env_keys(resolved_env),
-        db_key=f"datasync.init_lookback_days.{resolved_env}",
-        default=get_runtime_int(
-            db_key="datasync.init_lookback_days",
-            default=default_days,
-        ),
-    )
-    if configured_days <= 0:
-        logger.warning("Ignoring non-positive initialization lookback %r for env=%s", configured_days, resolved_env)
-        return default_days
-    return configured_days
+    return DEFAULT_ENV_WINDOW_YEARS.get(resolved_env, DEFAULT_ENV_WINDOW_YEARS["dev"])
+
+
+def _get_configured_sync_start_date(reference_date: date | None = None) -> date | None:
+    raw_value = get_runtime_str(
+        env_keys="SYNC_INIT_DEFAULT_START_DATE",
+        db_key="datasync.sync_init.default_start_date",
+        default="",
+    ).strip()
+    if not raw_value:
+        return None
+
+    try:
+        return date.fromisoformat(raw_value)
+    except ValueError:
+        logger.warning("Ignoring invalid SYNC_INIT_DEFAULT_START_DATE=%r", raw_value)
+        return None
+
+
+def _get_env_floor_start_date(reference_date: date | None = None, env: str | None = None) -> date:
+    resolved_reference = reference_date or date.today()
+    window_years = _get_env_window_years(env)
+    return resolved_reference - timedelta(days=365 * window_years)
 
 
 def get_coverage_window(target_end_date: date | None = None) -> dict[str, object]:
-    end_date = target_end_date or (date.today() - timedelta(days=1))
+    today = date.today()
+    end_date = target_end_date or (today - timedelta(days=1))
     env = _get_env()
-    lookback_days = _lookback_days(env)
-    start_date = end_date - timedelta(days=lookback_days)
+    reference_date = today
+    configured_start_date = _get_configured_sync_start_date(reference_date)
+    env_floor_start_date = _get_env_floor_start_date(reference_date, env)
+    start_date = configured_start_date or env_floor_start_date
+    if start_date > end_date:
+        start_date = end_date
     return {
         "env": env,
-        "lookback_days": lookback_days,
+        "window_years": _get_env_window_years(env),
+        "configured_start_date": configured_start_date,
+        "env_floor_start_date": env_floor_start_date,
         "start_date": start_date,
         "end_date": end_date,
     }
 
 
 def _get_sync_status_coverage_state() -> dict[str, object]:
+    from app.datasync.capabilities import is_item_sync_supported, load_source_config_map
     from app.datasync.registry import build_default_registry
     from app.domains.extdata.dao.data_sync_status_dao import get_cached_trade_dates
 
@@ -109,7 +106,7 @@ def _get_sync_status_coverage_state() -> dict[str, object]:
     with engine.connect() as conn:
         enabled_rows = conn.execute(
             text(
-                "SELECT dsi.source, dsi.item_key "
+                "SELECT dsi.source, dsi.item_key, dsi.api_name, dsi.permission_points, dsi.requires_permission "
                 "FROM data_source_items dsi "
                 "JOIN data_source_configs dsc ON dsi.source = dsc.source_key "
                 "WHERE dsi.enabled = 1 AND dsc.enabled = 1 "
@@ -152,10 +149,24 @@ def _get_sync_status_coverage_state() -> dict[str, object]:
     incomplete_items: list[dict[str, object]] = []
     unsupported_items: list[dict[str, str]] = []
     enabled_sync_items = 0
+    source_configs = load_source_config_map()
 
     expected_trade_days = len(trade_days)
 
-    for source, item_key in enabled_rows:
+    for row in enabled_rows:
+        source = row[0]
+        item_key = row[1]
+        item = {
+            "source": source,
+            "item_key": item_key,
+            "api_name": row[2] if len(row) > 2 else None,
+            "permission_points": row[3] if len(row) > 3 else None,
+            "requires_permission": row[4] if len(row) > 4 else None,
+        }
+        if not is_item_sync_supported(registry, item, source_configs=source_configs):
+            unsupported_items.append({"source": source, "item_key": item_key})
+            continue
+
         iface = registry.get_interface(source, item_key)
         if iface is None:
             unsupported_items.append({"source": source, "item_key": item_key})
@@ -253,9 +264,95 @@ def _sync_registry_state(engine, registry: DataSourceRegistry) -> dict[str, int]
     _seed_configs(engine, registry)
     _seed_items(engine, registry)
     return {
+        "bootstrap_item_enablement_updates": _sync_bootstrap_item_enablement(engine, registry),
         "items_normalized": _normalize_item_targets(engine),
         "tables_created": _ensure_tables(engine, registry),
     }
+
+
+def _is_bootstrap_item_enablement_pending(engine) -> bool:
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(
+                text(
+                    "SELECT 1 FROM init_progress "
+                    "WHERE id = 1 AND phase = 'finished' AND status = 'completed' "
+                    "LIMIT 1"
+                )
+            ).fetchone()
+    except Exception as exc:
+        logger.warning("Unable to inspect init_progress for bootstrap enablement sync: %s", exc)
+        return True
+    return row is None
+
+
+def _sync_bootstrap_item_enablement(engine, registry: DataSourceRegistry) -> int:
+    """Apply initial Tushare item enablement from runtime capability config.
+
+    During the first bootstrap we normalize ``data_source_items.enabled`` to the
+    interfaces the current environment can actually access. Once bootstrap is
+    complete, runtime toggles are left untouched.
+    """
+    from app.datasync.capabilities import is_item_sync_supported, load_source_config_map
+
+    if not _is_bootstrap_item_enablement_pending(engine):
+        return 0
+
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    "SELECT source, item_key, enabled, api_name, permission_points, requires_permission "
+                    "FROM data_source_items "
+                    "WHERE source = 'tushare' "
+                    "ORDER BY sync_priority, item_key"
+                )
+            ).fetchall()
+    except Exception:
+        logger.exception("Failed to load Tushare items for bootstrap enablement sync")
+        return 0
+
+    if not rows:
+        return 0
+
+    source_configs = load_source_config_map()
+    updates: list[dict[str, object]] = []
+
+    for row in rows:
+        item = {
+            "source": row[0],
+            "item_key": row[1],
+            "api_name": row[3],
+            "permission_points": row[4],
+            "requires_permission": row[5],
+        }
+        desired_enabled = int(is_item_sync_supported(registry, item, source_configs=source_configs))
+        current_enabled = int(row[2] or 0)
+        if desired_enabled == current_enabled:
+            continue
+        updates.append(
+            {
+                "source": row[0],
+                "item_key": row[1],
+                "enabled": desired_enabled,
+            }
+        )
+
+    if not updates:
+        return 0
+
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE data_source_items "
+                "SET enabled = :enabled "
+                "WHERE source = :source AND item_key = :item_key"
+            ),
+            updates,
+        )
+
+    logger.info("Normalized bootstrap Tushare enablement for %d items", len(updates))
+    return len(updates)
 
 
 def _ensure_trade_calendar_window(start_date: date, end_date: date) -> tuple[list[date], bool]:
@@ -290,11 +387,13 @@ def reconcile_runtime_state(
     end_date = coverage_window["end_date"]
 
     logger.info(
-        "=== DataSync Runtime Reconcile (env=%s start=%s end=%s lookback_days=%s) ===",
+        "=== DataSync Runtime Reconcile (env=%s start=%s end=%s window_years=%s configured_start=%s env_floor_start=%s) ===",
         coverage_window["env"],
         start_date,
         end_date,
-        coverage_window["lookback_days"],
+        coverage_window["window_years"],
+        coverage_window["configured_start_date"],
+        coverage_window["env_floor_start_date"],
     )
 
     engine = get_quantmate_engine()
@@ -308,7 +407,9 @@ def reconcile_runtime_state(
 
     result = {
         "env": coverage_window["env"],
-        "lookback_days": coverage_window["lookback_days"],
+        "window_years": coverage_window["window_years"],
+        "configured_start_date": coverage_window["configured_start_date"],
+        "env_floor_start_date": coverage_window["env_floor_start_date"],
         "start_date": start_date,
         "end_date": end_date,
         "trade_calendar_days": len(trade_dates),
@@ -327,17 +428,20 @@ def initialize(registry: DataSourceRegistry, run_backfill: bool = False) -> dict
 
     1. Ensure sync status support tables exist
     2. Ensure data_source_configs and data_source_items have seed data
-    3. Create tables for all enabled interfaces
+    3. Align first-boot Tushare enablement with runtime capability config
+    4. Create bootstrap tables and let premium Tushare tables be created on demand
     4. Reconcile pending sync status records for enabled interfaces
     5. Optionally run backfill
     """
     coverage_window = get_coverage_window()
     logger.info(
-        "=== DataSync Initialization (env=%s start=%s end=%s lookback_days=%s) ===",
+        "=== DataSync Initialization (env=%s start=%s end=%s window_years=%s configured_start=%s env_floor_start=%s) ===",
         coverage_window["env"],
         coverage_window["start_date"],
         coverage_window["end_date"],
-        coverage_window["lookback_days"],
+        coverage_window["window_years"],
+        coverage_window["configured_start_date"],
+        coverage_window["env_floor_start_date"],
     )
 
     engine = get_quantmate_engine()
@@ -359,7 +463,9 @@ def initialize(registry: DataSourceRegistry, run_backfill: bool = False) -> dict
 
     result = {
         "env": coverage_window["env"],
-        "lookback_days": coverage_window["lookback_days"],
+        "window_years": coverage_window["window_years"],
+        "configured_start_date": coverage_window["configured_start_date"],
+        "env_floor_start_date": coverage_window["env_floor_start_date"],
         "start_date": coverage_window["start_date"],
         "end_date": coverage_window["end_date"],
         "trade_calendar_days": len(trade_dates),
@@ -373,7 +479,7 @@ def initialize(registry: DataSourceRegistry, run_backfill: bool = False) -> dict
     if run_backfill:
         from app.datasync.service.sync_engine import backfill_retry
 
-        backfill_result = backfill_retry(registry, lookback_days=None)
+        backfill_result = backfill_retry(registry)
         result["backfill"] = backfill_result
 
     logger.info("=== Initialization complete: %s ===", result)
@@ -436,22 +542,28 @@ def _normalize_item_targets(engine) -> int:
 
 
 def _ensure_tables(engine, registry: DataSourceRegistry) -> int:
-    """Ensure tables for enabled interfaces, correcting stale table_created flags."""
-    created = 0
-    with engine.connect() as conn:
-        rows = conn.execute(
-            text(
-                "SELECT dsi.source, dsi.item_key, dsi.target_database, dsi.target_table "
-                "FROM data_source_items dsi "
-                "JOIN data_source_configs dsc ON dsi.source = dsc.source_key "
-                "WHERE dsi.enabled = 1 AND dsc.enabled = 1"
-            )
-        ).fetchall()
+    """Ensure bootstrap tables during initialization.
 
-    for source, item_key, target_db, target_tbl in rows:
-        iface = registry.get_interface(source, item_key)
-        if iface is None:
+    High-permission Tushare tables are created on demand when an interface is
+    enabled or when sync/backfill/init executes that specific interface.
+    """
+    from app.datasync.sources.tushare.ddl import should_bootstrap_table
+
+    created = 0
+    seen_tables: set[tuple[str, str]] = set()
+
+    for iface in registry.all_interfaces():
+        info = iface.info
+        target_db = info.target_database
+        target_tbl = info.target_table
+        if not target_db or not target_tbl:
             continue
+        if info.source_key == "tushare" and not should_bootstrap_table(target_tbl):
+            continue
+        table_key = (target_db, target_tbl)
+        if table_key in seen_tables:
+            continue
+        seen_tables.add(table_key)
         try:
             if ensure_table(target_db, target_tbl, iface.get_ddl()):
                 created += 1
@@ -482,6 +594,6 @@ def _reconcile_pending_records(
 
 
 def _generate_pending_records(engine, registry: DataSourceRegistry) -> int:
-    """Generate pending sync_status records for the lookback window."""
+    """Generate pending sync_status records for the configured coverage window."""
     del engine
     return int(_reconcile_pending_records(registry)["pending_records"])

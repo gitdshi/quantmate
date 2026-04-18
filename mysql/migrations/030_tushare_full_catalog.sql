@@ -38,7 +38,7 @@ VALUES
 -- ============================================================
 -- 股票数据 > 基础数据
 -- ============================================================
-('tushare','stock_basic',    '股票基础列表',  1,'获取基础信息数据，包括股票代码、名称、上市日期、退市日期等','股票数据','基础数据','stock_basic','2000积分起','每次最多返回6000行',NULL,'tushare','stock_basic',1,10),
+('tushare','stock_basic',    '股票基础列表',  1,'获取基础信息数据，包括股票代码、名称、上市日期、退市日期等','股票数据','基础数据','stock_basic','2000积分','每次最多返回6000行',NULL,'tushare','stock_basic',1,10),
 ('tushare','stock_company',  '上市公司信息',  1,'获取上市公司基础信息，单次提取4500条','股票数据','基础数据','stock_company','120积分','单次提取4500条','0','tushare','stock_company',1,15),
 ('tushare','trade_cal',      '交易日历',      1,'获取各大交易所交易日历数据','股票数据','基础数据','trade_cal','2000积分','单次最大8000行',NULL,'akshare','trade_cal',1,5),
 ('tushare','hsgt_top10',     '沪深股通成份股',0,'沪深股通每日前十大成交明细','股票数据','基础数据','hsgt_top10','2000积分','单次最大8000行',NULL,'tushare','hsgt_top10',0,100),
@@ -56,17 +56,17 @@ VALUES
 -- ============================================================
 -- 股票数据 > 行情数据
 -- ============================================================
-('tushare','stock_daily',     '日线行情',      1,'获取股票行情数据(未复权)','股票数据','行情数据','daily','120积分起','每次6000条',NULL,'tushare','stock_daily',1,20),
+('tushare','stock_daily',     '日线行情',      1,'获取股票行情数据(未复权)','股票数据','行情数据','daily','120积分','每次6000条',NULL,'tushare','stock_daily',1,20),
 ('tushare','stock_weekly',    '周线行情',      1,'获取A股周线行情','股票数据','行情数据','weekly','2000积分','单次最大6000行',NULL,'tushare','stock_weekly',1,25),
 ('tushare','stock_monthly',   '月线行情',      1,'获取A股月线行情','股票数据','行情数据','monthly','2000积分','单次最大6000行',NULL,'tushare','stock_monthly',1,26),
-('tushare','adj_factor',      '复权因子',      1,'获取股票复权因子','股票数据','行情数据','adj_factor','2000积分起','单次最大6000行',NULL,'tushare','adj_factor',1,30),
-('tushare','daily_basic',     '每日指标数据',  0,'获取每日市场交易指标','股票数据','行情数据','daily_basic','2000积分起','单次最大6000行',NULL,'tushare','daily_basic',0,31),
+('tushare','adj_factor',      '复权因子',      1,'获取股票复权因子','股票数据','行情数据','adj_factor','2000积分','单次最大6000行',NULL,'tushare','adj_factor',1,30),
+('tushare','daily_basic',     '每日指标数据',  0,'获取每日市场交易指标','股票数据','行情数据','daily_basic','2000积分','单次最大6000行',NULL,'tushare','daily_basic',0,31),
 ('tushare','bak_daily',       '备用行情',      0,'获取备用行情','股票数据','行情数据','bak_daily','5000积分','单次最大7000行','1','tushare','bak_daily',0,32),
 ('tushare','pro_bar',         '通用行情接口',  0,'集成股票/指数/ETF/期货/期权行情','股票数据','行情数据','pro_bar','2000积分','单次最大8000行',NULL,'tushare','pro_bar',0,33),
 ('tushare','money_flow',      '个股资金流向',  1,'获取沪深A股票资金流向数据','股票数据','行情数据','moneyflow','2000积分','单次最大6000行','0','tushare','moneyflow',1,60),
 ('tushare','margin_detail',   '融资融券明细',  1,'融资融券交易明细','股票数据','行情数据','margin_detail','2000积分','单次最大6000行','0','tushare','margin',1,80),
 ('tushare','margin',          '融资融券',      0,'融资融券交易汇总数据','股票数据','行情数据','margin','2000积分','单次最大6000行',NULL,'tushare','margin_summary',0,81),
-('tushare','suspend_daily',   '停复牌信息',    0,'股票停复牌信息','股票数据','行情数据','suspend_daily','120积分','单次最大6000行',NULL,'tushare','suspend_daily',0,34),
+('tushare','suspend_d',       '停复牌当日信息',0,'停复牌当日状态数据','股票数据','行情数据','suspend_d','120积分','单次最大6000行',NULL,'tushare','suspend_d',0,23),
 ('tushare','limit_list',      '涨跌停价格',    0,'每日涨跌停价格','股票数据','行情数据','limit_list','2000积分','单次最大6000行',NULL,'tushare','limit_list',0,35),
 ('tushare','stk_limit',       '涨跌停统计',    1,'每日涨跌停统计','股票数据','行情数据','limit_list_d','2000积分','单次最大6000行','0','tushare','stk_limit',1,70),
 ('tushare','digital_currency','数字货币行情',  0,'数字货币行情数据','股票数据','行情数据','digital_currency','2000积分','单次最大6000行',NULL,'tushare','digital_currency',0,36),
@@ -76,21 +76,21 @@ VALUES
 -- ============================================================
 -- 股票数据 > 财务数据
 -- ============================================================
-('tushare','income',           '利润表',        0,'获取上市公司财务利润表数据','股票数据','财务数据','income','2000积分起','单次最大6000行','1','tushare','income',0,56),
+('tushare','income',           '利润表',        0,'获取上市公司财务利润表数据','股票数据','财务数据','income','2000积分','单次最大6000行','1','tushare','income',0,56),
 ('tushare','income_vip',       '利润表VIP',     0,'全市场利润表数据','股票数据','财务数据','income_vip','5000积分','单次最大6000行','1','tushare','income_vip',0,200),
-('tushare','balancesheet',     '资产负债表',    0,'获取上市公司资产负债表数据','股票数据','财务数据','balancesheet','2000积分起','单次最大6000行',NULL,'tushare','balancesheet',0,201),
+('tushare','balancesheet',     '资产负债表',    0,'获取上市公司资产负债表数据','股票数据','财务数据','balancesheet','2000积分','单次最大6000行',NULL,'tushare','balancesheet',0,201),
 ('tushare','balancesheet_vip', '资产负债表VIP', 0,'全市场资产负债表','股票数据','财务数据','balancesheet_vip','5000积分','单次最大6000行','1','tushare','balancesheet_vip',0,202),
-('tushare','cashflow',         '现金流量表',    0,'获取上市公司现金流量表数据','股票数据','财务数据','cashflow','2000积分起','单次最大6000行',NULL,'tushare','cashflow',0,203),
+('tushare','cashflow',         '现金流量表',    0,'获取上市公司现金流量表数据','股票数据','财务数据','cashflow','2000积分','单次最大6000行',NULL,'tushare','cashflow',0,203),
 ('tushare','cashflow_vip',     '现金流量表VIP', 0,'全市场现金流量表','股票数据','财务数据','cashflow_vip','5000积分','单次最大6000行','1','tushare','cashflow_vip',0,204),
-('tushare','forecast',         '业绩预告',      0,'业绩预告数据','股票数据','财务数据','forecast','2000积分起','单次最大6000行',NULL,'tushare','forecast',0,205),
-('tushare','express',          '业绩快报',      0,'业绩快报数据','股票数据','财务数据','express','2000积分起','单次最大6000行',NULL,'tushare','express',0,206),
+('tushare','forecast',         '业绩预告',      0,'业绩预告数据','股票数据','财务数据','forecast','2000积分','单次最大6000行',NULL,'tushare','forecast',0,205),
+('tushare','express',          '业绩快报',      0,'业绩快报数据','股票数据','财务数据','express','2000积分','单次最大6000行',NULL,'tushare','express',0,206),
 ('tushare','dividend',         '分红送股',      0,'分红送股数据','股票数据','财务数据','dividend','2000积分','单次最大6000行','1','tushare','stock_dividend',1,50),
-('tushare','fina_indicator',   '财务指标数据',  1,'获取上市公司财务指标数据','股票数据','财务数据','fina_indicator','2000积分起','每次最多返回100条','0','tushare','fina_indicator',1,55),
+('tushare','fina_indicator',   '财务指标数据',  1,'获取上市公司财务指标数据','股票数据','财务数据','fina_indicator','2000积分','每次最多返回100条','0','tushare','fina_indicator',1,55),
 ('tushare','fina_indicator_vip','财务指标VIP',  0,'全市场财务指标数据','股票数据','财务数据','fina_indicator_vip','5000积分','单次最大6000行','1','tushare','fina_indicator_vip',0,207),
 ('tushare','fina_audit',       '财务审计意见',  0,'获取上市公司定期财务审计意见数据','股票数据','财务数据','fina_audit','2000积分','单次最大6000行',NULL,'tushare','fina_audit',0,208),
 ('tushare','fina_mainbz',      '主营业务构成',  0,'获得上市公司主营业务构成','股票数据','财务数据','fina_mainbz','2000积分','单次最大100行',NULL,'tushare','fina_mainbz',0,209),
 ('tushare','fina_mainbz_vip',  '主营业务VIP',   0,'全市场主营业务构成','股票数据','财务数据','fina_mainbz_vip','5000积分','单次最大6000行','1','tushare','fina_mainbz_vip',0,210),
-('tushare','disclosure_date',  '财报披露计划',  0,'财报披露日期表','股票数据','财务数据','disclosure_date','2000积分起','单次最大6000行',NULL,'tushare','disclosure_date',0,211),
+('tushare','disclosure_date',  '财报披露计划',  0,'财报披露日期表','股票数据','财务数据','disclosure_date','2000积分','单次最大6000行',NULL,'tushare','disclosure_date',0,211),
 
 -- ============================================================
 -- 股票数据 > 特色数据
@@ -103,11 +103,11 @@ VALUES
 ('tushare','share_float',      '限售股解禁',    0,'限售股解禁','股票数据','特色数据','share_float','3000积分','单次最大6000行',NULL,'tushare','share_float',0,305),
 ('tushare','block_trade',      '大宗交易',      1,'大宗交易','股票数据','特色数据','block_trade','2000积分','单次最大6000行','0','tushare','block_trade',1,90),
 ('tushare','top_holders',      '龙虎榜粉丝详情',0,'龙虎榜机构席位详情','股票数据','特色数据','top_holders','2000积分','单次最大6000行',NULL,'tushare','top_holders',0,306),
-('tushare','stk_factor_pro',   '股票技术面因子',0,'获取股票每日技术面因子数据','股票数据','股票因子','stk_factor_pro','5000积分起','单次最多10000条','1','tushare','stk_factor_pro',0,307),
+('tushare','stk_factor_pro',   '股票技术面因子',0,'获取股票每日技术面因子数据','股票数据','股票因子','stk_factor_pro','5000积分','单次最多10000条','1','tushare','stk_factor_pro',0,307),
 ('tushare','stk_factor',       '技术因子专业版',0,'技术因子数据','股票数据','股票因子','stk_factor','2000积分','单次最大6000行',NULL,'tushare','stk_factor',0,308),
-('tushare','cyq_perf',         '每日筹码及胜率',0,'每日筹码平均成本和胜率','股票数据','特色数据','cyq_perf','5000积分起','单次最大5000条','1','tushare','cyq_perf',0,309),
+('tushare','cyq_perf',         '每日筹码及胜率',0,'每日筹码平均成本和胜率','股票数据','特色数据','cyq_perf','5000积分','单次最大5000条','1','tushare','cyq_perf',0,309),
 ('tushare','cyq_chips',        '筹码分布',      0,'筹码分布数据','股票数据','特色数据','cyq_chips','10000积分','单次最大5000条','1','tushare','cyq_chips',0,310),
-('tushare','kpl_list',         '开盘啦榜单',    0,'涨停跌停炸板等榜单','股票数据','特色数据','kpl_list','5000积分起','单次最大8000条','1','tushare','kpl_list',0,311),
+('tushare','kpl_list',         '开盘啦榜单',    0,'涨停跌停炸板等榜单','股票数据','特色数据','kpl_list','5000积分','单次最大8000条','1','tushare','kpl_list',0,311),
 ('tushare','dc_hot',           '东方财富热榜',  0,'东方财富APP热榜数据','股票数据','特色数据','dc_hot','8000积分','单次最大2000条','1','tushare','dc_hot',0,312),
 ('tushare','dc_member',        '东方财富板块成分',0,'东方财富板块成分数据','股票数据','特色数据','dc_member','6000积分','单次最大5000条','1','tushare','dc_member',0,313),
 ('tushare','dc_cons',          '东方财富概念',  0,'东方财富概念板块列表','股票数据','特色数据','dc_cons','2000积分','单次最大5000条',NULL,'tushare','dc_cons',0,314),
@@ -118,11 +118,11 @@ VALUES
 -- 指数数据
 -- ============================================================
 ('tushare','index_basic',      '指数基本信息',  0,'获取指数基础信息','指数数据','基础数据','index_basic','2000积分','单次最大6000行',NULL,'tushare','index_basic',0,400),
-('tushare','index_daily',      '指数日线行情',  1,'获取指数日线行情数据','指数数据','行情数据','index_daily','2000积分起','单次最大6000行',NULL,'tushare','index_daily',1,27),
-('tushare','index_weekly',     '指数周线行情',  1,'获取指数周线行情','指数数据','行情数据','index_weekly','2000积分起','单次最大6000行',NULL,'tushare','index_weekly',1,28),
-('tushare','index_monthly',    '指数月线行情',  0,'获取指数月线行情','指数数据','行情数据','index_monthly','2000积分起','单次最大6000行',NULL,'tushare','index_monthly',0,401),
+('tushare','index_daily',      '指数日线行情',  1,'获取指数日线行情数据','指数数据','行情数据','index_daily','2000积分','单次最大6000行',NULL,'tushare','index_daily',1,27),
+('tushare','index_weekly',     '指数周线行情',  1,'获取指数周线行情','指数数据','行情数据','index_weekly','2000积分','单次最大6000行',NULL,'tushare','index_weekly',1,28),
+('tushare','index_monthly',    '指数月线行情',  0,'获取指数月线行情','指数数据','行情数据','index_monthly','2000积分','单次最大6000行',NULL,'tushare','index_monthly',0,401),
 ('tushare','index_weight',     '指数成分和权重',0,'月度成分和权重数据','指数数据','成分数据','index_weight','2000积分','单次最大6000行',NULL,'tushare','index_weight',0,402),
-('tushare','index_dailybasic', '大盘指数每日指标',0,'数据开始月2004年1月','指数数据','大盘数据','index_dailybasic','4000积分起','单次最大6000行',NULL,'tushare','index_dailybasic',0,403),
+('tushare','index_dailybasic', '大盘指数每日指标',0,'数据开始月2004年1月','指数数据','大盘数据','index_dailybasic','4000积分','单次最大6000行',NULL,'tushare','index_dailybasic',0,403),
 ('tushare','index_classify',   '申万行业分类',  0,'申万行业全部分类','指数数据','行业分类','index_classify','2000积分','单次最大6000行',NULL,'tushare','index_classify',0,404),
 ('tushare','index_member_all', '申万行业成分',  0,'申万行业成分','指数数据','行业分类','index_member_all','2000积分','单次最大6000行',NULL,'tushare','index_member_all',0,405),
 ('tushare','index_global',     '国际指数',      0,'获取国际主要指数日线行情','指数数据','国际指数','index_global','6000积分','单次最大4000行','1','tushare','index_global',0,406),
@@ -133,9 +133,9 @@ VALUES
 -- ETF专题
 -- ============================================================
 ('tushare','fund_basic_etf',   'ETF基础信息',   0,'获取ETF基金基础信息','ETF专题','ETF数据','fund_basic','2000积分','单次最大6000行',NULL,'tushare','fund_basic_etf',0,500),
-('tushare','fund_share',       'ETF基金规模',   0,'获取基金规模数据','ETF专题','ETF数据','fund_share','2000积分起','单次最大提取2000行',NULL,'tushare','fund_share',0,501),
+('tushare','fund_share',       'ETF基金规模',   0,'获取基金规模数据','ETF专题','ETF数据','fund_share','2000积分','单次最大提取2000行',NULL,'tushare','fund_share',0,501),
 ('tushare','fund_daily',       '场内基金日线行情',0,'场内基金日线行情','ETF专题','ETF数据','fund_daily','2000积分','单次最大6000行',NULL,'tushare','fund_daily',0,502),
-('tushare','fund_adj',         'ETF复权因子',   0,'基金复权因子','ETF专题','ETF数据','fund_adj','5000积分起','单次最大6000行','1','tushare','fund_adj',0,503),
+('tushare','fund_adj',         'ETF复权因子',   0,'基金复权因子','ETF专题','ETF数据','fund_adj','5000积分','单次最大6000行','1','tushare','fund_adj',0,503),
 ('tushare','rt_etf_k',         'ETF实时日线',   0,'获取ETF实时日k线行情','ETF专题','ETF数据','rt_etf_k','需单独权限','单次最大5000条','paid','tushare','rt_etf_k',0,905),
 ('tushare','etf_daily',        'ETF行情',       0,'ETF日线行情','ETF专题','ETF行情','etf_daily','2000积分','单次最大6000行',NULL,'tushare','etf_daily',0,504),
 ('tushare','etf_weight',       'ETF权重',       0,'ETF成分股权重','ETF专题','ETF行情','etf_weight','2000积分','单次最大6000行',NULL,'tushare','etf_weight',0,505),
@@ -170,8 +170,8 @@ VALUES
 -- ============================================================
 -- 期权数据
 -- ============================================================
-('tushare','opt_basic',        '期权合约列表',  0,'全部历史每日晚8点更新','期权数据','合约数据','opt_basic','2000积分起','单次最大6000行',NULL,'tushare','opt_basic',0,700),
-('tushare','opt_daily',        '期权日线行情',  0,'全部历史每日17点更新','期权数据','行情数据','opt_daily','5000积分起','单次最大6000行','1','tushare','opt_daily',0,701),
+('tushare','opt_basic',        '期权合约列表',  0,'全部历史每日晚8点更新','期权数据','合约数据','opt_basic','2000积分','单次最大6000行',NULL,'tushare','opt_basic',0,700),
+('tushare','opt_daily',        '期权日线行情',  0,'全部历史每日17点更新','期权数据','行情数据','opt_daily','5000积分','单次最大6000行','1','tushare','opt_daily',0,701),
 ('tushare','opt_daily_s',      '期权优选行情',  0,'期权每日精选行情','期权数据','行情数据','opt_daily_s','5000积分','单次最大6000行','1','tushare','opt_daily_s',0,702),
 ('tushare','rt_opt_daily',     '期权实时行情',  0,'期权实时行情','期权数据','实时数据','rt_opt_daily','需单独权限','需单独权限','paid','tushare','rt_opt_daily',0,908),
 ('tushare','opt_mins',         '期权历史分钟',  0,'1/5/15/30/60分钟2010年起','期权数据','历史分钟','opt_mins','需单独权限','需单独2000元','paid','tushare','opt_mins',0,909),

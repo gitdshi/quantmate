@@ -22,6 +22,7 @@ from sqlalchemy import text
 
 from app.datasync.base import SyncResult, SyncStatus
 from app.datasync.registry import DataSourceRegistry
+from app.datasync.sources.tushare.sync_error_handling import final_retry_count_for_result, is_quota_pause_result
 from app.datasync.table_manager import ensure_table
 from app.infrastructure.config import get_runtime_config, get_runtime_int
 from app.infrastructure.db.connections import get_quantmate_engine
@@ -185,9 +186,12 @@ def _get_status_snapshot(sync_date: date, source: str, interface_key: str) -> tu
         return row[0], normalized_rows
 
 
-def _get_failed_records(lookback_days: int | None = None) -> list[tuple[date, str, str, int, str | None]]:
+def _get_failed_records(
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> list[tuple[date, str, str, int, str | None]]:
     """Return retryable records with enough context to decide whether they should be reopened."""
-    end = date.today() - timedelta(days=1)
+    end = end_date or (date.today() - timedelta(days=1))
     stale_hours = get_runtime_int(
         env_keys=("SYNC_STATUS_RUNNING_STALE_HOURS", "BACKFILL_LOCK_STALE_HOURS"),
         db_key="datasync.sync_status_running_stale_hours",
@@ -211,10 +215,9 @@ def _get_failed_records(lookback_days: int | None = None) -> list[tuple[date, st
     ]
     params: dict[str, object] = {"e": end, "stale_seconds": stale_seconds}
 
-    if lookback_days is not None:
-        start = end - timedelta(days=lookback_days)
+    if start_date is not None:
         where_clauses.insert(0, "sync_date >= :s")
-        params["s"] = start
+        params["s"] = start_date
 
     engine = get_quantmate_engine()
     with engine.connect() as conn:
@@ -577,6 +580,19 @@ def _get_latest_completed_trade_date(today: date | None = None) -> date:
     return latest_trade_day
 
 
+def _resolve_backfill_window() -> tuple[date | None, date]:
+    default_end_date = date.today() - timedelta(days=1)
+
+    try:
+        from app.datasync.service.init_service import get_coverage_window
+
+        coverage_window = get_coverage_window(target_end_date=default_end_date)
+        return coverage_window["start_date"], coverage_window["end_date"]
+    except Exception:
+        logger.exception("Failed to resolve default backfill window from coverage settings")
+        return None, default_end_date
+
+
 def _requires_nonempty_trading_day_data(iface, source: str, iface_key: str) -> bool:
     method = getattr(iface, "requires_nonempty_trading_day_data", None)
     if not callable(method):
@@ -615,6 +631,14 @@ def _normalize_zero_row_success(
         result.error_message or "No rows synced for trading day; scheduled for retry",
         details=result.details,
     )
+
+
+def _final_retry_count_for_result(result: SyncResult, attempt_retry_count: int) -> int:
+    return final_retry_count_for_result(result, attempt_retry_count)
+
+
+def _is_quota_pause_result(result: SyncResult) -> bool:
+    return is_quota_pause_result(result)
 
 
 # ---------------------------------------------------------------------------
@@ -742,16 +766,17 @@ def daily_sync(
 
 def backfill_retry(
     registry: DataSourceRegistry,
-    lookback_days: int | None = None,
     max_workers: int | None = None,
+    **_compat,
 ) -> dict[str, dict]:
-    """Retry failed/pending syncs within the lookback window.
+    """Retry failed/pending syncs within the configured coverage window.
 
     Uses DB lock from the old daemon to prevent concurrent runs.
     """
     if max_workers is None:
         max_workers = BACKFILL_WORKERS
     max_workers = max(1, max_workers)
+    window_start_date, window_end_date = _resolve_backfill_window()
 
     from app.domains.extdata.dao.data_sync_status_dao import (
         acquire_backfill_lock,
@@ -774,7 +799,7 @@ def backfill_retry(
         enabled_backfill_keys = _get_enabled_backfill_keys()
         failed = [
             record
-            for record in _get_failed_records(lookback_days)
+            for record in _get_failed_records(window_start_date, window_end_date)
             if (record[1], record[2]) in enabled_backfill_keys
         ]
         pending_range_records: dict[tuple[str, str], dict[str, object]] = {}
@@ -874,11 +899,12 @@ def backfill_retry(
             )
         )
         logger.info(
-            "Backfill starting: records=%d tasks=%d workers=%d lookback_days=%s",
+            "Backfill starting: records=%d tasks=%d workers=%d start_date=%s end_date=%s",
             len(failed),
             len(tasks),
             max_workers,
-            lookback_days if lookback_days is not None else "all",
+            window_start_date if window_start_date is not None else "-",
+            window_end_date,
         )
 
         with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="datasync-backfill") as executor:
@@ -937,6 +963,10 @@ def backfill_retry(
                                 details=result.details,
                             ),
                         )
+                        final_retry_count = _final_retry_count_for_result(
+                            normalized_result,
+                            task.retry_counts[sync_date],
+                        )
                         _write_status(
                             sync_date,
                             task.source,
@@ -944,7 +974,7 @@ def backfill_retry(
                             normalized_result.status.value,
                             normalized_result.rows_synced,
                             normalized_result.error_message,
-                            retry_count=task.retry_counts[sync_date],
+                            retry_count=final_retry_count,
                         )
                         results[f"{task.source}/{task.iface_key}@{sync_date}"] = {
                             "status": normalized_result.status.value,

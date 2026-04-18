@@ -122,6 +122,18 @@ class TestCallPro:
         assert exc_info.value.scope == "minute"
         assert mock_sleep.call_count == 2
 
+    def test_minute_quota_logs_warning_instead_of_exception(self):
+        self._mock_pro.daily.side_effect = Exception("抱歉，您每分钟最多访问该接口500次")
+        with patch(f"{_MOD}.time.sleep"), \
+             patch(f"{_MOD}.random.uniform", return_value=0), \
+             patch(f"{_MOD}.logging.warning") as mock_warning, \
+             patch(f"{_MOD}.logging.exception") as mock_exception, \
+             pytest.raises(self.mod.TushareQuotaExceededError):
+            self.mod.call_pro("daily", max_retries=2, backoff_base=0)
+
+        assert mock_exception.call_count == 0
+        assert any("rate limited" in str(call.args[0]) for call in mock_warning.call_args_list)
+
 
 class TestSetMetricsHook:
     def test_sets_hook(self):

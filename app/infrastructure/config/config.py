@@ -55,7 +55,6 @@ class Settings(BaseSettings):
     backfill_idle_interval_hours: int = 4
     backfill_lock_retry_seconds: int = 60
     backfill_lock_stale_hours: int = 6
-    lookback_days: int = 60
     batch_size: int = 100
     max_retries: int = 3
 

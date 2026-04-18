@@ -1,37 +1,90 @@
 """DAO helpers for Tushare DB operations used by datasync services."""
 
-import logging
-import pandas as pd
-import numpy as np
+from __future__ import annotations
+
+import hashlib
 import json
+import logging
+
+import numpy as np
+import pandas as pd
 from sqlalchemy import text
+
 from app.infrastructure.db.connections import get_tushare_engine
 
 logger = logging.getLogger(__name__)
 
 engine = get_tushare_engine()
 
+INGEST_AUDIT_DDL = """
+CREATE TABLE IF NOT EXISTS ingest_audit (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    api_name VARCHAR(64) NOT NULL,
+    params JSON,
+    status VARCHAR(32) DEFAULT 'running',
+    fetched_rows INT DEFAULT 0,
+    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    finished_at TIMESTAMP NULL,
+    INDEX idx_audit_api (api_name),
+    INDEX idx_audit_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+"""
+
+
+def _is_missing_ingest_audit_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "ingest_audit" in message and (
+        "doesn't exist" in message or "unknown table" in message or "1146" in message
+    )
+
+
+def _ensure_ingest_audit_table() -> None:
+    with engine.begin() as conn:
+        conn.execute(text(INGEST_AUDIT_DDL))
+
 
 def audit_start(api_name: str, params: dict) -> int:
-    with engine.begin() as conn:
-        res = conn.execute(
-            text(
-                "INSERT INTO ingest_audit (api_name, params, status, fetched_rows) VALUES (:api, :params, 'running', 0)"
-            ),
-            {"api": api_name, "params": json.dumps(params)},
-        )
+    payload = {"api": api_name, "params": json.dumps(params)}
+    for attempt in range(2):
         try:
-            return int(res.lastrowid)
-        except Exception:
-            return 0
+            with engine.begin() as conn:
+                res = conn.execute(
+                    text(
+                        "INSERT INTO ingest_audit (api_name, params, status, fetched_rows) VALUES (:api, :params, 'running', 0)"
+                    ),
+                    payload,
+                )
+            try:
+                return int(res.lastrowid)
+            except Exception:
+                return 0
+        except Exception as exc:
+            if attempt == 0 and _is_missing_ingest_audit_error(exc):
+                logger.warning("ingest_audit missing in tushare schema; creating it before retrying audit_start")
+                _ensure_ingest_audit_table()
+                continue
+            raise
 
 
 def audit_finish(audit_id: int, status: str, rows: int):
-    with engine.begin() as conn:
-        conn.execute(
-            text("UPDATE ingest_audit SET status=:status, fetched_rows=:rows, finished_at=NOW() WHERE id=:id"),
-            {"status": status, "rows": rows, "id": audit_id},
-        )
+    if int(audit_id or 0) <= 0:
+        return
+
+    payload = {"status": status, "rows": rows, "id": audit_id}
+    for attempt in range(2):
+        try:
+            with engine.begin() as conn:
+                conn.execute(
+                    text("UPDATE ingest_audit SET status=:status, fetched_rows=:rows, finished_at=NOW() WHERE id=:id"),
+                    payload,
+                )
+            return
+        except Exception as exc:
+            if attempt == 0 and _is_missing_ingest_audit_error(exc):
+                logger.warning("ingest_audit missing in tushare schema; creating it before retrying audit_finish")
+                _ensure_ingest_audit_table()
+                continue
+            raise
 
 
 def upsert_daily(df: pd.DataFrame) -> int:
@@ -885,6 +938,125 @@ def get_failed_ts_codes(limit: int = None):
         return [r[0] for r in res.fetchall() if r[0]]
 
 
+def insert_catalog_rows(
+    table_name: str,
+    rows: pd.DataFrame | list[dict],
+    *,
+    key_fields: tuple[str, ...] | list[str] | None = None,
+) -> int:
+    dataframe = _to_dataframe(rows)
+    upserter = _CATALOG_UPSERTS.get(table_name)
+    if upserter is not None:
+        return upserter(dataframe)
+    return upsert_payload_rows(table_name, rows, key_fields=key_fields)
+
+
+def upsert_payload_rows(
+    table_name: str,
+    rows: pd.DataFrame | list[dict],
+    *,
+    key_fields: tuple[str, ...] | list[str] | None = None,
+) -> int:
+    records = _coerce_records(rows)
+    if not records:
+        return 0
+
+    insert_sql = text(
+        f"INSERT INTO `{table_name}` ("
+        "ts_code, symbol, code, name, exchange, market, trade_date, ann_date, end_date, key_hash, data"
+        ") VALUES ("
+        ":ts_code, :symbol, :code, :name, :exchange, :market, :trade_date, :ann_date, :end_date, :key_hash, :data"
+        ") ON DUPLICATE KEY UPDATE "
+        "ts_code=VALUES(ts_code), symbol=VALUES(symbol), code=VALUES(code), name=VALUES(name), "
+        "exchange=VALUES(exchange), market=VALUES(market), trade_date=VALUES(trade_date), "
+        "ann_date=VALUES(ann_date), end_date=VALUES(end_date), data=VALUES(data)"
+    )
+    rows = 0
+    with engine.begin() as conn:
+        for record in records:
+            normalized = {str(key): _json_safe(value) for key, value in record.items()}
+            conn.execute(
+                insert_sql,
+                {
+                    "ts_code": _clean(normalized.get("ts_code")),
+                    "symbol": _clean(normalized.get("symbol")),
+                    "code": _clean(normalized.get("code")),
+                    "name": _clean(normalized.get("name")),
+                    "market": _clean(normalized.get("market")),
+                    "trade_date": _to_date_value(normalized.get("trade_date")),
+                    "ann_date": _to_date_value(normalized.get("ann_date")),
+                    "end_date": _to_date_value(normalized.get("end_date")),
+                    "exchange": _clean(normalized.get("exchange")),
+                    "key_hash": _stable_row_key(normalized, key_fields),
+                    "data": json.dumps(normalized, ensure_ascii=False, sort_keys=True, default=str),
+                },
+            )
+            rows += 1
+    return rows
+
+
+def upsert_rows(
+    table_name: str,
+    rows: pd.DataFrame | list[dict],
+    *,
+    column_specs: list[dict],
+    key_columns: tuple[str, ...] | list[str],
+) -> int:
+    records = _coerce_records(rows)
+    if not records:
+        return 0
+
+    column_names = [
+        str(entry.get("name") or "").strip()
+        for entry in column_specs
+        if str(entry.get("name") or "").strip()
+    ]
+    key_column_set = {str(name) for name in key_columns}
+    update_columns = [name for name in column_names if name not in key_column_set]
+    update_clause = ""
+    if update_columns:
+        update_clause = " ON DUPLICATE KEY UPDATE " + ", ".join(
+            f"`{name}` = VALUES(`{name}`)" for name in update_columns
+        )
+
+    insert_sql = text(
+        f"INSERT INTO `{table_name}` ({', '.join(f'`{name}`' for name in column_names)}) "
+        f"VALUES ({', '.join(f':{name}' for name in column_names)}){update_clause}"
+    )
+
+    rows = 0
+    with engine.begin() as conn:
+        for record in records:
+            params = {
+                entry["name"]: _normalize_insert_value(record, entry)
+                for entry in column_specs
+                if str(entry.get("name") or "").strip()
+            }
+            conn.execute(insert_sql, params)
+            rows += 1
+    return rows
+
+
+def _normalize_insert_value(record: dict, column_spec: dict):
+    source_fields = column_spec.get("source_fields") or [column_spec.get("name")]
+    value = None
+    for source_field in source_fields:
+        if source_field in record:
+            value = record.get(source_field)
+            break
+
+    normalizer = str(column_spec.get("normalizer") or "clean").strip().lower()
+    if normalizer == "date":
+        return _to_date_value(value)
+    if normalizer == "int":
+        return _int_value(value)
+    if normalizer == "round2":
+        return _round2(value)
+    if normalizer == "json":
+        return json.dumps(_json_safe(value), ensure_ascii=False, sort_keys=True, default=str)
+    return _clean(value)
+
+
 def _clean(v):
     """Normalize pandas/numpy types to Python native types."""
     if v is None:
@@ -961,6 +1133,35 @@ def _json_safe(value):
     if isinstance(value, (np.floating,)):
         return float(value)
     return value
+
+
+def _coerce_records(rows: pd.DataFrame | list[dict]) -> list[dict]:
+    if isinstance(rows, pd.DataFrame):
+        return rows.to_dict(orient="records") if rows is not None and not rows.empty else []
+    return list(rows or [])
+
+
+def _to_dataframe(rows: pd.DataFrame | list[dict]) -> pd.DataFrame:
+    if isinstance(rows, pd.DataFrame):
+        return rows
+    return pd.DataFrame(_coerce_records(rows))
+
+
+def _stable_row_key(record: dict, key_fields: tuple[str, ...] | list[str] | None = None) -> str:
+    fields = list(key_fields or ())
+    payload = {
+        str(field): record.get(field)
+        for field in fields
+        if field in record and record.get(field) not in {None, ""}
+    }
+    if not payload:
+        payload = {
+            str(key): record.get(key)
+            for key in sorted(record.keys())
+            if record.get(key) not in {None, ""}
+        }
+    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def upsert_weekly(df: pd.DataFrame) -> int:
@@ -1055,3 +1256,33 @@ def upsert_index_weekly_df(df: pd.DataFrame) -> int:
             )
             rows += 1
     return rows
+
+
+def upsert_index_basic(df: pd.DataFrame) -> int:
+    if df is None or df.empty:
+        return 0
+
+    return upsert_rows(
+        "index_basic",
+        df,
+        column_specs=[
+            {"name": "index_code", "source_fields": ["ts_code", "index_code"]},
+            {"name": "name"},
+            {"name": "market"},
+            {"name": "publisher"},
+            {"name": "category"},
+        ],
+        key_columns=("index_code",),
+    )
+
+
+_CATALOG_UPSERTS = {
+    "new_share": upsert_new_share,
+    "daily_basic": upsert_daily_basic,
+    "stock_moneyflow": upsert_moneyflow,
+    "fina_indicator": upsert_fina_indicator,
+    "income": upsert_income,
+    "balancesheet": upsert_balancesheet,
+    "cashflow": upsert_cashflow,
+    "index_basic": upsert_index_basic,
+}

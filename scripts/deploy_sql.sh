@@ -17,11 +17,27 @@ MIGRATIONS_DIR="$BASE_DIR/mysql/migrations"
 ENV_FILE_DEFAULT="$BASE_DIR/.env"
 ENV_FILE_TEST="$BASE_DIR/.env.test"
 
+PRESET_DRY_RUN="${DRY_RUN-}"
+PRESET_DB_NAME="${DB_NAME-}"
 DRY_RUN=0
+DRY_RUN_REQUESTED=0
+DB_NAME_REQUESTED=0
+REQUESTED_DB_NAME=""
 TARGET_VERSION=""
 ENV_FILE=""
 DB_NAME="${DB_NAME:-quantmate}"
 OFFLINE_DRY_RUN=0
+
+normalize_bool_flag() {
+  case "${1:-}" in
+    1|true|TRUE|yes|YES|on|ON)
+      printf '1'
+      ;;
+    *)
+      printf '0'
+      ;;
+  esac
+}
 
 usage() {
   cat <<'EOF'
@@ -49,6 +65,8 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --db-name)
       DB_NAME="$2"
+      DB_NAME_REQUESTED=1
+      REQUESTED_DB_NAME="$2"
       shift 2
       ;;
     --env-file)
@@ -60,7 +78,7 @@ while [ $# -gt 0 ]; do
       shift 2
       ;;
     --dry-run)
-      DRY_RUN=1
+      DRY_RUN_REQUESTED=1
       shift
       ;;
     -h|--help)
@@ -91,6 +109,22 @@ if [ -f "$ENV_FILE" ]; then
   echo "Loaded env from: $ENV_FILE"
 else
   echo "Warning: env file not found ($ENV_FILE). Falling back to current shell env."
+fi
+
+if [ -n "$PRESET_DB_NAME" ]; then
+  DB_NAME="$PRESET_DB_NAME"
+fi
+if [ "$DB_NAME_REQUESTED" -eq 1 ]; then
+  DB_NAME="$REQUESTED_DB_NAME"
+fi
+
+if [ -n "$PRESET_DRY_RUN" ]; then
+  DRY_RUN="$PRESET_DRY_RUN"
+fi
+
+DRY_RUN="$(normalize_bool_flag "${DRY_RUN:-0}")"
+if [ "$DRY_RUN_REQUESTED" -eq 1 ]; then
+  DRY_RUN=1
 fi
 
 : "${MYSQL_HOST:?MYSQL_HOST is required}"

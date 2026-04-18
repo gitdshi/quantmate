@@ -484,9 +484,19 @@ def get_step_status(sync_date: date, step_name: str) -> Any:
         return row[0] if row else None
 
 
-def get_failed_steps(lookback_days: int = 60) -> List[Tuple[date, str]]:
-    end = date.today() - timedelta(days=1)
-    start = end - timedelta(days=lookback_days)
+def get_failed_steps(
+    start_date: date | None = None,
+    end_date: date | None = None,
+    **_compat,
+) -> List[Tuple[date, str]]:
+    end = end_date or (date.today() - timedelta(days=1))
+    start = start_date
+    if start is None:
+        from app.datasync.service.init_service import get_coverage_window
+
+        coverage_window = get_coverage_window(target_end_date=end)
+        start = coverage_window["start_date"]
+
     with engine_tm.connect() as conn:
         res = conn.execute(
             text("""

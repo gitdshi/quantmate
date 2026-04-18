@@ -23,9 +23,11 @@ class TushareDataSource(BaseDataSource):
         return True
 
     def get_interfaces(self) -> list[BaseIngestInterface]:
+        from app.datasync.sources.tushare.catalog_interfaces import build_catalog_interfaces
         from app.datasync.sources.tushare.interfaces import (
             TushareTradeCalInterface,
             TushareStockBasicInterface,
+            TushareStockCompanyInterface,
             TushareStockDailyInterface,
             TushareBakDailyInterface,
             TushareMoneyflowInterface,
@@ -40,9 +42,10 @@ class TushareDataSource(BaseDataSource):
             TushareIndexWeeklyInterface,
         )
 
-        return [
+        interfaces: list[BaseIngestInterface] = [
             TushareTradeCalInterface(),
             TushareStockBasicInterface(),
+            TushareStockCompanyInterface(),
             TushareStockDailyInterface(),
             TushareBakDailyInterface(),
             TushareMoneyflowInterface(),
@@ -56,6 +59,11 @@ class TushareDataSource(BaseDataSource):
             TushareIndexDailyInterface(),
             TushareIndexWeeklyInterface(),
         ]
+
+        existing_keys = {iface.info.interface_key for iface in interfaces}
+        interfaces.extend(build_catalog_interfaces(existing_keys))
+
+        return interfaces
 
     def test_connection(self) -> bool:
         try:

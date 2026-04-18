@@ -13,6 +13,7 @@ import pandas as pd
 from sqlalchemy import text
 
 from app.datasync.base import BaseIngestInterface, InterfaceInfo, SyncResult, SyncStatus
+from app.datasync.sources.tushare.sync_error_handling import handle_tushare_sync_exception
 from app.datasync.sources.tushare import ddl
 from app.infrastructure.db.connections import get_tushare_engine
 
@@ -125,9 +126,8 @@ class TushareTradeCalInterface(BaseIngestInterface):
             rows = _normalize_trade_cal_rows(df)
             upserted = _upsert_trade_cal_rows(rows)
             return SyncResult(SyncStatus.SUCCESS, upserted)
-        except Exception as e:
-            logger.exception("trade_cal sync failed for %s -> %s: %s", start, end, e)
-            return SyncResult(SyncStatus.ERROR, 0, str(e))
+        except Exception as exc:
+            return handle_tushare_sync_exception(logger, f"trade_cal sync for {start} -> {end}", exc)
 
     def get_backfill_rows_by_date(self, start: date, end: date) -> dict[date, int]:
         return _get_trade_cal_counts(start, end)
@@ -162,12 +162,47 @@ class TushareStockBasicInterface(BaseIngestInterface):
             ingest_stock_basic()
             count = get_stock_basic_count()
             return SyncResult(SyncStatus.SUCCESS, count)
-        except Exception as e:
-            logger.exception("stock_basic sync failed: %s", e)
-            return SyncResult(SyncStatus.ERROR, 0, str(e))
+        except Exception as exc:
+            return handle_tushare_sync_exception(logger, "stock_basic sync", exc)
 
     def sync_range(self, start: date, end: date) -> SyncResult:
         # stock_basic is a full snapshot, not date-range-based
+        return self.sync_date(end)
+
+
+class TushareStockCompanyInterface(BaseIngestInterface):
+    def supports_backfill(self) -> bool:
+        # stock_company is a latest snapshot keyed by ts_code, not a dated historical feed.
+        return False
+
+    @property
+    def info(self) -> InterfaceInfo:
+        return InterfaceInfo(
+            interface_key="stock_company",
+            display_name="公司基本面",
+            source_key="tushare",
+            target_database="tushare",
+            target_table="stock_company",
+            sync_priority=15,
+            enabled_by_default=True,
+            description="上市公司基础信息",
+        )
+
+    def get_ddl(self) -> str:
+        return ddl.STOCK_COMPANY_DDL
+
+    def sync_date(self, trade_date: date) -> SyncResult:
+        from app.datasync.service.tushare_ingest import ingest_stock_company_snapshot
+
+        try:
+            ingest_stock_company_snapshot(sleep_between=0)
+            with get_tushare_engine().connect() as conn:
+                row_count = conn.execute(text("SELECT COUNT(*) FROM stock_company")).scalar()
+            return SyncResult(SyncStatus.SUCCESS, int(row_count or 0))
+        except Exception as exc:
+            return handle_tushare_sync_exception(logger, "stock_company sync", exc)
+
+    def sync_range(self, start: date, end: date) -> SyncResult:
         return self.sync_date(end)
 
 
@@ -201,9 +236,8 @@ class TushareStockDailyInterface(BaseIngestInterface):
                 return SyncResult(SyncStatus.SUCCESS, 0, "No trading data (non-trading day?)")
             rows = upsert_daily(df)
             return SyncResult(SyncStatus.SUCCESS, rows)
-        except Exception as e:
-            logger.exception("stock_daily sync failed for %s: %s", trade_date, e)
-            return SyncResult(SyncStatus.ERROR, 0, str(e))
+        except Exception as exc:
+            return handle_tushare_sync_exception(logger, f"stock_daily sync for {trade_date}", exc)
 
 
 class TushareBakDailyInterface(BaseIngestInterface):
@@ -233,9 +267,8 @@ class TushareBakDailyInterface(BaseIngestInterface):
         try:
             rows = ingest_bak_daily(trade_date=target)
             return SyncResult(SyncStatus.SUCCESS, rows or 0)
-        except Exception as e:
-            logger.exception("bak_daily sync failed for %s: %s", trade_date, e)
-            return SyncResult(SyncStatus.ERROR, 0, str(e))
+        except Exception as exc:
+            return handle_tushare_sync_exception(logger, f"bak_daily sync for {trade_date}", exc)
 
 
 class TushareMoneyflowInterface(BaseIngestInterface):
@@ -268,9 +301,8 @@ class TushareMoneyflowInterface(BaseIngestInterface):
                 return SyncResult(SyncStatus.SUCCESS, 0)
             rows = upsert_moneyflow(df)
             return SyncResult(SyncStatus.SUCCESS, rows)
-        except Exception as e:
-            logger.exception("moneyflow sync failed for %s: %s", trade_date, e)
-            return SyncResult(SyncStatus.ERROR, 0, str(e))
+        except Exception as exc:
+            return handle_tushare_sync_exception(logger, f"moneyflow sync for {trade_date}", exc)
 
 
 class TushareSuspendDInterface(BaseIngestInterface):
@@ -297,9 +329,8 @@ class TushareSuspendDInterface(BaseIngestInterface):
         try:
             rows = ingest_suspend_d(trade_date=target)
             return SyncResult(SyncStatus.SUCCESS, rows or 0)
-        except Exception as e:
-            logger.exception("suspend_d sync failed for %s: %s", trade_date, e)
-            return SyncResult(SyncStatus.ERROR, 0, str(e))
+        except Exception as exc:
+            return handle_tushare_sync_exception(logger, f"suspend_d sync for {trade_date}", exc)
 
 
 class TushareSuspendInterface(BaseIngestInterface):
@@ -317,7 +348,7 @@ class TushareSuspendInterface(BaseIngestInterface):
         )
 
     def get_ddl(self) -> str:
-        return ddl.SUSPEND_DAILY_DDL
+        return ddl.SUSPEND_HISTORY_DDL
 
     def sync_date(self, trade_date: date) -> SyncResult:
         from app.datasync.service.tushare_ingest import ingest_suspend
@@ -326,9 +357,8 @@ class TushareSuspendInterface(BaseIngestInterface):
         try:
             rows = ingest_suspend(suspend_date=target)
             return SyncResult(SyncStatus.SUCCESS, rows or 0)
-        except Exception as e:
-            logger.exception("suspend sync failed for %s: %s", trade_date, e)
-            return SyncResult(SyncStatus.ERROR, 0, str(e))
+        except Exception as exc:
+            return handle_tushare_sync_exception(logger, f"suspend sync for {trade_date}", exc)
 
 
 class TushareAdjFactorInterface(BaseIngestInterface):
@@ -360,9 +390,8 @@ class TushareAdjFactorInterface(BaseIngestInterface):
             ingest_adj_factor(trade_date=target)
             count = get_adj_factor_count_for_date(trade_date)
             return SyncResult(SyncStatus.SUCCESS, count)
-        except Exception as e:
-            logger.exception("adj_factor sync failed for %s: %s", trade_date, e)
-            return SyncResult(SyncStatus.ERROR, 0, str(e))
+        except Exception as exc:
+            return handle_tushare_sync_exception(logger, f"adj_factor sync for {trade_date}", exc)
 
 
 class TushareDividendInterface(BaseIngestInterface):
@@ -375,7 +404,7 @@ class TushareDividendInterface(BaseIngestInterface):
             target_database="tushare",
             target_table="stock_dividend",
             sync_priority=50,
-            requires_permission="1",
+            requires_permission="0",
             enabled_by_default=False,
             description="分红送股数据(需高级权限)",
         )
@@ -397,12 +426,13 @@ class TushareDividendInterface(BaseIngestInterface):
                 return SyncResult(SyncStatus.SUCCESS, 0)
             rows = upsert_dividend_df(df)
             return SyncResult(SyncStatus.SUCCESS, rows)
-        except Exception as e:
-            err_msg = str(e)
-            if "没有接口访问权限" in err_msg or "permission" in err_msg.lower():
-                return SyncResult(SyncStatus.PARTIAL, 0, "Permission denied")
-            logger.exception("dividend sync failed for %s: %s", trade_date, e)
-            return SyncResult(SyncStatus.ERROR, 0, err_msg)
+        except Exception as exc:
+            return handle_tushare_sync_exception(
+                logger,
+                f"dividend sync for {trade_date}",
+                exc,
+                allow_permission_partial=True,
+            )
 
     def sync_range(self, start: date, end: date) -> SyncResult:
         from app.datasync.service.tushare_ingest import ingest_dividend_by_ann_date_range
@@ -410,12 +440,13 @@ class TushareDividendInterface(BaseIngestInterface):
         try:
             rows = ingest_dividend_by_ann_date_range(start.isoformat(), end.isoformat())
             return SyncResult(SyncStatus.SUCCESS, rows or 0)
-        except Exception as e:
-            err_msg = str(e)
-            if "没有接口访问权限" in err_msg or "permission" in err_msg.lower():
-                return SyncResult(SyncStatus.PARTIAL, 0, "Permission denied")
-            logger.exception("dividend range backfill failed for %s -> %s: %s", start, end, e)
-            return SyncResult(SyncStatus.ERROR, 0, err_msg)
+        except Exception as exc:
+            return handle_tushare_sync_exception(
+                logger,
+                f"dividend range backfill for {start} -> {end}",
+                exc,
+                allow_permission_partial=True,
+            )
 
     def get_backfill_rows_by_date(self, start: date, end: date) -> dict[date, int]:
         from app.domains.extdata.dao.data_sync_status_dao import get_dividend_counts
@@ -433,7 +464,7 @@ class TushareTop10HoldersInterface(BaseIngestInterface):
             target_database="tushare",
             target_table="top10_holders",
             sync_priority=57,
-            requires_permission="1",
+            requires_permission="0",
             enabled_by_default=False,
             description="十大股东数据(需高级权限)",
         )
@@ -470,9 +501,8 @@ class TushareTop10HoldersInterface(BaseIngestInterface):
                 "No holder data fetched",
                 details={"sample_symbols": ts_codes[: min(5, total)], "sampled_count": total},
             )
-        except Exception as e:
-            logger.exception("top10_holders sync failed: %s", e)
-            return SyncResult(SyncStatus.ERROR, 0, str(e))
+        except Exception as exc:
+            return handle_tushare_sync_exception(logger, "top10_holders sync", exc)
 
     def sync_range(self, start: date, end: date) -> SyncResult:
         from app.datasync.service.tushare_ingest import ingest_top10_holders_marketwide_by_date_range
@@ -480,12 +510,13 @@ class TushareTop10HoldersInterface(BaseIngestInterface):
         try:
             rows = ingest_top10_holders_marketwide_by_date_range(start.isoformat(), end.isoformat())
             return SyncResult(SyncStatus.SUCCESS, rows or 0)
-        except Exception as e:
-            err_msg = str(e)
-            if "没有接口访问权限" in err_msg or "permission" in err_msg.lower():
-                return SyncResult(SyncStatus.PARTIAL, 0, "Permission denied")
-            logger.exception("top10_holders range backfill failed for %s -> %s: %s", start, end, e)
-            return SyncResult(SyncStatus.ERROR, 0, err_msg)
+        except Exception as exc:
+            return handle_tushare_sync_exception(
+                logger,
+                f"top10_holders range backfill for {start} -> {end}",
+                exc,
+                allow_permission_partial=True,
+            )
 
     def get_backfill_rows_by_date(self, start: date, end: date) -> dict[date, int]:
         from app.domains.extdata.dao.data_sync_status_dao import get_top10_holders_counts
@@ -517,9 +548,8 @@ class TushareStockWeeklyInterface(BaseIngestInterface):
         try:
             rows = ingest_weekly(trade_date=target)
             return SyncResult(SyncStatus.SUCCESS, rows or 0)
-        except Exception as e:
-            logger.exception("stock_weekly sync failed for %s: %s", trade_date, e)
-            return SyncResult(SyncStatus.ERROR, 0, str(e))
+        except Exception as exc:
+            return handle_tushare_sync_exception(logger, f"stock_weekly sync for {trade_date}", exc)
 
 
 class TushareStockMonthlyInterface(BaseIngestInterface):
@@ -546,9 +576,8 @@ class TushareStockMonthlyInterface(BaseIngestInterface):
         try:
             rows = ingest_monthly(trade_date=target)
             return SyncResult(SyncStatus.SUCCESS, rows or 0)
-        except Exception as e:
-            logger.exception("stock_monthly sync failed for %s: %s", trade_date, e)
-            return SyncResult(SyncStatus.ERROR, 0, str(e))
+        except Exception as exc:
+            return handle_tushare_sync_exception(logger, f"stock_monthly sync for {trade_date}", exc)
 
 
 class TushareIndexDailyInterface(BaseIngestInterface):

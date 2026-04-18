@@ -69,6 +69,15 @@ class TestRecordInit:
 
 
 class TestInitializeSyncStatus:
+    def test_default_window_uses_env_coverage_floor(self):
+        from app.datasync.service.sync_init_service import _resolve_default_sync_window
+
+        with patch("app.datasync.service.init_service.get_coverage_window", return_value={"start_date": date(2025, 4, 16)}):
+            start_date, end_date = _resolve_default_sync_window(date(2026, 4, 16))
+
+        assert start_date == date(2025, 4, 16)
+        assert end_date == date(2026, 4, 16)
+
     def test_skips_when_already_initialized(self):
         from app.datasync.service.sync_init_service import initialize_sync_status
         with patch(f"{_INIT_MOD}.ensure_sync_status_init_table"), \
@@ -104,18 +113,19 @@ class TestInitializeSyncStatus:
         assert result == 0
 
     def test_uses_default_dates(self):
-        from app.datasync.service.sync_init_service import initialize_sync_status, DEFAULT_START_DATE
+        from app.datasync.service.sync_init_service import initialize_sync_status
         trade_days = [date(2024, 6, 1)]
         engine, conn = _conn_ctx()
 
         with patch(f"{_INIT_MOD}.ensure_sync_status_init_table"), \
+             patch(f"{_INIT_MOD}._resolve_default_sync_window", return_value=(date(2024, 5, 1), date(2024, 6, 1))), \
              patch(f"{_ENGINE_MOD}.get_trade_calendar", return_value=trade_days) as mock_cal, \
              patch(f"{_INIT_MOD}.get_quantmate_engine", return_value=engine), \
              patch(f"{_INIT_MOD}._record_init"):
             initialize_sync_status("tushare", "stock_daily")
 
         args = mock_cal.call_args[0]
-        assert args[0] == DEFAULT_START_DATE
+        assert args[0] == date(2024, 5, 1)
 
 
 class TestReconcileEnabledSyncStatus:
@@ -145,6 +155,28 @@ class TestReconcileEnabledSyncStatus:
             end_date=date(2024, 1, 5),
             reconcile_missing=True,
         )
+
+    def test_skips_enabled_item_when_token_points_do_not_support_it(self):
+        from app.datasync.service.sync_init_service import reconcile_enabled_sync_status
+
+        engine, conn = _conn_ctx(rows=[("tushare", "bak_daily", "bak_daily", 5000, None)])
+        registry = MagicMock()
+        registry.get_interface.return_value = MagicMock()
+
+        with patch(f"{_INIT_MOD}.ensure_sync_status_init_table"), \
+             patch(f"{_INIT_MOD}.get_quantmate_engine", return_value=engine), \
+             patch("app.datasync.capabilities.load_source_config_map", return_value={"tushare": {"config_json": {"token_points": 2000}}}), \
+             patch(f"{_INIT_MOD}.initialize_sync_status") as mock_init:
+            result = reconcile_enabled_sync_status(
+                registry,
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 1, 5),
+            )
+
+        assert result["pending_records"] == 0
+        assert result["items_reconciled"] == 0
+        assert result["skipped_unsupported"] == [{"source": "tushare", "item_key": "bak_daily"}]
+        mock_init.assert_not_called()
 
 
 # ===========================================================================
@@ -320,7 +352,7 @@ class TestRunBackfillTask:
 
         # First call: fetch item row (table_created=1)
         item_row = MagicMock()
-        item_row.__getitem__ = lambda s, k: {0: "ts", 1: "stock_daily", 2: 1}[k]
+        item_row.__getitem__ = lambda s, k: {0: "tushare", 1: "stock_daily", 2: 1}[k]
         # Second call: no pending
         no_rows = MagicMock(fetchall=MagicMock(return_value=[]))
         exhausted_row = MagicMock(fetchone=MagicMock(return_value=(0,)))
@@ -333,6 +365,7 @@ class TestRunBackfillTask:
 
         with patch("rq.get_current_job", return_value=None), \
              patch("app.datasync.registry.build_default_registry", return_value=registry), \
+               patch("app.datasync.table_manager.ensure_table", return_value=True), \
              patch("app.infrastructure.db.connections.get_quantmate_engine", return_value=engine):
             result = run_backfill_task("tushare", "stock_daily")
 
@@ -348,7 +381,7 @@ class TestRunBackfillTask:
         engine, conn = _conn_ctx()
 
         item_row = MagicMock()
-        item_row.__getitem__ = lambda s, k: {0: "ts", 1: "stock_daily", 2: 1}[k]
+        item_row.__getitem__ = lambda s, k: {0: "tushare", 1: "stock_daily", 2: 1}[k]
         no_rows = MagicMock(fetchall=MagicMock(return_value=[]))
         exhausted_row = MagicMock(fetchone=MagicMock(return_value=(2,)))
 
@@ -360,6 +393,7 @@ class TestRunBackfillTask:
 
         with patch("rq.get_current_job", return_value=None), \
              patch("app.datasync.registry.build_default_registry", return_value=registry), \
+               patch("app.datasync.table_manager.ensure_table", return_value=True), \
              patch("app.infrastructure.db.connections.get_quantmate_engine", return_value=engine):
             result = run_backfill_task("tushare", "stock_daily")
 
@@ -378,7 +412,7 @@ class TestRunBackfillTask:
         sem = MagicMock()
 
         item_row = MagicMock()
-        item_row.__getitem__ = lambda s, k: {0: "ts", 1: "stock_daily", 2: 1}[k]
+        item_row.__getitem__ = lambda s, k: {0: "tushare", 1: "stock_daily", 2: 1}[k]
         pending_rows = MagicMock(fetchall=MagicMock(return_value=[(date(2024, 1, 3), "pending", 0)]))
         remaining_row = MagicMock(fetchone=MagicMock(return_value=(0,)))
         exhausted_row = MagicMock(fetchone=MagicMock(return_value=(0,)))
@@ -392,6 +426,7 @@ class TestRunBackfillTask:
 
         with patch("rq.get_current_job", return_value=None), \
              patch("app.datasync.registry.build_default_registry", return_value=registry), \
+               patch("app.datasync.table_manager.ensure_table", return_value=True), \
              patch("app.infrastructure.db.connections.get_quantmate_engine", return_value=engine), \
              patch("app.datasync.service.sync_engine._get_backfill_source_semaphore", return_value=sem), \
              patch("app.datasync.service.sync_engine._write_status"):
@@ -400,6 +435,60 @@ class TestRunBackfillTask:
         sem.acquire.assert_called_once()
         sem.release.assert_called_once()
         assert result["synced"] == 1
+
+    def test_pauses_batch_on_quota_without_reenqueue(self):
+        from app.datasync.base import SyncResult, SyncStatus
+        from app.worker.service.datasync_tasks import run_backfill_task
+
+        registry = MagicMock()
+        iface = MagicMock()
+        iface.sync_date.return_value = SyncResult(
+            SyncStatus.PENDING,
+            0,
+            "daily quota",
+            details={"quota_exceeded": True, "quota_scope": "day"},
+        )
+        registry.get_interface.return_value = iface
+        engine, conn = _conn_ctx()
+
+        item_row = MagicMock()
+        item_row.__getitem__ = lambda s, k: {0: "tushare", 1: "stock_daily", 2: 1}[k]
+        pending_rows = MagicMock(fetchall=MagicMock(return_value=[
+            (date(2024, 1, 3), "pending", 0),
+            (date(2024, 1, 4), "pending", 0),
+        ]))
+        remaining_row = MagicMock(fetchone=MagicMock(return_value=(2,)))
+        exhausted_row = MagicMock(fetchone=MagicMock(return_value=(0,)))
+
+        def _execute_side_effect(statement, *args, **kwargs):
+            sql = str(statement)
+            if "FROM data_source_items" in sql:
+                return MagicMock(fetchone=MagicMock(return_value=item_row))
+            if "ORDER BY sync_date ASC LIMIT" in sql:
+                return pending_rows
+            if "retry_count < :max_retries" in sql:
+                return remaining_row
+            if "retry_count >= :max_retries" in sql:
+                return exhausted_row
+            return MagicMock()
+
+        conn.execute.side_effect = _execute_side_effect
+
+        with patch("rq.get_current_job", return_value=None), \
+             patch("app.datasync.registry.build_default_registry", return_value=registry), \
+             patch("app.datasync.table_manager.ensure_table", return_value=True), \
+             patch("app.infrastructure.db.connections.get_quantmate_engine", return_value=engine), \
+               patch("app.datasync.service.sync_engine._get_backfill_source_semaphore", return_value=None), \
+             patch("app.datasync.service.sync_engine._write_status") as mock_write, \
+             patch("app.worker.service.config.get_queue") as mock_get_queue:
+            result = run_backfill_task("tushare", "stock_daily")
+
+        assert result["status"] == "partial"
+        assert result["paused"] is True
+        assert result["remaining"] == 2
+        assert mock_write.call_args_list[0].kwargs["retry_count"] == 1
+        assert mock_write.call_args_list[-1].kwargs["retry_count"] == 0
+        mock_get_queue.assert_not_called()
 
 
 def _dao_conn_ctx():
@@ -422,8 +511,8 @@ class TestDataSourceItemDaoCategories:
         mapping_data = {
             "source": "tushare", "item_key": "stock_daily", "display_name": "日线行情",
             "enabled": 1, "target_table": "stock_daily", "category": "股票数据",
-            "sub_category": "行情数据", "api_name": "daily", "permission_points": "120积分",
-            "rate_limit_note": "500条/分钟", "requires_permission": None, "sync_priority": 20,
+            "sub_category": "行情数据", "api_name": "daily", "permission_points": 120,
+            "rate_limit_note": "500条/分钟", "requires_permission": "0", "sync_priority": 20,
         }
         mock_row = MagicMock()
         mock_row._mapping = mapping_data
@@ -443,7 +532,7 @@ class TestDataSourceItemDaoCategories:
 
         with patch(_DAO_CONN, return_value=ctx):
             dao = DataSourceItemDao()
-            count = dao.batch_update_by_permission("tushare", "120积分", True)
+            count = dao.batch_update_by_permission("tushare", 120, True)
 
         assert count == 5
         conn.execute.assert_called_once()
@@ -454,16 +543,16 @@ class TestDataSourceItemDaoCategories:
         from app.domains.market.dao.data_source_item_dao import DataSourceItemDao
         ctx, conn = _dao_conn_ctx()
         row1 = MagicMock()
-        row1.__getitem__ = lambda s, k: "120积分"
+        row1.__getitem__ = lambda s, k: 120
         row2 = MagicMock()
-        row2.__getitem__ = lambda s, k: "2000积分"
+        row2.__getitem__ = lambda s, k: 2000
         conn.execute.return_value = MagicMock(fetchall=MagicMock(return_value=[row1, row2]))
 
         with patch(_DAO_CONN, return_value=ctx):
             dao = DataSourceItemDao()
             perms = dao.get_distinct_permissions("tushare")
 
-        assert perms == ["120积分", "2000积分"]
+        assert perms == [120, 2000]
         sql = str(conn.execute.call_args.args[0])
         assert "NOT IN ('1', 'true', 'yes', 'paid')" in sql
 
@@ -548,23 +637,23 @@ class TestSettingsRoutes:
             {
                 "source": "tushare",
                 "item_key": "stock_daily",
-                "permission_points": "120积分",
+                "permission_points": 120,
                 "enabled": 0,
-                "requires_permission": None,
+                "requires_permission": "0",
                 "sync_supported": True,
             },
             {
                 "source": "tushare",
                 "item_key": "stock_company",
-                "permission_points": "120积分",
+                "permission_points": 120,
                 "enabled": 0,
-                "requires_permission": None,
+                "requires_permission": "0",
                 "sync_supported": False,
             },
             {
                 "source": "tushare",
                 "item_key": "rt_daily",
-                "permission_points": "120积分",
+                "permission_points": 0,
                 "enabled": 0,
                 "requires_permission": "1",
                 "sync_supported": True,
@@ -572,9 +661,9 @@ class TestSettingsRoutes:
             {
                 "source": "tushare",
                 "item_key": "stock_basic",
-                "permission_points": "120积分",
+                "permission_points": 120,
                 "enabled": 1,
-                "requires_permission": None,
+                "requires_permission": "0",
                 "sync_supported": True,
             },
         ]
@@ -584,7 +673,7 @@ class TestSettingsRoutes:
              patch(f"{_ROUTES_MOD}._ensure_table_for_item") as mock_ensure, \
              patch(f"{_ROUTES_MOD}._trigger_sync_init") as mock_trigger:
             result = await batch_update_by_permission(
-                body=DataSourceBatchByPermission(permission_points="120积分", enabled=True),
+                body=DataSourceBatchByPermission(permission_points=120, enabled=True),
                 source="tushare",
                 current_user=MagicMock(),
             )
@@ -602,16 +691,58 @@ class TestSettingsRoutes:
         from app.api.routes.settings import list_permission_levels
 
         items = [
-            {"permission_points": "2000积分", "requires_permission": None, "sync_supported": True},
-            {"permission_points": "120积分", "requires_permission": None, "sync_supported": True},
-            {"permission_points": "5000积分", "requires_permission": None, "sync_supported": False},
-            {"permission_points": "需单独权限", "requires_permission": "1", "sync_supported": True},
+            {"permission_points": 2000, "requires_permission": "0", "sync_supported": True},
+            {"permission_points": 120, "requires_permission": "0", "sync_supported": True},
+            {"permission_points": 5000, "requires_permission": "0", "sync_supported": False},
+            {"permission_points": 0, "requires_permission": "1", "sync_supported": True},
         ]
 
         with patch(f"{_ROUTES_MOD}._list_items_with_sync_support", return_value=items):
             result = await list_permission_levels(source="tushare", current_user=MagicMock())
 
-        assert result == {"data": ["120积分", "2000积分"]}
+        assert result == {"data": [120, 2000]}
+
+    def test_get_sync_support_map_uses_tushare_token_points(self):
+        from app.api.routes.settings import _get_sync_support_map
+
+        registry = MagicMock()
+        registry.get_interface.side_effect = lambda source, item_key: object() if item_key in {"stock_daily", "bak_daily", "stock_company"} else None
+        mock_dao = MagicMock()
+        mock_dao.list_all.return_value = [
+            {"source": "tushare", "item_key": "stock_daily", "permission_points": 120, "api_name": "daily"},
+            {"source": "tushare", "item_key": "stock_company", "permission_points": 120, "api_name": "stock_company"},
+            {"source": "tushare", "item_key": "bak_daily", "permission_points": 5000, "api_name": "bak_daily"},
+        ]
+
+        with patch("app.datasync.registry.build_default_registry", return_value=registry), \
+             patch("app.domains.market.dao.data_source_item_dao.DataSourceItemDao", return_value=mock_dao), \
+             patch("app.datasync.capabilities.load_source_config_map", return_value={"tushare": {"config_json": {"token_points": 2000}}}):
+            support_map = _get_sync_support_map("tushare")
+
+        assert support_map == {("tushare", "stock_daily"), ("tushare", "stock_company")}
+
+    def test_ensure_table_for_item_does_not_trust_table_created_flag(self):
+        from app.api.routes.settings import _ensure_table_for_item
+
+        mock_dao = MagicMock()
+        mock_dao.get_by_key.return_value = {
+            "source": "tushare",
+            "item_key": "stock_daily",
+            "table_created": 1,
+            "target_database": "tushare",
+            "target_table": "stock_daily",
+        }
+        registry = MagicMock()
+        iface = MagicMock()
+        iface.get_ddl.return_value = "CREATE TABLE stock_daily (...)"
+        registry.get_interface.return_value = iface
+
+        with patch("app.domains.market.dao.data_source_item_dao.DataSourceItemDao", return_value=mock_dao), \
+             patch("app.datasync.registry.build_default_registry", return_value=registry), \
+             patch("app.datasync.table_manager.ensure_table") as mock_ensure:
+            _ensure_table_for_item("tushare", "stock_daily")
+
+        mock_ensure.assert_called_once_with("tushare", "stock_daily", "CREATE TABLE stock_daily (...)")
 
     def test_trigger_sync_init_success(self):
         from app.api.routes.settings import _trigger_sync_init

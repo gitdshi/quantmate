@@ -647,12 +647,12 @@ class TestInitService:
     def test_lookback_days_dev(self):
         m = self._m()
         with patch.object(m, "_get_env", return_value="dev"):
-            assert m._lookback_days() == 365
+            assert m._get_env_window_years() == 1
 
     def test_lookback_days_prod(self):
         m = self._m()
         with patch.object(m, "_get_env", return_value="production"):
-            assert m._lookback_days() == 365 * 20
+            assert m._get_env_window_years() == 20
 
     @patch("app.datasync.service.init_service._reconcile_pending_records", return_value={"pending_records": 100, "items_reconciled": 5, "skipped_unsupported": []})
     @patch("app.datasync.service.init_service._ensure_tables", return_value=3)
@@ -698,12 +698,13 @@ class TestInitService:
     @patch("app.datasync.service.init_service.get_quantmate_engine")
     def test_ensure_tables(self, mock_engine, mock_et):
         m = self._m()
-        rows = [("tushare", "stock_daily", "tushare", "stock_daily")]
-        mock_engine.return_value.connect.return_value.__enter__.return_value.execute.return_value.fetchall.return_value = rows
         registry = MagicMock()
         iface = MagicMock()
+        iface.info.source_key = "tushare"
+        iface.info.target_database = "tushare"
+        iface.info.target_table = "stock_daily"
         iface.get_ddl.return_value = "CREATE TABLE ..."
-        registry.get_interface.return_value = iface
+        registry.all_interfaces.return_value = [iface]
         count = m._ensure_tables(mock_engine.return_value, registry)
         assert count == 1
 
@@ -1072,7 +1073,7 @@ class TestTushareInterfaces:
         from app.datasync.sources.tushare.interfaces import TushareDividendInterface
         info = TushareDividendInterface().info
         assert info.enabled_by_default is False
-        assert info.requires_permission == "1"
+        assert info.requires_permission == "0"
 
     @patch("app.domains.extdata.dao.tushare_dao.upsert_dividend_df", return_value=10)
     @patch("app.datasync.service.tushare_ingest.call_pro")

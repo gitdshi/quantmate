@@ -105,7 +105,7 @@ class DataSourceItemDao:
             rows = conn.execute(text(sql), params).fetchall()
             return [dict(r._mapping) for r in rows]
 
-    def batch_update_by_permission(self, source: str, permission_points: str, enabled: bool) -> int:
+    def batch_update_by_permission(self, source: str, permission_points: int, enabled: bool) -> int:
         """Enable/disable all items matching a specific permission_points value."""
         with connection("quantmate") as conn:
             result = conn.execute(
@@ -119,13 +119,13 @@ class DataSourceItemDao:
             conn.commit()
             return result.rowcount  # type: ignore[union-attr]
 
-    def get_distinct_permissions(self, source: str) -> list[str]:
-        """Return distinct non-null permission_points values for a source."""
+    def get_distinct_permissions(self, source: str) -> list[int]:
+        """Return distinct positive permission_points values for a source."""
         with connection("quantmate") as conn:
             rows = conn.execute(
                 text(
                     "SELECT DISTINCT permission_points FROM data_source_items "
-                    "WHERE source = :src AND permission_points IS NOT NULL "
+                    "WHERE source = :src AND permission_points > 0 "
                     f"AND {_UNRESTRICTED_PERMISSION_SQL} "
                     "ORDER BY permission_points"
                 ),

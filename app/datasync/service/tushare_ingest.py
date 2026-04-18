@@ -783,7 +783,10 @@ def call_pro(api_name: str, max_retries: int = None, backoff_base: int = 5, **kw
                     retry_after=parsed_wait,
                 ) from e
             attempt += 1
-            logging.exception("call_pro %s attempt %d failed: %s", api_name, attempt, e)
+            if _is_rate_limit_error(error_msg):
+                logging.warning("call_pro %s attempt %d rate limited: %s", api_name, attempt, error_msg)
+            else:
+                logging.exception("call_pro %s attempt %d failed: %s", api_name, attempt, e)
             if attempt >= max_retries:
                 logging.error("call_pro %s exhausted retries", api_name)
                 if _is_rate_limit_error(error_msg) and rate_limit_scope == "minute":

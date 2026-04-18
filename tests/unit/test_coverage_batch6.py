@@ -1305,7 +1305,12 @@ class TestTushareDataSource:
         from app.datasync.sources.tushare.source import TushareDataSource
         src = TushareDataSource()
         interfaces = src.get_interfaces()
+        keys = {iface.info.interface_key for iface in interfaces}
         assert len(interfaces) > 0
+        assert "stock_company" in keys
+        assert "daily_basic" in keys
+        assert "hsgt_stk_hold" in keys
+        assert "money_flow" not in keys
 
     def test_test_connection_fail(self, monkeypatch):
         from app.datasync.sources.tushare.source import TushareDataSource

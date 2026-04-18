@@ -89,12 +89,38 @@ class TestAudit:
         result = mod.audit_start("daily", {"ts_code": "000001.SZ"})
         assert result == 42
 
+    def test_audit_start_creates_missing_ingest_audit_table(self):
+        import app.domains.extdata.dao.tushare_dao as mod
+
+        engine, conn = _fake_engine_begin()
+        mod.engine = engine
+        conn.execute.side_effect = [
+            RuntimeError("(1146, \"Table 'tushare.ingest_audit' doesn't exist\")"),
+            MagicMock(lastrowid=7),
+        ]
+
+        with patch.object(mod, "_ensure_ingest_audit_table") as mock_ensure:
+            result = mod.audit_start("daily", {"ts_code": "000001.SZ"})
+
+        assert result == 7
+        mock_ensure.assert_called_once()
+
     def test_audit_finish(self):
         import app.domains.extdata.dao.tushare_dao as mod
         engine, conn = _fake_engine_begin()
         mod.engine = engine
         mod.audit_finish(42, "success", 100)
         conn.execute.assert_called_once()
+
+    def test_audit_finish_ignores_zero_audit_id(self):
+        import app.domains.extdata.dao.tushare_dao as mod
+
+        engine, conn = _fake_engine_begin()
+        mod.engine = engine
+
+        mod.audit_finish(0, "success", 100)
+
+        conn.execute.assert_not_called()
 
 
 # ── upsert_daily ─────────────────────────────────────────────────

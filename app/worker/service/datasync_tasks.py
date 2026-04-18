@@ -26,7 +26,13 @@ def run_backfill_task(source: str, item_key: str, batch_size: int = 30) -> dict:
     from rq import get_current_job
 
     from app.datasync.registry import build_default_registry
-    from app.datasync.service.sync_engine import MAX_RETRIES, _get_backfill_source_semaphore, _write_status
+    from app.datasync.service.sync_engine import (
+        MAX_RETRIES,
+        _final_retry_count_for_result,
+        _get_backfill_source_semaphore,
+        _is_quota_pause_result,
+        _write_status,
+    )
     from app.datasync.base import SyncStatus, SyncResult
     from app.datasync.table_manager import ensure_table
     from app.infrastructure.db.connections import get_quantmate_engine
@@ -56,7 +62,7 @@ def run_backfill_task(source: str, item_key: str, batch_size: int = 30) -> dict:
             ),
             {"s": source, "k": item_key},
         ).fetchone()
-    if row and not row[2]:
+    if row:
         try:
             ensure_table(row[0], row[1], iface.get_ddl())
         except Exception as e:
@@ -97,6 +103,7 @@ def run_backfill_task(source: str, item_key: str, batch_size: int = 30) -> dict:
 
     synced = 0
     errors = 0
+    quota_paused = False
     sem = _get_backfill_source_semaphore(source)
 
     for d, current_status, retry_count in pending_records:
@@ -119,10 +126,14 @@ def run_backfill_task(source: str, item_key: str, batch_size: int = 30) -> dict:
                 result.status.value,
                 result.rows_synced,
                 result.error_message,
-                retry_count=attempt_retry_count,
+                retry_count=_final_retry_count_for_result(result, attempt_retry_count),
             )
             if result.status == SyncStatus.SUCCESS:
                 synced += 1
+            elif _is_quota_pause_result(result):
+                quota_paused = True
+                logger.warning("Backfill %s/%s paused on %s due to quota: %s", source, item_key, d, result.error_message)
+                break
             else:
                 errors += 1
         except Exception as e:
@@ -172,11 +183,14 @@ def run_backfill_task(source: str, item_key: str, batch_size: int = 30) -> dict:
         "exhausted": exhausted,
     }
 
+    if quota_paused:
+        summary["paused"] = True
+
     if remaining == 0 and exhausted > 0:
         summary["status"] = "failed"
 
     # Auto-enqueue next batch if more remain
-    if remaining > 0:
+    if remaining > 0 and not quota_paused:
         try:
             from app.worker.service.config import get_queue
             from app.infrastructure.config import get_runtime_int

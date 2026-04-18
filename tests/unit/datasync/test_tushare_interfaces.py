@@ -139,6 +139,20 @@ class TestTushareStockDailyInterface:
             result = TushareStockDailyInterface().sync_date(date(2024, 1, 5))
             assert result.status == SyncStatus.ERROR
 
+    def test_sync_date_quota_returns_pending(self):
+        from app.datasync.service.tushare_ingest import TushareQuotaExceededError
+        from app.datasync.sources.tushare.interfaces import TushareStockDailyInterface
+
+        with patch(
+            f"{_INGEST}.call_pro",
+            side_effect=TushareQuotaExceededError("daily", "daily quota", scope="day"),
+        ):
+            result = TushareStockDailyInterface().sync_date(date(2024, 1, 5))
+
+        assert result.status == SyncStatus.PENDING
+        assert result.details["quota_exceeded"] is True
+        assert result.details["quota_scope"] == "day"
+
 
 class TestTushareBakDailyInterface:
     def test_info(self):
@@ -355,3 +369,106 @@ class TestTushareTop10HoldersInterface:
         with patch(f"{_INGEST}.get_all_ts_codes", side_effect=RuntimeError("boom")):
             result = TushareTop10HoldersInterface().sync_date(date(2024, 1, 5))
             assert result.status == SyncStatus.ERROR
+
+
+class TestTushareCatalogInterface:
+    def test_trade_date_catalog_sync(self):
+        from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface, TushareCatalogSpec
+
+        iface = TushareCatalogInterface(
+            TushareCatalogSpec(
+                interface_key="hsgt_stk_hold",
+                display_name="沪深股通持仓",
+                api_name="hsgt_stk_hold",
+                target_table="hsgt_stk_hold",
+                sync_priority=101,
+            )
+        )
+
+        df = pd.DataFrame({"ts_code": ["000001.SZ"], "trade_date": ["20240105"]})
+        with patch("app.datasync.service.tushare_ingest.call_pro", return_value=df) as mock_call, \
+             patch("app.domains.extdata.dao.tushare_dao.insert_catalog_rows", return_value=1) as mock_insert:
+            result = iface.sync_date(date(2024, 1, 5))
+
+        assert iface.supports_backfill() is True
+        assert iface.backfill_mode() == "date"
+        assert iface.requires_nonempty_trading_day_data() is True
+        assert result.status == SyncStatus.SUCCESS
+        assert result.rows_synced == 1
+        mock_call.assert_called_once_with("hsgt_stk_hold", trade_date="20240105")
+        mock_insert.assert_called_once()
+
+    def test_range_catalog_sync_uses_range_mode(self):
+        from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface, TushareCatalogSpec
+
+        iface = TushareCatalogInterface(
+            TushareCatalogSpec(
+                interface_key="new_share",
+                display_name="IPO新股列表",
+                api_name="new_share",
+                target_table="new_share",
+                sync_priority=104,
+            )
+        )
+
+        df = pd.DataFrame({"ts_code": ["000001.SZ"], "ipo_date": ["20240105"]})
+        with patch("app.datasync.service.tushare_ingest.call_pro", return_value=df) as mock_call, \
+             patch("app.domains.extdata.dao.tushare_dao.insert_catalog_rows", return_value=2):
+            result = iface.sync_range(date(2024, 1, 5), date(2024, 1, 8))
+
+        assert iface.supports_backfill() is True
+        assert iface.backfill_mode() == "range"
+        assert result.status == SyncStatus.SUCCESS
+        assert result.rows_synced == 2
+        mock_call.assert_called_once_with("new_share", start_date="20240105", end_date="20240108")
+
+    def test_catalog_permission_denied_returns_partial(self):
+        from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface, TushareCatalogSpec
+
+        iface = TushareCatalogInterface(
+            TushareCatalogSpec(
+                interface_key="report_rc",
+                display_name="盈利预测数据",
+                api_name="report_rc",
+                target_table="report_rc",
+                sync_priority=315,
+            )
+        )
+
+        with patch("app.datasync.service.tushare_ingest.call_pro", side_effect=RuntimeError("没有接口访问权限")):
+            result = iface.sync_date(date(2024, 1, 5))
+
+        assert result.status == SyncStatus.PARTIAL
+
+    def test_catalog_quota_returns_pending(self):
+        from app.datasync.service.tushare_ingest import TushareQuotaExceededError
+        from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface, TushareCatalogSpec
+
+        iface = TushareCatalogInterface(
+            TushareCatalogSpec(
+                interface_key="report_rc",
+                display_name="盈利预测数据",
+                api_name="report_rc",
+                target_table="report_rc",
+                sync_priority=315,
+            )
+        )
+
+        with patch(
+            "app.datasync.service.tushare_ingest.call_pro",
+            side_effect=TushareQuotaExceededError("report_rc", "daily quota", scope="day"),
+        ):
+            result = iface.sync_date(date(2024, 1, 5))
+
+        assert result.status == SyncStatus.PENDING
+        assert result.details["quota_exceeded"] is True
+
+    def test_build_catalog_interfaces_skips_existing_keys(self):
+        from app.datasync.sources.tushare.catalog_interfaces import build_catalog_interfaces
+
+        interfaces = build_catalog_interfaces({"hsgt_stk_hold", "moneyflow"})
+        keys = {iface.info.interface_key for iface in interfaces}
+
+        assert "hsgt_stk_hold" not in keys
+        assert "moneyflow" not in keys
+        assert "suspend_daily" not in keys

@@ -38,36 +38,48 @@ class TestGetEnv:
             assert _get_env() == "prod"
 
 
-class TestLookbackDays:
-    def test_dev(self):
-        from app.datasync.service.init_service import _lookback_days
+class TestWindowRules:
+    def test_dev_window_years(self):
+        from app.datasync.service.init_service import _get_env_window_years
+
         with patch(f"{_MOD}._get_env", return_value="dev"):
-            assert _lookback_days() == 365
+            assert _get_env_window_years() == 1
 
-    def test_staging(self):
-        from app.datasync.service.init_service import _lookback_days
+    def test_staging_window_years(self):
+        from app.datasync.service.init_service import _get_env_window_years
+
         with patch(f"{_MOD}._get_env", return_value="staging"):
-            assert _lookback_days() == 10 * 365
+            assert _get_env_window_years() == 10
 
-    def test_prod(self):
-        from app.datasync.service.init_service import _lookback_days
+    def test_prod_window_years(self):
+        from app.datasync.service.init_service import _get_env_window_years
+
         with patch(f"{_MOD}._get_env", return_value="prod"):
-            assert _lookback_days() == 20 * 365
+            assert _get_env_window_years() == 20
 
-    def test_env_specific_override(self):
-        from app.datasync.service.init_service import _lookback_days
-        with patch.dict("os.environ", {"DATASYNC_INIT_LOOKBACK_STAGING_DAYS": "1200"}, clear=True):
-            assert _lookback_days("staging") == 1200
+    def test_unknown_env_falls_back_to_dev_window(self):
+        from app.datasync.service.init_service import _get_env_window_years
 
-    def test_generic_override(self):
-        from app.datasync.service.init_service import _lookback_days
-        with patch.dict("os.environ", {"DATASYNC_INIT_LOOKBACK_DAYS": "900"}, clear=True):
-            assert _lookback_days("prod") == 900
-
-    def test_unknown_fallback(self):
-        from app.datasync.service.init_service import _lookback_days
         with patch(f"{_MOD}._get_env", return_value="unknown"):
-            assert _lookback_days() == 365
+            assert _get_env_window_years() == 1
+
+    def test_configured_sync_start_date_uses_today_when_blank(self):
+        from app.datasync.service.init_service import _get_configured_sync_start_date
+
+        with patch(f"{_MOD}.get_runtime_str", return_value=""):
+            assert _get_configured_sync_start_date(date(2026, 4, 17)) is None
+
+    def test_configured_sync_start_date_uses_explicit_date(self):
+        from app.datasync.service.init_service import _get_configured_sync_start_date
+
+        with patch(f"{_MOD}.get_runtime_str", return_value="2010-01-01"):
+            assert _get_configured_sync_start_date(date(2026, 4, 17)) == date(2010, 1, 1)
+
+    def test_configured_sync_start_date_ignores_invalid_date(self):
+        from app.datasync.service.init_service import _get_configured_sync_start_date
+
+        with patch(f"{_MOD}.get_runtime_str", return_value="not-a-date"):
+            assert _get_configured_sync_start_date(date(2026, 4, 17)) is None
 
 
 class TestCoverageWindow:
@@ -76,13 +88,34 @@ class TestCoverageWindow:
 
         target_end = date(2026, 4, 15)
         with patch(f"{_MOD}._get_env", return_value="prod"), \
-             patch(f"{_MOD}._lookback_days", return_value=7300):
+             patch(f"{_MOD}._get_env_window_years", return_value=20), \
+             patch(f"{_MOD}._get_configured_sync_start_date", return_value=date(2026, 4, 15)), \
+             patch(f"{_MOD}._get_env_floor_start_date", return_value=date(2006, 4, 20)):
             result = get_coverage_window(target_end)
 
         assert result["env"] == "prod"
-        assert result["lookback_days"] == 7300
+        assert result["window_years"] == 20
+        assert result["configured_start_date"] == date(2026, 4, 15)
+        assert result["env_floor_start_date"] == date(2006, 4, 20)
         assert result["end_date"] == target_end
-        assert result["start_date"] == date(2006, 4, 20)
+        assert result["start_date"] == date(2026, 4, 15)
+
+    def test_uses_env_floor_when_sync_start_date_is_blank(self):
+        from app.datasync.service.init_service import get_coverage_window
+
+        target_end = date(2026, 4, 15)
+        with patch(f"{_MOD}._get_env", return_value="staging"), \
+             patch(f"{_MOD}._get_env_window_years", return_value=10), \
+             patch(f"{_MOD}._get_configured_sync_start_date", return_value=None), \
+             patch(f"{_MOD}._get_env_floor_start_date", return_value=date(2016, 4, 17)):
+            result = get_coverage_window(target_end)
+
+        assert result["env"] == "staging"
+        assert result["window_years"] == 10
+        assert result["configured_start_date"] is None
+        assert result["env_floor_start_date"] == date(2016, 4, 17)
+        assert result["start_date"] == date(2016, 4, 17)
+        assert result["end_date"] == target_end
 
 
 class TestInitializationState:
@@ -160,7 +193,9 @@ class TestSyncStatusCoverageState:
                  f"{_MOD}.get_coverage_window",
                  return_value={
                      "env": "dev",
-                     "lookback_days": 365,
+                     "window_years": 1,
+                     "configured_start_date": date(2026, 4, 15),
+                     "env_floor_start_date": date(2025, 4, 15),
                      "start_date": date(2025, 4, 15),
                      "end_date": date(2026, 4, 15),
                  },
@@ -174,6 +209,44 @@ class TestSyncStatusCoverageState:
         assert state["enabled_sync_items"] == 1
         assert state["missing_items"] == [{"source": "tushare", "item_key": "trade_cal"}]
         assert state["incomplete_items"] == []
+
+    def test_marks_item_unsupported_when_token_points_are_insufficient(self):
+        from app.datasync.service.init_service import _get_sync_status_coverage_state
+
+        engine, conn = _engine_ctx()
+        conn.execute.side_effect = [
+            MagicMock(fetchall=MagicMock(return_value=[("tushare", "bak_daily", "bak_daily", 5000, None)])),
+            MagicMock(fetchall=MagicMock(return_value=[])),
+            MagicMock(fetchall=MagicMock(return_value=[])),
+            MagicMock(fetchall=MagicMock(return_value=[])),
+        ]
+
+        registry = MagicMock()
+        registry.get_interface.return_value = MagicMock()
+
+        with patch(f"{_MOD}.get_quantmate_engine", return_value=engine), \
+             patch("app.datasync.registry.build_default_registry", return_value=registry), \
+             patch("app.datasync.capabilities.load_source_config_map", return_value={"tushare": {"config_json": {"token_points": 2000}}}), \
+             patch(
+                 f"{_MOD}.get_coverage_window",
+                 return_value={
+                     "env": "dev",
+                     "window_years": 1,
+                     "configured_start_date": date(2026, 4, 15),
+                     "env_floor_start_date": date(2025, 4, 15),
+                     "start_date": date(2025, 4, 15),
+                     "end_date": date(2026, 4, 15),
+                 },
+             ), \
+             patch(
+                 "app.domains.extdata.dao.data_sync_status_dao.get_cached_trade_dates",
+                 return_value=[date(2026, 4, 15)],
+             ):
+            state = _get_sync_status_coverage_state()
+
+        assert state["enabled_sync_items"] == 0
+        assert state["missing_items"] == []
+        assert state["unsupported_items"] == [{"source": "tushare", "item_key": "bak_daily"}]
 
     def test_detects_latest_only_item_missing_latest_status(self):
         from app.datasync.service.init_service import _get_sync_status_coverage_state
@@ -197,7 +270,9 @@ class TestSyncStatusCoverageState:
                  f"{_MOD}.get_coverage_window",
                  return_value={
                      "env": "dev",
-                     "lookback_days": 365,
+                     "window_years": 1,
+                     "configured_start_date": date(2026, 4, 15),
+                     "env_floor_start_date": date(2025, 4, 15),
                      "start_date": date(2025, 4, 15),
                      "end_date": date(2026, 4, 15),
                  },
@@ -236,7 +311,7 @@ class TestInitialize:
                patch(f"{_MOD}.ensure_tables"), \
                patch(f"{_MOD}.ensure_backfill_lock_table"), \
                patch(f"{_MOD}.ensure_sync_status_init_table"), \
-               patch(f"{_MOD}.get_coverage_window", return_value={"env": "dev", "lookback_days": 365, "start_date": date(2025, 4, 15), "end_date": date(2026, 4, 15)}), \
+               patch(f"{_MOD}.get_coverage_window", return_value={"env": "dev", "window_years": 1, "configured_start_date": date(2026, 4, 15), "env_floor_start_date": date(2025, 4, 15), "start_date": date(2025, 4, 15), "end_date": date(2026, 4, 15)}), \
                patch(f"{_MOD}._sync_registry_state", return_value={"items_normalized": 1, "tables_created": 2}), \
                patch(f"{_MOD}._ensure_trade_calendar_window", return_value=([date(2026, 4, 15)], True)), \
                patch(f"{_MOD}._reconcile_pending_records", return_value={"pending_records": 0, "items_reconciled": 0, "skipped_unsupported": []}):
@@ -260,7 +335,7 @@ class TestInitialize:
                patch(f"{_MOD}.ensure_tables"), \
                patch(f"{_MOD}.ensure_backfill_lock_table"), \
                patch(f"{_MOD}.ensure_sync_status_init_table"), \
-             patch(f"{_MOD}.get_coverage_window", return_value={"env": "dev", "lookback_days": 365, "start_date": date(2025, 4, 15), "end_date": date(2026, 4, 15)}), \
+                         patch(f"{_MOD}.get_coverage_window", return_value={"env": "dev", "window_years": 1, "configured_start_date": date(2026, 4, 15), "env_floor_start_date": date(2025, 4, 15), "start_date": date(2025, 4, 15), "end_date": date(2026, 4, 15)}), \
              patch(f"{_MOD}._sync_registry_state", return_value={"items_normalized": 0, "tables_created": 0}), \
              patch(f"{_MOD}._ensure_trade_calendar_window", return_value=([date(2026, 4, 15)], False)), \
                patch(f"{_MOD}._reconcile_pending_records", return_value={"pending_records": 0, "items_reconciled": 0, "skipped_unsupported": []}), \
@@ -279,7 +354,9 @@ class TestRuntimeReconcile:
 
         coverage_window = {
             "env": "staging",
-            "lookback_days": 3650,
+            "window_years": 10,
+            "configured_start_date": date(2026, 4, 15),
+            "env_floor_start_date": date(2016, 4, 17),
             "start_date": date(2016, 4, 17),
             "end_date": date(2026, 4, 15),
         }
@@ -335,6 +412,58 @@ class TestSeedItems:
         conn.execute.assert_called()
 
 
+class TestBootstrapItemEnablement:
+    def test_updates_tushare_enabled_flags_from_capability_config(self):
+        from app.datasync.service.init_service import _sync_bootstrap_item_enablement
+
+        engine, conn = _engine_ctx()
+        conn.execute.side_effect = [
+            MagicMock(fetchone=MagicMock(return_value=None)),
+            MagicMock(
+                fetchall=MagicMock(
+                    return_value=[
+                        ("tushare", "stock_daily", 0, "daily", 120, None),
+                        ("tushare", "bak_daily", 1, "bak_daily", 5000, None),
+                        ("tushare", "rt_daily", 1, "rt_daily", 0, "1"),
+                    ]
+                )
+            ),
+            MagicMock(),
+        ]
+
+        registry = MagicMock()
+        registry.get_interface.side_effect = lambda source, item_key: object() if source == "tushare" else None
+
+        with patch.dict("os.environ", {}, clear=True), \
+             patch(
+                 "app.datasync.capabilities.load_source_config_map",
+                 return_value={"tushare": {"config_json": {"token_points": 2000}}},
+             ):
+            updated = _sync_bootstrap_item_enablement(engine, registry)
+
+        assert updated == 3
+        update_sql = conn.execute.call_args_list[-1].args[0].text
+        update_params = conn.execute.call_args_list[-1].args[1]
+
+        assert "SET enabled = :enabled" in update_sql
+        assert {tuple(sorted(item.items())) for item in update_params} == {
+            tuple(sorted({"source": "tushare", "item_key": "stock_daily", "enabled": 1}.items())),
+            tuple(sorted({"source": "tushare", "item_key": "bak_daily", "enabled": 0}.items())),
+            tuple(sorted({"source": "tushare", "item_key": "rt_daily", "enabled": 0}.items())),
+        }
+
+    def test_skips_after_bootstrap_completion(self):
+        from app.datasync.service.init_service import _sync_bootstrap_item_enablement
+
+        engine, conn = _engine_ctx()
+        conn.execute.return_value = MagicMock(fetchone=MagicMock(return_value=(1,)))
+
+        updated = _sync_bootstrap_item_enablement(engine, MagicMock())
+
+        assert updated == 0
+        assert conn.execute.call_count == 1
+
+
 class TestNormalizeItemTargets:
     def test_normalizes_mismatched_target_database(self):
         from app.datasync.service.init_service import _normalize_item_targets
@@ -353,21 +482,64 @@ class TestNormalizeItemTargets:
 
 
 class TestEnsureTables:
-    def test_creates_tables(self):
+    def test_creates_bootstrap_tushare_tables_and_all_non_tushare_tables(self):
         from app.datasync.service.init_service import _ensure_tables
-        engine, conn = _engine_ctx()
-        rows = [("tushare", "stock_daily", "ts_db", "stock_daily")]
-        conn.execute.return_value = MagicMock(fetchall=MagicMock(return_value=rows))
+        engine, _ = _engine_ctx()
 
         registry = MagicMock()
-        iface = MagicMock()
-        iface.get_ddl.return_value = "CREATE TABLE..."
-        registry.get_interface.return_value = iface
+        first = MagicMock()
+        first.info.source_key = "tushare"
+        first.info.target_database = "tushare"
+        first.info.target_table = "stock_daily"
+        first.get_ddl.return_value = "CREATE TABLE stock_daily (...)"
+
+        duplicate = MagicMock()
+        duplicate.info.source_key = "tushare"
+        duplicate.info.target_database = "tushare"
+        duplicate.info.target_table = "stock_daily"
+        duplicate.get_ddl.return_value = "CREATE TABLE stock_daily (...)"
+
+        second = MagicMock()
+        second.info.source_key = "tushare"
+        second.info.target_database = "tushare"
+        second.info.target_table = "daily_basic"
+        second.get_ddl.return_value = "CREATE TABLE daily_basic (...)"
+
+        third = MagicMock()
+        third.info.source_key = "akshare"
+        third.info.target_database = "akshare"
+        third.info.target_table = "index_daily"
+        third.get_ddl.return_value = "CREATE TABLE index_daily (...)"
+
+        registry.all_interfaces.return_value = [first, duplicate, second, third]
 
         with patch(f"{_MOD}.ensure_table", return_value=True) as mock_ensure:
             created = _ensure_tables(engine, registry)
-        assert created == 1
-        mock_ensure.assert_called_once()
+        assert created == 2
+        assert mock_ensure.call_count == 2
+        mock_ensure.assert_any_call("tushare", "stock_daily", "CREATE TABLE stock_daily (...)")
+        mock_ensure.assert_any_call("akshare", "index_daily", "CREATE TABLE index_daily (...)")
+
+
+class TestSyncRegistryState:
+    def test_syncs_bootstrap_enablement_before_table_creation(self):
+        from app.datasync.service.init_service import _sync_registry_state
+
+        engine = MagicMock()
+        registry = MagicMock()
+
+        with patch(f"{_MOD}._seed_configs"), \
+             patch(f"{_MOD}._seed_items"), \
+             patch(f"{_MOD}._sync_bootstrap_item_enablement", return_value=4), \
+             patch(f"{_MOD}._normalize_item_targets", return_value=1), \
+             patch(f"{_MOD}._ensure_tables", return_value=2):
+            result = _sync_registry_state(engine, registry)
+
+        assert result == {
+            "bootstrap_item_enablement_updates": 4,
+            "items_normalized": 1,
+            "tables_created": 2,
+        }
 
 
 class TestGeneratePendingRecords:

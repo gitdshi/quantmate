@@ -85,15 +85,13 @@ def run_daily_sync(target_date: date | None = None, registry=None):
     return results
 
 
-def run_backfill(lookback_days: int | None = None, registry=None):
+def run_backfill(registry=None, **_compat):
     """Run backfill retry."""
     from app.datasync.service.sync_engine import backfill_retry
 
     if registry is None:
         registry = _build_registry()
-    if lookback_days is None:
-        return backfill_retry(registry)
-    return backfill_retry(registry, lookback_days=lookback_days)
+    return backfill_retry(registry)
 
 
 def run_backfill_loop(idle_hours: int | None = None, registry=None):
@@ -116,7 +114,7 @@ def run_backfill_loop(idle_hours: int | None = None, registry=None):
             time.sleep(BACKFILL_LOCK_RETRY_SECONDS)
             continue
 
-        results = run_backfill(lookback_days=None, registry=registry)
+        results = run_backfill(registry=registry)
         if results:
             logger.info("Backfill loop pass complete: drained=%d retryable rows", len(results))
             continue
@@ -250,7 +248,6 @@ def main():
     group.add_argument("--init", action="store_true", help="Run initialization")
     group.add_argument("--reconcile", action="store_true", help="Run runtime reconciliation once")
     parser.add_argument("--date", type=str, help="Target date (YYYY-MM-DD)")
-    parser.add_argument("--lookback-days", type=int, help="Optional lookback limit for one-shot backfill")
     parser.add_argument("--idle-hours", type=int, help="Backfill loop idle sleep hours")
     parser.add_argument("--with-backfill", action="store_true", help="Run backfill during init")
 
@@ -268,10 +265,7 @@ def main():
         results = run_daily_sync(target_date)
         logger.info("Daily sync results: %s", results)
     elif args.backfill:
-        if args.lookback_days is None:
-            results = run_backfill()
-        else:
-            results = run_backfill(lookback_days=args.lookback_days)
+        results = run_backfill()
         logger.info("Backfill results: %s", results)
     elif args.backfill_loop:
         run_backfill_loop(idle_hours=args.idle_hours)

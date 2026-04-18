@@ -12,7 +12,6 @@ from app.infrastructure.db.connections import get_quantmate_engine
 
 SYNC_HOUR = get_runtime_int(env_keys="SYNC_HOUR", db_key="datasync.sync_hour", default=2)
 SYNC_MINUTE = get_runtime_int(env_keys="SYNC_MINUTE", db_key="datasync.sync_minute", default=0)
-LOOKBACK_DAYS = get_runtime_int(env_keys="LOOKBACK_DAYS", db_key="datasync.lookback_days", default=60)
 
 
 def _status_from_last_run(last_run_at: Optional[datetime], running_count: int) -> str:
@@ -29,7 +28,11 @@ class SyncStatusService:
     """Aggregates sync status from the new data_sync_status table."""
 
     def get_sync_status(self) -> Dict[str, Any]:
+        from app.datasync.service.init_service import get_coverage_window
+
         engine = get_quantmate_engine()
+        coverage_window = get_coverage_window()
+        window_start = coverage_window["start_date"]
 
         with engine.connect() as conn:
             # Latest finished record
@@ -42,14 +45,13 @@ class SyncStatusService:
             row = conn.execute(text("SELECT COUNT(*) FROM data_sync_status WHERE status = 'running'")).fetchone()
             running_count = row[0] if row else 0
 
-            # Failed / pending counts in lookback window
-            cutoff = (date.today() - timedelta(days=LOOKBACK_DAYS)).isoformat()
+            # Failed / pending counts in the configured coverage window
             row = conn.execute(
                 text(
                     "SELECT COUNT(*) FROM data_sync_status "
                     "WHERE sync_date >= :cutoff AND status IN ('error', 'partial', 'pending')"
                 ),
-                {"cutoff": cutoff},
+                {"cutoff": window_start.isoformat()},
             ).fetchone()
             missing_count = row[0] if row else 0
 
@@ -80,7 +82,7 @@ class SyncStatusService:
             },
             "sync": {
                 "source_summary": source_summary,
-                "lookback_days": LOOKBACK_DAYS,
+                "window_start": window_start.isoformat(),
             },
             "consistency": {
                 "missing_count": missing_count,

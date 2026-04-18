@@ -7,6 +7,7 @@ This script supports resumable initialization via `init_progress` checkpoints.
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 import logging
 import os
 import sys
@@ -86,6 +87,167 @@ PHASES = [
     'sync_status',
     'finished',
 ]
+
+_AUX_INIT_PHASES = {
+    'adj_factor',
+    'dividend',
+    'top10_holders',
+    'bak_daily',
+    'moneyflow',
+    'suspend_d',
+    'suspend',
+    'fina_indicator',
+    'income',
+    'balancesheet',
+    'cashflow',
+}
+
+_INIT_STATUS_CONFIG = {
+    'stock_basic': {
+        'source': 'tushare',
+        'item_key': 'stock_basic',
+        'database': 'tushare',
+        'table': 'stock_basic',
+        'latest_only': True,
+        'window': 'end',
+    },
+    'stock_company': {
+        'source': 'tushare',
+        'item_key': 'stock_company',
+        'database': 'tushare',
+        'table': 'stock_company',
+        'latest_only': True,
+        'window': 'end',
+    },
+    'new_share': {
+        'source': 'tushare',
+        'item_key': 'new_share',
+        'database': 'tushare',
+        'table': 'new_share',
+        'date_column': 'ipo_date',
+        'window': 'aux',
+    },
+    'daily': {
+        'source': 'tushare',
+        'item_key': 'stock_daily',
+        'database': 'tushare',
+        'table': 'stock_daily',
+        'date_column': 'trade_date',
+        'window': 'daily',
+    },
+    'weekly': {
+        'source': 'tushare',
+        'item_key': 'stock_weekly',
+        'database': 'tushare',
+        'table': 'stock_weekly',
+        'date_column': 'trade_date',
+        'window': 'daily',
+    },
+    'monthly': {
+        'source': 'tushare',
+        'item_key': 'stock_monthly',
+        'database': 'tushare',
+        'table': 'stock_monthly',
+        'date_column': 'trade_date',
+        'window': 'daily',
+    },
+    'indexes': {
+        'source': 'akshare',
+        'item_key': 'index_daily',
+        'database': 'akshare',
+        'table': 'index_daily',
+        'date_column': 'trade_date',
+        'window': 'daily',
+    },
+    'adj_factor': {
+        'source': 'tushare',
+        'item_key': 'adj_factor',
+        'database': 'tushare',
+        'table': 'adj_factor',
+        'date_column': 'trade_date',
+        'window': 'aux',
+    },
+    'dividend': {
+        'source': 'tushare',
+        'item_key': 'dividend',
+        'database': 'tushare',
+        'table': 'stock_dividend',
+        'date_column': 'ann_date',
+        'window': 'aux',
+    },
+    'top10_holders': {
+        'source': 'tushare',
+        'item_key': 'top10_holders',
+        'database': 'tushare',
+        'table': 'top10_holders',
+        'date_column': 'end_date',
+        'window': 'aux',
+    },
+    'bak_daily': {
+        'source': 'tushare',
+        'item_key': 'bak_daily',
+        'database': 'tushare',
+        'table': 'bak_daily',
+        'date_column': 'trade_date',
+        'window': 'daily',
+    },
+    'moneyflow': {
+        'source': 'tushare',
+        'item_key': 'moneyflow',
+        'database': 'tushare',
+        'table': 'stock_moneyflow',
+        'date_column': 'trade_date',
+        'window': 'daily',
+    },
+    'suspend_d': {
+        'source': 'tushare',
+        'item_key': 'suspend_d',
+        'database': 'tushare',
+        'table': 'suspend_d',
+        'date_column': 'trade_date',
+        'window': 'daily',
+    },
+    'suspend': {
+        'source': 'tushare',
+        'item_key': 'suspend',
+        'database': 'tushare',
+        'table': 'suspend',
+        'date_column': 'suspend_date',
+        'window': 'daily',
+    },
+    'fina_indicator': {
+        'source': 'tushare',
+        'item_key': 'fina_indicator',
+        'database': 'tushare',
+        'table': 'fina_indicator',
+        'date_column': 'end_date',
+        'window': 'aux',
+    },
+    'income': {
+        'source': 'tushare',
+        'item_key': 'income',
+        'database': 'tushare',
+        'table': 'income',
+        'date_column': 'end_date',
+        'window': 'aux',
+    },
+    'balancesheet': {
+        'source': 'tushare',
+        'item_key': 'balancesheet',
+        'database': 'tushare',
+        'table': 'balancesheet',
+        'date_column': 'end_date',
+        'window': 'aux',
+    },
+    'cashflow': {
+        'source': 'tushare',
+        'item_key': 'cashflow',
+        'database': 'tushare',
+        'table': 'cashflow',
+        'date_column': 'end_date',
+        'window': 'aux',
+    },
+}
 
 
 def split_sql_statements(sql_text: str) -> list[str]:
@@ -290,7 +452,13 @@ def print_summary() -> None:
 def get_tushare_row_count(table_name: str) -> int:
     engine = get_quantmate_engine()
     with engine.connect() as conn:
-        return conn.execute(text(f'SELECT COUNT(*) FROM tushare.`{table_name}`')).scalar() or 0
+        try:
+            return conn.execute(text(f'SELECT COUNT(*) FROM tushare.`{table_name}`')).scalar() or 0
+        except Exception as exc:
+            message = str(exc).lower()
+            if "doesn't exist" in message or "1146" in message or "unknown table" in message:
+                return 0
+            raise
 
 
 def require_tushare_rows(table_name: str, phase: str) -> int:
@@ -298,6 +466,267 @@ def require_tushare_rows(table_name: str, phase: str) -> int:
     if rows <= 0:
         raise RuntimeError(f"{phase} phase completed but tushare.{table_name} is empty")
     return rows
+
+
+def ensure_source_item_table(source: str, item_key: str) -> None:
+    from app.datasync.registry import build_default_registry
+    from app.datasync.table_manager import ensure_table
+    from app.domains.market.dao.data_source_item_dao import DataSourceItemDao
+
+    registry = build_default_registry()
+    iface = registry.get_interface(source, item_key)
+    if iface is None:
+        raise RuntimeError(f"No registered interface for {source}/{item_key}")
+
+    item = DataSourceItemDao().get_by_key(source, item_key)
+    target_db = (item or {}).get('target_database') or iface.info.target_database
+    target_tbl = (item or {}).get('target_table') or iface.info.target_table
+    if not target_db or not target_tbl:
+        raise RuntimeError(f"Missing target mapping for {source}/{item_key}")
+
+    ensure_table(target_db, target_tbl, iface.get_ddl())
+
+
+def ensure_source_item_tables(source: str, *item_keys: str) -> None:
+    for item_key in item_keys:
+        ensure_source_item_table(source, item_key)
+
+
+def _coerce_sync_date(value) -> date | None:
+    if isinstance(value, date):
+        return value
+    if isinstance(value, datetime):
+        return value.date()
+    raw = str(value or '').strip()
+    if not raw:
+        return None
+    for candidate in (raw[:10], raw):
+        try:
+            return date.fromisoformat(candidate)
+        except ValueError:
+            continue
+    return None
+
+
+def _get_init_status_config(phase: str) -> dict | None:
+    return _INIT_STATUS_CONFIG.get(phase)
+
+
+def _iter_init_status_phases(*, skip_aux: bool) -> list[str]:
+    phases = [
+        'stock_basic',
+        'stock_company',
+        'new_share',
+        'daily',
+        'weekly',
+        'monthly',
+        'indexes',
+        'adj_factor',
+        'dividend',
+        'top10_holders',
+        'bak_daily',
+        'moneyflow',
+        'suspend_d',
+        'suspend',
+        'fina_indicator',
+        'income',
+        'balancesheet',
+        'cashflow',
+    ]
+    if skip_aux:
+        return [phase for phase in phases if phase not in _AUX_INIT_PHASES]
+    return phases
+
+
+def _resolve_phase_window(phase: str, start_date: str, daily_range_start: str, end_date: str) -> tuple[date, date]:
+    config = _get_init_status_config(phase)
+    if config is None:
+        raise KeyError(f'Unsupported init status phase: {phase}')
+
+    window = config.get('window')
+    if window == 'daily':
+        return date.fromisoformat(daily_range_start), date.fromisoformat(end_date)
+    if window == 'aux':
+        return date.fromisoformat(start_date), date.fromisoformat(end_date)
+    return date.fromisoformat(end_date), date.fromisoformat(end_date)
+
+
+def _ensure_pending_sync_status_rows(source: str, item_key: str, sync_dates: list[date]) -> None:
+    if not sync_dates:
+        return
+
+    engine = get_quantmate_engine()
+    values = [
+        {
+            'sd': sync_date,
+            'src': source,
+            'ik': item_key,
+            'st': 'pending',
+        }
+        for sync_date in sync_dates
+    ]
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                'INSERT IGNORE INTO data_sync_status '
+                '(sync_date, source, interface_key, status) '
+                'VALUES (:sd, :src, :ik, :st)'
+            ),
+            values,
+        )
+
+
+def _get_table_row_count(database_name: str, table_name: str) -> int:
+    engine = get_quantmate_engine()
+    with engine.connect() as conn:
+        return int(conn.execute(text(f'SELECT COUNT(*) FROM {database_name}.`{table_name}`')).scalar() or 0)
+
+
+def _get_table_counts_by_date(database_name: str, table_name: str, date_column: str, start: date, end: date) -> dict[date, int]:
+    engine = get_quantmate_engine()
+    sql = text(
+        f'SELECT `{date_column}`, COUNT(*) FROM {database_name}.`{table_name}` '
+        f'WHERE `{date_column}` BETWEEN :start_date AND :end_date '
+        f'GROUP BY `{date_column}`'
+    )
+    with engine.connect() as conn:
+        rows = conn.execute(sql, {'start_date': start, 'end_date': end}).fetchall()
+    return {row[0]: int(row[1]) for row in rows if row[0] is not None}
+
+
+def bootstrap_init_sync_status(start_date: str, daily_range_start: str, end_date: str, *, skip_aux: bool) -> None:
+    from app.domains.extdata.dao.data_sync_status_dao import ensure_tables
+    from app.datasync.service.sync_init_service import initialize_sync_status
+
+    ensure_tables()
+
+    for phase in _iter_init_status_phases(skip_aux=skip_aux):
+        config = _get_init_status_config(phase)
+        if config is None:
+            continue
+
+        window_start, window_end = _resolve_phase_window(phase, start_date, daily_range_start, end_date)
+        initialize_sync_status(
+            config['source'],
+            config['item_key'],
+            start_date=window_start,
+            end_date=window_end,
+            reconcile_missing=True,
+        )
+        if config.get('latest_only'):
+            _ensure_pending_sync_status_rows(config['source'], config['item_key'], [window_end])
+
+
+def _get_status_registry():
+    from app.datasync.registry import build_default_registry
+
+    return build_default_registry()
+
+
+def build_phase_progress_callback(
+    phase: str,
+    *,
+    source: str | None = None,
+    item_key: str | None = None,
+) -> Callable[[str | None, str | None], None]:
+    from app.datasync.base import SyncStatus
+    from app.datasync.service.sync_engine import _write_status
+
+    def _callback(ts_code=None, cursor_date=None):
+        save_progress(phase, 'running', cursor_ts_code=ts_code, cursor_date=cursor_date)
+        sync_date = _coerce_sync_date(cursor_date)
+        if source and item_key and sync_date is not None:
+            _write_status(sync_date, source, item_key, SyncStatus.RUNNING.value)
+
+    return _callback
+
+
+def finalize_init_phase_sync_status(phase: str, start_date: str, daily_range_start: str, end_date: str) -> None:
+    from app.datasync.base import SyncResult, SyncStatus
+    from app.datasync.service.sync_engine import _normalize_zero_row_success, _write_status, get_trade_calendar
+
+    config = _get_init_status_config(phase)
+    if config is None:
+        return
+
+    registry = _get_status_registry()
+    iface = registry.get_interface(config['source'], config['item_key'])
+    if iface is None:
+        logger.warning('No registry interface found for init phase %s -> %s/%s', phase, config['source'], config['item_key'])
+        return
+
+    window_start, window_end = _resolve_phase_window(phase, start_date, daily_range_start, end_date)
+    if config.get('latest_only'):
+        rows_synced = _get_table_row_count(config['database'], config['table'])
+        result = _normalize_zero_row_success(
+            iface,
+            window_end,
+            config['source'],
+            config['item_key'],
+            SyncResult(SyncStatus.SUCCESS, rows_synced),
+        )
+        _write_status(
+            window_end,
+            config['source'],
+            config['item_key'],
+            result.status.value,
+            result.rows_synced,
+            result.error_message,
+        )
+        return
+
+    rows_by_date = _get_table_counts_by_date(
+        config['database'],
+        config['table'],
+        config['date_column'],
+        window_start,
+        window_end,
+    )
+    status_dates = get_trade_calendar(window_start, window_end)
+    if not status_dates and rows_by_date:
+        status_dates = sorted(rows_by_date.keys())
+
+    _ensure_pending_sync_status_rows(config['source'], config['item_key'], status_dates)
+
+    for sync_date in status_dates:
+        result = _normalize_zero_row_success(
+            iface,
+            sync_date,
+            config['source'],
+            config['item_key'],
+            SyncResult(SyncStatus.SUCCESS, rows_by_date.get(sync_date, 0)),
+        )
+        _write_status(
+            sync_date,
+            config['source'],
+            config['item_key'],
+            result.status.value,
+            result.rows_synced,
+            result.error_message,
+        )
+
+
+def mark_init_phase_status_from_exception(
+    phase: str,
+    error_message: str,
+    *,
+    start_date: str,
+    daily_range_start: str,
+    end_date: str,
+    status: str,
+    cursor_date=None,
+) -> None:
+    from app.datasync.service.sync_engine import _write_status
+
+    config = _get_init_status_config(phase)
+    if config is None:
+        return
+
+    sync_date = _coerce_sync_date(cursor_date)
+    if sync_date is None:
+        _, sync_date = _resolve_phase_window(phase, start_date, daily_range_start, end_date)
+
+    _write_status(sync_date, config['source'], config['item_key'], status, 0, error_message)
 
 
 def get_loaded_trade_dates(start_date: str, end_date: str) -> list[str]:
@@ -363,8 +792,12 @@ def seed_stock_basic_from_daily(start_date: str, end_date: str) -> int:
 
 
 def main() -> int:
+    from app.datasync.service.init_service import get_coverage_window
+
+    default_start_date = get_coverage_window()["start_date"].isoformat()
+
     parser = argparse.ArgumentParser(description='Initialize QuantMate market data')
-    parser.add_argument('--start-date', default='2005-01-01', help='Start date for aux backfill (YYYY-MM-DD)')
+    parser.add_argument('--start-date', default=default_start_date, help='Start date for aux backfill (YYYY-MM-DD)')
     parser.add_argument('--skip-schema', action='store_true', help='Skip schema initialization SQL')
     parser.add_argument('--skip-aux', action='store_true', help='Skip adj/dividend/top10 backfill')
     parser.add_argument('--skip-vnpy', action='store_true', help='Skip vnpy full sync')
@@ -376,7 +809,6 @@ def main() -> int:
     )
     parser.add_argument('--sleep-between', type=float, default=0.02)
     parser.add_argument('--daily-start-date', default=None, help='Limit stock_daily ingest to start at this date (YYYY-MM-DD)')
-    parser.add_argument('--daily-lookback-days', type=int, default=None, help='Limit stock_daily ingest to last N days')
     parser.add_argument('--resume', action='store_true', default=True, help='Resume from init_progress checkpoint (default on)')
     parser.add_argument('--reset-progress', action='store_true', help='Reset init_progress before execution')
     args = parser.parse_args()
@@ -386,8 +818,6 @@ def main() -> int:
     daily_start_date = None
     if args.daily_start_date:
         daily_start_date = args.daily_start_date
-    elif args.daily_lookback_days:
-        daily_start_date = (date.today() - timedelta(days=args.daily_lookback_days)).isoformat()
 
     logger.info('Starting market data initialization (start_date=%s, end_date=%s)', start_date, end_date)
 
@@ -427,7 +857,11 @@ def main() -> int:
         return trade_dates
 
     try:
+        logger.info('Bootstrapping data_sync_status coverage before market data initialization')
+        bootstrap_init_sync_status(start_date, daily_range_start, end_date, skip_aux=args.skip_aux)
+
         if should_run_phase(progress, 'stock_basic', args.resume):
+            ensure_source_item_tables('tushare', 'stock_basic')
             existing_stock_basic = get_tushare_row_count('stock_basic')
             if existing_stock_basic > 0:
                 logger.info(
@@ -459,34 +893,36 @@ def main() -> int:
                         if status == 'L':
                             break
                 save_progress('stock_basic', 'completed', error=stock_basic_warning)
+            finalize_init_phase_sync_status('stock_basic', start_date, daily_range_start, end_date)
 
         if should_run_phase(progress, 'stock_company', args.resume):
+            ensure_source_item_tables('tushare', 'stock_company')
             logger.info('Refreshing stock_company snapshot')
             save_progress('stock_company', 'running')
             resume_after_exchange = progress.get('cursor_ts_code') if progress and progress.get('phase') == 'stock_company' else None
             ingest_stock_company_snapshot(
                 sleep_between=args.sleep_between,
                 start_after_exchange=resume_after_exchange,
-                progress_cb=lambda ts_code=None, cursor_date=None: save_progress(
-                    'stock_company', 'running', cursor_ts_code=ts_code, cursor_date=cursor_date
-                ),
+                progress_cb=build_phase_progress_callback('stock_company'),
             )
             save_progress('stock_company', 'completed')
             require_tushare_rows('stock_company', 'stock_company')
+            finalize_init_phase_sync_status('stock_company', start_date, daily_range_start, end_date)
 
         if should_run_phase(progress, 'new_share', args.resume):
+            ensure_source_item_tables('tushare', 'new_share')
             logger.info('Backfilling new_share from %s to %s', start_date, end_date)
             save_progress('new_share', 'running', cursor_date=end_date)
             ingest_new_share_by_date_range(
                 start_date,
                 end_date,
-                progress_cb=lambda ts_code=None, cursor_date=None: save_progress(
-                    'new_share', 'running', cursor_date=cursor_date
-                ),
+                progress_cb=build_phase_progress_callback('new_share', source='tushare', item_key='new_share'),
             )
             save_progress('new_share', 'completed', cursor_date=end_date)
+            finalize_init_phase_sync_status('new_share', start_date, daily_range_start, end_date)
 
         if should_run_phase(progress, 'daily', args.resume):
+            ensure_source_item_tables('tushare', 'stock_daily', 'stock_basic')
             if use_marketwide_daily:
                 logger.info('Rebuilding marketwide Tushare stock_daily history from %s', daily_range_start)
             else:
@@ -499,9 +935,7 @@ def main() -> int:
                     end_date,
                     sleep_between=args.sleep_between,
                     start_after_date=resume_after_date,
-                    progress_cb=lambda ts_code=None, cursor_date=None: save_progress(
-                        'daily', 'running', cursor_date=cursor_date
-                    ),
+                    progress_cb=build_phase_progress_callback('daily', source='tushare', item_key='stock_daily'),
                 )
             else:
                 resume_after = progress.get('cursor_ts_code') if progress and progress.get('phase') == 'daily' else None
@@ -512,9 +946,7 @@ def main() -> int:
                     start_after_ts_code=resume_after,
                     start_date=daily_start_date,
                     end_date=end_date,
-                    progress_cb=lambda ts_code, cursor_date=None: save_progress(
-                        'daily', 'running', cursor_ts_code=ts_code, cursor_date=cursor_date
-                    ),
+                    progress_cb=build_phase_progress_callback('daily', source='tushare', item_key='stock_daily'),
                 )
             seeded = seed_stock_basic_from_daily(daily_range_start, end_date)
             if seeded:
@@ -522,8 +954,11 @@ def main() -> int:
             save_progress('daily', 'completed')
             require_tushare_rows('stock_daily', 'daily')
             require_tushare_rows('stock_basic', 'stock_basic')
+            finalize_init_phase_sync_status('daily', start_date, daily_range_start, end_date)
+            finalize_init_phase_sync_status('stock_basic', start_date, daily_range_start, end_date)
 
         if should_run_phase(progress, 'weekly', args.resume):
+            ensure_source_item_tables('tushare', 'stock_weekly')
             logger.info('Backfilling stock_weekly from %s to %s', daily_range_start, end_date)
             save_progress('weekly', 'running')
             loaded_trade_dates = ensure_trade_dates()
@@ -533,14 +968,14 @@ def main() -> int:
                 weekly_trade_dates,
                 sleep_between=args.sleep_between,
                 start_after_date=resume_after_date,
-                progress_cb=lambda ts_code=None, cursor_date=None: save_progress(
-                    'weekly', 'running', cursor_date=cursor_date
-                ),
+                progress_cb=build_phase_progress_callback('weekly', source='tushare', item_key='stock_weekly'),
             )
             save_progress('weekly', 'completed', cursor_date=weekly_trade_dates[-1] if weekly_trade_dates else None)
             require_tushare_rows('stock_weekly', 'weekly')
+            finalize_init_phase_sync_status('weekly', start_date, daily_range_start, end_date)
 
         if should_run_phase(progress, 'monthly', args.resume):
+            ensure_source_item_tables('tushare', 'stock_monthly')
             logger.info('Backfilling stock_monthly from %s to %s', daily_range_start, end_date)
             save_progress('monthly', 'running')
             loaded_trade_dates = ensure_trade_dates()
@@ -550,21 +985,22 @@ def main() -> int:
                 monthly_trade_dates,
                 sleep_between=args.sleep_between,
                 start_after_date=resume_after_date,
-                progress_cb=lambda ts_code=None, cursor_date=None: save_progress(
-                    'monthly', 'running', cursor_date=cursor_date
-                ),
+                progress_cb=build_phase_progress_callback('monthly', source='tushare', item_key='stock_monthly'),
             )
             save_progress('monthly', 'completed', cursor_date=monthly_trade_dates[-1] if monthly_trade_dates else None)
             require_tushare_rows('stock_monthly', 'monthly')
+            finalize_init_phase_sync_status('monthly', start_date, daily_range_start, end_date)
 
         if should_run_phase(progress, 'indexes', args.resume):
             logger.info('Rebuilding AkShare index history from %s to %s', daily_range_start, end_date)
             save_progress('indexes', 'running')
             ingest_all_indexes(start_date=daily_range_start)
             save_progress('indexes', 'completed')
+            finalize_init_phase_sync_status('indexes', start_date, daily_range_start, end_date)
 
         if not args.skip_aux:
             if should_run_phase(progress, 'adj_factor', args.resume):
+                ensure_source_item_tables('tushare', 'adj_factor')
                 logger.info('Backfilling adj_factor from %s to %s', start_date, end_date)
                 save_progress('adj_factor', 'running')
                 loaded_trade_dates = ensure_trade_dates()
@@ -574,9 +1010,7 @@ def main() -> int:
                         loaded_trade_dates,
                         sleep_between=args.sleep_between,
                         start_after_date=resume_after_date,
-                        progress_cb=lambda ts_code=None, cursor_date=None: save_progress(
-                            'adj_factor', 'running', cursor_date=cursor_date
-                        ),
+                        progress_cb=build_phase_progress_callback('adj_factor', source='tushare', item_key='adj_factor'),
                     )
                     save_progress(
                         'adj_factor',
@@ -591,14 +1025,14 @@ def main() -> int:
                         batch_size=args.batch_size,
                         sleep_between=args.sleep_between,
                         start_after_ts_code=resume_after,
-                        progress_cb=lambda ts_code, cursor_date=None: save_progress(
-                            'adj_factor', 'running', cursor_ts_code=ts_code, cursor_date=cursor_date
-                        ),
+                        progress_cb=build_phase_progress_callback('adj_factor', source='tushare', item_key='adj_factor'),
                     )
                     save_progress('adj_factor', 'completed', cursor_date=end_date)
                 require_tushare_rows('adj_factor', 'adj_factor')
+                finalize_init_phase_sync_status('adj_factor', start_date, daily_range_start, end_date)
 
             if should_run_phase(progress, 'dividend', args.resume):
+                ensure_source_item_tables('tushare', 'dividend')
                 logger.info('Backfilling dividend from %s to %s', start_date, end_date)
                 save_progress('dividend', 'running')
                 if use_marketwide_aux:
@@ -608,9 +1042,7 @@ def main() -> int:
                         end_date,
                         sleep_between=args.sleep_between,
                         start_after_date=resume_after_date,
-                        progress_cb=lambda ts_code=None, cursor_date=None: save_progress(
-                            'dividend', 'running', cursor_date=cursor_date
-                        ),
+                        progress_cb=build_phase_progress_callback('dividend', source='tushare', item_key='dividend'),
                     )
                     save_progress('dividend', 'completed', cursor_date=end_date)
                 else:
@@ -621,23 +1053,21 @@ def main() -> int:
                         batch_size=args.batch_size,
                         sleep_between=args.sleep_between,
                         start_after_ts_code=resume_after,
-                        progress_cb=lambda ts_code, cursor_date=None: save_progress(
-                            'dividend', 'running', cursor_ts_code=ts_code, cursor_date=cursor_date
-                        ),
+                        progress_cb=build_phase_progress_callback('dividend', source='tushare', item_key='dividend'),
                     )
                     save_progress('dividend', 'completed', cursor_date=end_date)
                 require_tushare_rows('stock_dividend', 'dividend')
+                finalize_init_phase_sync_status('dividend', start_date, daily_range_start, end_date)
 
             if should_run_phase(progress, 'top10_holders', args.resume):
+                ensure_source_item_tables('tushare', 'top10_holders')
                 logger.info('Backfilling top10_holders from %s to %s', start_date, end_date)
                 save_progress('top10_holders', 'running', cursor_date=end_date)
                 if use_marketwide_aux:
                     ingest_top10_holders_marketwide_by_date_range(
                         start_date,
                         end_date,
-                        progress_cb=lambda ts_code=None, cursor_date=None: save_progress(
-                            'top10_holders', 'running', cursor_date=cursor_date
-                        ),
+                        progress_cb=build_phase_progress_callback('top10_holders', source='tushare', item_key='top10_holders'),
                     )
                 else:
                     resume_after = progress.get('cursor_ts_code') if progress and progress.get('phase') == 'top10_holders' else None
@@ -647,14 +1077,14 @@ def main() -> int:
                         batch_size=args.batch_size,
                         sleep_between=args.sleep_between,
                         start_after_ts_code=resume_after,
-                        progress_cb=lambda ts_code, cursor_date=None: save_progress(
-                            'top10_holders', 'running', cursor_ts_code=ts_code, cursor_date=cursor_date
-                        ),
+                        progress_cb=build_phase_progress_callback('top10_holders', source='tushare', item_key='top10_holders'),
                     )
                 save_progress('top10_holders', 'completed', cursor_date=end_date)
                 require_tushare_rows('top10_holders', 'top10_holders')
+                finalize_init_phase_sync_status('top10_holders', start_date, daily_range_start, end_date)
 
             if should_run_phase(progress, 'bak_daily', args.resume):
+                ensure_source_item_tables('tushare', 'bak_daily')
                 logger.info('Backfilling bak_daily from %s to %s', daily_range_start, end_date)
                 save_progress('bak_daily', 'running')
                 loaded_trade_dates = ensure_trade_dates()
@@ -663,14 +1093,14 @@ def main() -> int:
                     loaded_trade_dates,
                     sleep_between=args.sleep_between,
                     start_after_date=resume_after_date,
-                    progress_cb=lambda ts_code=None, cursor_date=None: save_progress(
-                        'bak_daily', 'running', cursor_date=cursor_date
-                    ),
+                    progress_cb=build_phase_progress_callback('bak_daily', source='tushare', item_key='bak_daily'),
                 )
                 save_progress('bak_daily', 'completed', cursor_date=loaded_trade_dates[-1] if loaded_trade_dates else None)
                 require_tushare_rows('bak_daily', 'bak_daily')
+                finalize_init_phase_sync_status('bak_daily', start_date, daily_range_start, end_date)
 
             if should_run_phase(progress, 'moneyflow', args.resume):
+                ensure_source_item_tables('tushare', 'moneyflow')
                 logger.info('Backfilling moneyflow from %s to %s', daily_range_start, end_date)
                 save_progress('moneyflow', 'running')
                 loaded_trade_dates = ensure_trade_dates()
@@ -679,14 +1109,14 @@ def main() -> int:
                     loaded_trade_dates,
                     sleep_between=args.sleep_between,
                     start_after_date=resume_after_date,
-                    progress_cb=lambda ts_code=None, cursor_date=None: save_progress(
-                        'moneyflow', 'running', cursor_date=cursor_date
-                    ),
+                    progress_cb=build_phase_progress_callback('moneyflow', source='tushare', item_key='moneyflow'),
                 )
                 save_progress('moneyflow', 'completed', cursor_date=loaded_trade_dates[-1] if loaded_trade_dates else None)
                 require_tushare_rows('stock_moneyflow', 'moneyflow')
+                finalize_init_phase_sync_status('moneyflow', start_date, daily_range_start, end_date)
 
             if should_run_phase(progress, 'suspend_d', args.resume):
+                ensure_source_item_tables('tushare', 'suspend_d')
                 logger.info('Backfilling suspend_d from %s to %s', daily_range_start, end_date)
                 save_progress('suspend_d', 'running')
                 loaded_trade_dates = ensure_trade_dates()
@@ -695,14 +1125,14 @@ def main() -> int:
                     loaded_trade_dates,
                     sleep_between=args.sleep_between,
                     start_after_date=resume_after_date,
-                    progress_cb=lambda ts_code=None, cursor_date=None: save_progress(
-                        'suspend_d', 'running', cursor_date=cursor_date
-                    ),
+                    progress_cb=build_phase_progress_callback('suspend_d', source='tushare', item_key='suspend_d'),
                 )
                 save_progress('suspend_d', 'completed', cursor_date=loaded_trade_dates[-1] if loaded_trade_dates else None)
                 require_tushare_rows('suspend_d', 'suspend_d')
+                finalize_init_phase_sync_status('suspend_d', start_date, daily_range_start, end_date)
 
             if should_run_phase(progress, 'suspend', args.resume):
+                ensure_source_item_tables('tushare', 'suspend')
                 logger.info('Backfilling suspend from %s to %s', daily_range_start, end_date)
                 save_progress('suspend', 'running')
                 loaded_trade_dates = ensure_trade_dates()
@@ -711,14 +1141,14 @@ def main() -> int:
                     loaded_trade_dates,
                     sleep_between=args.sleep_between,
                     start_after_date=resume_after_date,
-                    progress_cb=lambda ts_code=None, cursor_date=None: save_progress(
-                        'suspend', 'running', cursor_date=cursor_date
-                    ),
+                    progress_cb=build_phase_progress_callback('suspend', source='tushare', item_key='suspend'),
                 )
                 save_progress('suspend', 'completed', cursor_date=loaded_trade_dates[-1] if loaded_trade_dates else None)
                 require_tushare_rows('suspend', 'suspend')
+                finalize_init_phase_sync_status('suspend', start_date, daily_range_start, end_date)
 
             if should_run_phase(progress, 'fina_indicator', args.resume):
+                ensure_source_item_tables('tushare', 'fina_indicator')
                 logger.info('Backfilling fina_indicator from %s to %s', start_date, end_date)
                 save_progress('fina_indicator', 'running')
                 resume_after = progress.get('cursor_ts_code') if progress and progress.get('phase') == 'fina_indicator' else None
@@ -728,14 +1158,14 @@ def main() -> int:
                     batch_size=args.batch_size,
                     sleep_between=args.sleep_between,
                     start_after_ts_code=resume_after,
-                    progress_cb=lambda ts_code, cursor_date=None: save_progress(
-                        'fina_indicator', 'running', cursor_ts_code=ts_code, cursor_date=cursor_date
-                    ),
+                    progress_cb=build_phase_progress_callback('fina_indicator', source='tushare', item_key='fina_indicator'),
                 )
                 save_progress('fina_indicator', 'completed', cursor_date=end_date)
                 require_tushare_rows('fina_indicator', 'fina_indicator')
+                finalize_init_phase_sync_status('fina_indicator', start_date, daily_range_start, end_date)
 
             if should_run_phase(progress, 'income', args.resume):
+                ensure_source_item_tables('tushare', 'income')
                 logger.info('Backfilling income from %s to %s', start_date, end_date)
                 save_progress('income', 'running')
                 resume_after = progress.get('cursor_ts_code') if progress and progress.get('phase') == 'income' else None
@@ -745,14 +1175,14 @@ def main() -> int:
                     batch_size=args.batch_size,
                     sleep_between=args.sleep_between,
                     start_after_ts_code=resume_after,
-                    progress_cb=lambda ts_code, cursor_date=None: save_progress(
-                        'income', 'running', cursor_ts_code=ts_code, cursor_date=cursor_date
-                    ),
+                    progress_cb=build_phase_progress_callback('income', source='tushare', item_key='income'),
                 )
                 save_progress('income', 'completed', cursor_date=end_date)
                 require_tushare_rows('income', 'income')
+                finalize_init_phase_sync_status('income', start_date, daily_range_start, end_date)
 
             if should_run_phase(progress, 'balancesheet', args.resume):
+                ensure_source_item_tables('tushare', 'balancesheet')
                 logger.info('Backfilling balancesheet from %s to %s', start_date, end_date)
                 save_progress('balancesheet', 'running')
                 resume_after = progress.get('cursor_ts_code') if progress and progress.get('phase') == 'balancesheet' else None
@@ -762,14 +1192,14 @@ def main() -> int:
                     batch_size=args.batch_size,
                     sleep_between=args.sleep_between,
                     start_after_ts_code=resume_after,
-                    progress_cb=lambda ts_code, cursor_date=None: save_progress(
-                        'balancesheet', 'running', cursor_ts_code=ts_code, cursor_date=cursor_date
-                    ),
+                    progress_cb=build_phase_progress_callback('balancesheet', source='tushare', item_key='balancesheet'),
                 )
                 save_progress('balancesheet', 'completed', cursor_date=end_date)
                 require_tushare_rows('balancesheet', 'balancesheet')
+                finalize_init_phase_sync_status('balancesheet', start_date, daily_range_start, end_date)
 
             if should_run_phase(progress, 'cashflow', args.resume):
+                ensure_source_item_tables('tushare', 'cashflow')
                 logger.info('Backfilling cashflow from %s to %s', start_date, end_date)
                 save_progress('cashflow', 'running')
                 resume_after = progress.get('cursor_ts_code') if progress and progress.get('phase') == 'cashflow' else None
@@ -779,12 +1209,11 @@ def main() -> int:
                     batch_size=args.batch_size,
                     sleep_between=args.sleep_between,
                     start_after_ts_code=resume_after,
-                    progress_cb=lambda ts_code, cursor_date=None: save_progress(
-                        'cashflow', 'running', cursor_ts_code=ts_code, cursor_date=cursor_date
-                    ),
+                    progress_cb=build_phase_progress_callback('cashflow', source='tushare', item_key='cashflow'),
                 )
                 save_progress('cashflow', 'completed', cursor_date=end_date)
                 require_tushare_rows('cashflow', 'cashflow')
+                finalize_init_phase_sync_status('cashflow', start_date, daily_range_start, end_date)
 
         if not args.skip_vnpy and should_run_phase(progress, 'vnpy', args.resume):
             logger.info('Syncing all stock bars from tushare to vnpy')
@@ -793,7 +1222,7 @@ def main() -> int:
             save_progress('vnpy', 'completed')
 
         if should_run_phase(progress, 'sync_status', args.resume):
-            logger.info('Skipping sync_status bootstrap; scheduler --init now owns dynamic status reconciliation')
+            logger.info('data_sync_status was bootstrapped before init and updated after each phase')
             save_progress('sync_status', 'running')
             save_progress('sync_status', 'completed')
 
@@ -821,12 +1250,31 @@ def main() -> int:
             cursor_date=cursor_date,
             error=str(exc),
         )
+        mark_init_phase_status_from_exception(
+            current_phase,
+            str(exc),
+            start_date=start_date,
+            daily_range_start=daily_range_start,
+            end_date=end_date,
+            status='pending',
+            cursor_date=cursor_date,
+        )
         print_summary()
         return 0
     except Exception as exc:
-        current_phase = (load_progress() or {}).get('phase', 'unknown')
+        current_progress = load_progress() or {}
+        current_phase = current_progress.get('phase', 'unknown')
         logger.exception('Initialization failed at phase=%s: %s', current_phase, exc)
         save_progress(current_phase, 'error', error=str(exc))
+        mark_init_phase_status_from_exception(
+            current_phase,
+            str(exc),
+            start_date=start_date,
+            daily_range_start=daily_range_start,
+            end_date=end_date,
+            status='error',
+            cursor_date=current_progress.get('cursor_date'),
+        )
         return 1
 
 

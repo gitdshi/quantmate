@@ -1,5 +1,10 @@
 """DDL definitions for all Tushare tables."""
 
+from __future__ import annotations
+
+import hashlib
+import re
+
 STOCK_BASIC_DDL = """
 CREATE TABLE IF NOT EXISTS stock_basic (
     ts_code VARCHAR(32) NOT NULL,
@@ -166,7 +171,7 @@ CREATE TABLE IF NOT EXISTS suspend_d (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 """
 
-SUSPEND_DAILY_DDL = """
+SUSPEND_HISTORY_DDL = """
 CREATE TABLE IF NOT EXISTS `suspend` (
     ts_code VARCHAR(32) NOT NULL,
     suspend_date DATE NOT NULL,
@@ -182,6 +187,24 @@ CREATE TABLE IF NOT EXISTS adj_factor (
     ts_code VARCHAR(32) NOT NULL,
     trade_date DATE NOT NULL,
     adj_factor DECIMAL(24,12),
+    PRIMARY KEY (ts_code, trade_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+"""
+
+DAILY_BASIC_DDL = """
+CREATE TABLE IF NOT EXISTS daily_basic (
+    ts_code VARCHAR(32) NOT NULL,
+    trade_date DATE NOT NULL,
+    turnover_rate DECIMAL(10,2),
+    turnover_rate_f DECIMAL(10,2),
+    volume_ratio DECIMAL(10,2),
+    pe DECIMAL(12,2),
+    pe_ttm DECIMAL(12,2),
+    pb DECIMAL(12,2),
+    ps DECIMAL(12,2),
+    ps_ttm DECIMAL(12,2),
+    total_mv DECIMAL(20,2),
+    circ_mv DECIMAL(20,2),
     PRIMARY KEY (ts_code, trade_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 """
@@ -390,3 +413,119 @@ CREATE TABLE IF NOT EXISTS index_weekly (
     INDEX idx_index_weekly_date (trade_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 """
+
+INDEX_BASIC_DDL = """
+CREATE TABLE IF NOT EXISTS index_basic (
+    index_code VARCHAR(32) NOT NULL PRIMARY KEY,
+    name VARCHAR(255),
+    market VARCHAR(32),
+    publisher VARCHAR(128),
+    category VARCHAR(64),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_index_basic_market (market)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+"""
+
+
+def get_catalog_ddl(table_name: str) -> str:
+    normalized = str(table_name or "").strip()
+    if normalized in _CATALOG_DDL_MAP:
+        return _CATALOG_DDL_MAP[normalized]
+    return build_payload_table_ddl(normalized)
+
+
+def _safe_index_name(table_name: str, column_name: str) -> str:
+    raw = re.sub(r"[^0-9a-zA-Z_]+", "_", f"idx_{table_name}_{column_name}")
+    if len(raw) <= 60:
+        return raw
+    digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:8]
+    return f"{raw[:51]}_{digest}"
+
+
+def build_payload_table_ddl(table_name: str) -> str:
+    idx_key = _safe_index_name(table_name, "key_hash")
+    idx_ts_code = _safe_index_name(table_name, "ts_code")
+    idx_trade_date = _safe_index_name(table_name, "trade_date")
+    idx_ann_date = _safe_index_name(table_name, "ann_date")
+    idx_end_date = _safe_index_name(table_name, "end_date")
+    idx_code = _safe_index_name(table_name, "code")
+    idx_name = _safe_index_name(table_name, "name")
+    return f"""
+CREATE TABLE IF NOT EXISTS `{table_name}` (
+    `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+    `ts_code` VARCHAR(32) DEFAULT NULL,
+    `symbol` VARCHAR(32) DEFAULT NULL,
+    `code` VARCHAR(32) DEFAULT NULL,
+    `name` VARCHAR(255) DEFAULT NULL,
+    `exchange` VARCHAR(32) DEFAULT NULL,
+    `market` VARCHAR(64) DEFAULT NULL,
+    `trade_date` DATE DEFAULT NULL,
+    `ann_date` DATE DEFAULT NULL,
+    `end_date` DATE DEFAULT NULL,
+    `key_hash` CHAR(64) NOT NULL,
+    `data` JSON NOT NULL,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY `{idx_key}` (`key_hash`),
+    INDEX `{idx_ts_code}` (`ts_code`),
+    INDEX `{idx_trade_date}` (`trade_date`),
+    INDEX `{idx_ann_date}` (`ann_date`),
+    INDEX `{idx_end_date}` (`end_date`),
+    INDEX `{idx_code}` (`code`),
+    INDEX `{idx_name}` (`name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+""".strip()
+
+
+REPORT_RC_DDL = build_payload_table_ddl("report_rc")
+US_BASIC_DDL = build_payload_table_ddl("us_basic")
+US_DAILY_DDL = build_payload_table_ddl("us_daily")
+SHIBOR_LPR_DDL = build_payload_table_ddl("shibor_lpr")
+
+TUSHARE_BOOTSTRAP_TABLES = frozenset(
+    {
+        "stock_company",
+        "new_share",
+        "stock_daily",
+        "suspend_d",
+        "report_rc",
+        "us_basic",
+        "us_daily",
+        "shibor_lpr",
+    }
+)
+
+
+def should_bootstrap_table(table_name: str) -> bool:
+    return str(table_name or "").strip() in TUSHARE_BOOTSTRAP_TABLES
+
+
+_CATALOG_DDL_MAP = {
+    "trade_cal": TRADE_CAL_DDL,
+    "stock_basic": STOCK_BASIC_DDL,
+    "stock_company": STOCK_COMPANY_DDL,
+    "new_share": NEW_SHARE_DDL,
+    "stock_daily": STOCK_DAILY_DDL,
+    "report_rc": REPORT_RC_DDL,
+    "us_basic": US_BASIC_DDL,
+    "us_daily": US_DAILY_DDL,
+    "shibor_lpr": SHIBOR_LPR_DDL,
+    "bak_daily": BAK_DAILY_DDL,
+    "stock_moneyflow": STOCK_MONEYFLOW_DDL,
+    "suspend_d": SUSPEND_D_DDL,
+    "suspend": SUSPEND_HISTORY_DDL,
+    "adj_factor": ADJ_FACTOR_DDL,
+    "daily_basic": DAILY_BASIC_DDL,
+    "fina_indicator": FINA_INDICATOR_DDL,
+    "income": INCOME_DDL,
+    "balancesheet": BALANCESHEET_DDL,
+    "cashflow": CASHFLOW_DDL,
+    "stock_dividend": STOCK_DIVIDEND_DDL,
+    "top10_holders": TOP10_HOLDERS_DDL,
+    "stock_weekly": STOCK_WEEKLY_DDL,
+    "stock_monthly": STOCK_MONTHLY_DDL,
+    "index_basic": INDEX_BASIC_DDL,
+    "index_daily": INDEX_DAILY_DDL,
+    "index_weekly": INDEX_WEEKLY_DDL,
+}

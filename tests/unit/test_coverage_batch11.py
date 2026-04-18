@@ -1051,17 +1051,17 @@ class TestInitServiceBatch11:
     def test_ensure_tables(self, mock_eng, mock_ensure):
         eng, ctx, _ = _fake_engine()
         mock_eng.return_value = eng
-        ctx.execute.return_value.fetchall.return_value = [
-            ("tushare", "daily_bar", "market_db", "stock_daily"),
-        ]
         mock_registry = MagicMock()
         mock_iface = MagicMock()
+        mock_iface.info.source_key = "akshare"
+        mock_iface.info.target_database = "market_db"
+        mock_iface.info.target_table = "stock_daily"
         mock_iface.get_ddl.return_value = "CREATE TABLE ..."
-        mock_registry.get_interface.return_value = mock_iface
+        mock_registry.all_interfaces.return_value = [mock_iface]
         from app.datasync.service.init_service import _ensure_tables
         result = _ensure_tables(eng, mock_registry)
-        assert result >= 0
-        # Should attempt to create tables
+        assert result == 1
+        mock_ensure.assert_called_once_with("market_db", "stock_daily", "CREATE TABLE ...")
 
 
 # ═══════════════════════════════════════════════════════════════════════

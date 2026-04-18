@@ -29,7 +29,7 @@ class DataSourceBatchUpdate(BaseModel):
 
 
 class DataSourceBatchByPermission(BaseModel):
-    permission_points: str
+    permission_points: int
     enabled: bool
 
 
@@ -63,9 +63,9 @@ async def list_permission_levels(
     items = _list_items_with_sync_support(source=source)
     permissions = sorted(
         {
-            str(item["permission_points"])
+            int(item["permission_points"])
             for item in items
-            if item.get("permission_points")
+            if _parse_permission_points(item.get("permission_points")) > 0
             and not _requires_paid_access(item.get("requires_permission"))
             and item.get("sync_supported")
         },
@@ -143,7 +143,7 @@ async def batch_update_by_permission(
     skipped_unsupported: list[dict[str, str]] = []
 
     for item in items:
-        if item.get("permission_points") != body.permission_points:
+        if _parse_permission_points(item.get("permission_points")) != body.permission_points:
             continue
         if _requires_paid_access(item.get("requires_permission")):
             continue
@@ -199,7 +199,7 @@ async def update_datasource_item(
         raise APIError(
             status_code=400,
             code=ErrorCode.BAD_REQUEST,
-            message=f"Sync is not implemented for {source}/{item_key} yet",
+            message=f"Sync is not available for {source}/{item_key} with the current registry and token capability",
         )
 
     was_enabled = bool(existing.get("enabled"))
@@ -296,8 +296,8 @@ def _ensure_table_for_item(source: str, item_key: str) -> None:
 
         dao = DataSourceItemDao()
         item = dao.get_by_key(source, item_key)
-        if item is None or item.get("table_created"):
-            return  # already exists or no item
+        if item is None:
+            return
 
         registry = build_default_registry()
         iface = registry.get_interface(source, item_key)
@@ -359,6 +359,8 @@ def _list_items_with_sync_support(
     source: Optional[str] = None,
     category: Optional[str] = None,
 ) -> list[dict]:
+    from app.datasync.capabilities import build_supported_item_keys, load_source_config_map
+    from app.datasync.registry import build_default_registry
     from app.domains.market.dao.data_source_item_dao import DataSourceItemDao
 
     dao = DataSourceItemDao()
@@ -367,20 +369,29 @@ def _list_items_with_sync_support(
     else:
         items = dao.list_all(source=source)
 
-    support_map = _get_sync_support_map(source)
+    registry = build_default_registry()
+    support_map = build_supported_item_keys(
+        registry,
+        items,
+        source_configs=load_source_config_map(source),
+    )
     for item in items:
         item["sync_supported"] = _is_item_sync_supported(support_map, item["source"], item["item_key"])
     return items
 
 
 def _get_sync_support_map(source: Optional[str] = None) -> set[tuple[str, str]]:
+    from app.datasync.capabilities import build_supported_item_keys, load_source_config_map
     from app.datasync.registry import build_default_registry
+    from app.domains.market.dao.data_source_item_dao import DataSourceItemDao
 
     registry = build_default_registry()
-    supported = {(iface.info.source_key, iface.info.interface_key) for iface in registry.all_interfaces()}
-    if source is None:
-        return supported
-    return {item for item in supported if item[0] == source}
+    items = DataSourceItemDao().list_all(source=source)
+    return build_supported_item_keys(
+        registry,
+        items,
+        source_configs=load_source_config_map(source),
+    )
 
 
 def _is_item_sync_supported(support_map: set[tuple[str, str]], source: str, item_key: str) -> bool:
@@ -394,12 +405,14 @@ def _requires_paid_access(value: object) -> bool:
     return normalized in {"1", "true", "yes", "paid"}
 
 
-def _permission_sort_key(permission_points: str) -> tuple[int, int, str]:
-    import re
+def _parse_permission_points(value: object) -> int:
+    if value in {None, ""}:
+        return 0
+    try:
+        return max(0, int(value))
+    except Exception:
+        return 0
 
-    match = re.search(r"(\d+)", permission_points)
-    if match:
-        return (0, int(match.group(1)), permission_points)
-    if "单独" in permission_points:
-        return (1, 10**9, permission_points)
-    return (0, 10**9, permission_points)
+
+def _permission_sort_key(permission_points: object) -> int:
+    return _parse_permission_points(permission_points)

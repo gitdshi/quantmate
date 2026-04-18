@@ -122,8 +122,6 @@ BACKFILL_INTERVAL_HOURS = get_runtime_int(
     db_key="datasync.backfill_interval_hours",
     default=6,
 )
-BACKFILL_DAYS = get_runtime_int(env_keys="BACKFILL_DAYS", db_key="datasync.backfill_days", default=30)
-LOOKBACK_DAYS = get_runtime_int(env_keys="LOOKBACK_DAYS", db_key="datasync.lookback_days", default=60)
 BATCH_SIZE = get_runtime_int(env_keys="BATCH_SIZE", db_key="datasync.batch_size", default=100)
 MAX_RETRIES = get_runtime_int(env_keys="MAX_RETRIES", db_key="datasync.max_retries", default=3)
 TIMEZONE = get_runtime_str(env_keys="DATASYNC_TIMEZONE", db_key="datasync.timezone", default="Asia/Shanghai")
@@ -888,13 +886,16 @@ def daily_ingest(target_date: Optional[date] = None, continue_on_error: bool = T
     return results
 
 
-def missing_data_backfill(lookback_days: int = None):
+def missing_data_backfill(**_compat):
     """Scan for failed/pending steps and backfill using batch APIs.
 
     Uses DB lock to prevent concurrent backfill jobs.
     """
-    if lookback_days is None:
-        lookback_days = LOOKBACK_DAYS
+    from app.datasync.service.init_service import get_coverage_window
+
+    coverage_window = get_coverage_window()
+    window_start = coverage_window["start_date"]
+    window_end = coverage_window["end_date"]
 
     # Check DB lock
     if is_backfill_locked():
@@ -910,10 +911,10 @@ def missing_data_backfill(lookback_days: int = None):
         return
 
     try:
-        logger.info("Starting missing data backfill (lookback=%d days)", lookback_days)
+        logger.info("Starting missing data backfill (start=%s end=%s)", window_start, window_end)
 
         # Get failed steps
-        failed = get_failed_steps(lookback_days)
+        failed = get_failed_steps(window_start, window_end)
         if not failed:
             logger.info("No failed steps to backfill")
             return
@@ -1060,12 +1061,20 @@ def _select_period_end_trade_dates(trade_days: List[date], period: str) -> List[
     return selected
 
 
-def initialize_sync_status_table(lookback_years: int = 15):
+def initialize_sync_status_table(**_compat):
     """Initialize data_sync_status table by scanning existing data."""
-    logger.info("Initializing data_sync_status table (lookback=%d years)", lookback_years)
+    from app.datasync.service.init_service import get_coverage_window
 
-    end = date.today() - timedelta(days=1)
-    start = end - timedelta(days=365 * lookback_years)
+    coverage_window = get_coverage_window()
+    start = coverage_window["start_date"]
+    end = coverage_window["end_date"]
+
+    logger.info(
+        "Initializing data_sync_status table (env=%s start=%s end=%s)",
+        coverage_window["env"],
+        start,
+        end,
+    )
 
     # Get trade calendar
     trade_days = get_trade_calendar(start, end)
@@ -1159,20 +1168,10 @@ def _get_dynamic_scheduler():
     return scheduler_module
 
 
-def _run_dynamic_reconcile(target_date: Optional[date], lookback_years: int):
+def _run_dynamic_reconcile(target_date: Optional[date]):
     """Delegate legacy init CLI usage to the dynamic reconciliation flow."""
     scheduler_module = _get_dynamic_scheduler()
-    env_key = "DATASYNC_INIT_LOOKBACK_DAYS"
-    previous_value = os.getenv(env_key)
-
-    try:
-        os.environ[env_key] = str(max(1, lookback_years * 365))
-        return scheduler_module.run_reconcile(target_end_date=target_date)
-    finally:
-        if previous_value is None:
-            os.environ.pop(env_key, None)
-        else:
-            os.environ[env_key] = previous_value
+    return scheduler_module.run_reconcile(target_end_date=target_date)
 
 
 # =============================================================================
@@ -1221,10 +1220,6 @@ def main():
     parser.add_argument("--daily", action="store_true", help="Run daily ingest once")
     parser.add_argument("--backfill", action="store_true", help="Run backfill once")
     parser.add_argument("--init", action="store_true", help="Initialize sync status table")
-    parser.add_argument(
-        "--lookback-days", type=int, default=LOOKBACK_DAYS, help="Backfill lookback days (used with --backfill)"
-    )
-    parser.add_argument("--lookback-years", type=int, default=15, help="Init lookback years (used with --init)")
     parser.add_argument("--date", type=lambda raw: datetime.strptime(raw, "%Y-%m-%d").date(), help="Target date (YYYY-MM-DD)")
     parser.add_argument("--refresh-calendar", action="store_true", help="Refresh trade calendar")
 
@@ -1234,7 +1229,7 @@ def main():
         logger.warning(
             "Legacy --init entrypoint is deprecated; delegating to dynamic sync-status reconciliation"
         )
-        result = _run_dynamic_reconcile(target_date=args.date, lookback_years=args.lookback_years)
+        result = _run_dynamic_reconcile(target_date=args.date)
         logger.info("Reconcile result: %s", result)
     elif args.refresh_calendar:
         refresh_trade_calendar()
@@ -1244,7 +1239,7 @@ def main():
         logger.info("Daily sync results: %s", results)
     elif args.backfill:
         logger.warning("Legacy --backfill entrypoint is deprecated; delegating to dynamic scheduler backfill")
-        results = _get_dynamic_scheduler().run_backfill(lookback_days=args.lookback_days)
+        results = _get_dynamic_scheduler().run_backfill()
         logger.info("Backfill results: %s", results)
     elif args.daemon:
         run_daemon()
@@ -1268,7 +1263,11 @@ class DataSyncDaemon:
     """
 
     @staticmethod
-    def find_missing_trade_dates(lookback_days: Optional[int] = None) -> List[date]:
+    def find_missing_trade_dates(
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        **_compat,
+    ) -> List[date]:
         """
         Return missing trade dates for backfill.
 
@@ -1276,7 +1275,8 @@ class DataSyncDaemon:
         For now, return empty list (assumes no missing dates).
         """
         # Placeholder: in a real implementation, this would:
-        # 1. Get list of expected trade dates for lookback period
+        # 1. Get list of expected trade dates for configured coverage window
         # 2. Compare with successfully synced dates from sync_log table
         # 3. Return dates that are missing
+        _ = (start_date, end_date)
         return []

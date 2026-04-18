@@ -4,7 +4,9 @@ set -euo pipefail
 # Start/stop/restart data sync daemon using project's .venv
 # Logs: quantmate/logs/data_sync.out, PID: quantmate/logs/data_sync.pid
 
-BASE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_PATH="$SCRIPT_DIR/$(basename "$0")"
+BASE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$BASE_DIR"
 LOG_DIR="$BASE_DIR/logs"
 mkdir -p "$LOG_DIR"
@@ -24,6 +26,7 @@ SYNC_INIT_PATTERN="app\\.datasync\\.scheduler --init($| )"
 SYNC_RECONCILE_PATTERN="app\\.datasync\\.scheduler --reconcile($| )"
 BACKFILL_LOOP_PATTERN="app\\.datasync\\.scheduler --backfill-loop($| )"
 BACKFILL_PATTERN="app\\.datasync\\.scheduler --backfill($| )"
+BOOTSTRAP_PATTERN="datasync_service\\.sh __bootstrap_start($| )"
 
 timestamp() {
   date '+%Y-%m-%d %H:%M:%S'
@@ -59,6 +62,7 @@ stop_pid_file() {
 
 any_sync_process_running() {
   pgrep -f "$DAEMON_PATTERN" >/dev/null || \
+    pgrep -f "$BOOTSTRAP_PATTERN" >/dev/null || \
     pgrep -f "$INIT_PATTERN" >/dev/null || \
     pgrep -f "$SYNC_INIT_PATTERN" >/dev/null || \
     pgrep -f "$SYNC_RECONCILE_PATTERN" >/dev/null || \
@@ -95,81 +99,49 @@ load_env() {
   fi
 }
 
+mysql_ping() {
+  "$VENV_PY" - <<'PY' >/dev/null 2>&1
+import pymysql
+from app.infrastructure.config import get_settings
+
+settings = get_settings()
+conn = pymysql.connect(
+    host=settings.mysql_host,
+    port=settings.mysql_port,
+    user=settings.mysql_user,
+    password=settings.mysql_password,
+    connect_timeout=3,
+    read_timeout=3,
+    write_timeout=3,
+)
+with conn.cursor() as cur:
+    cur.execute('SELECT 1')
+conn.close()
+PY
+}
+
 ensure_db_host_reachable() {
   local host="${MYSQL_HOST:-}"
   if [ -z "$host" ]; then
     return 0
   fi
 
-  if [ "$host" != "mysql" ]; then
+  if mysql_ping; then
     return 0
   fi
 
-  if "$VENV_PY" - <<'PY' >/dev/null 2>&1
-import pymysql
-from app.infrastructure.config import get_settings
-
-settings = get_settings()
-conn = pymysql.connect(
-    host=settings.mysql_host,
-    port=settings.mysql_port,
-    user=settings.mysql_user,
-    password=settings.mysql_password,
-    connect_timeout=3,
-    read_timeout=3,
-    write_timeout=3,
-)
-with conn.cursor() as cur:
-    cur.execute('SELECT 1')
-conn.close()
-PY
-  then
-    return 0
+  if [ "$host" != "mysql" ]; then
+    echo "Error: MySQL is not reachable at ${MYSQL_HOST}:${MYSQL_PORT}. Check MYSQL_HOST/MYSQL_PORT/MYSQL_USER/MYSQL_PASSWORD in .env" >&2
+    return 1
   fi
 
   echo "Warning: MYSQL_HOST=mysql is not reachable from this shell; falling back to 127.0.0.1 for this run"
   export MYSQL_HOST=127.0.0.1
 
-  if ! "$VENV_PY" - <<'PY' >/dev/null 2>&1
-import pymysql
-from app.infrastructure.config import get_settings
-
-settings = get_settings()
-conn = pymysql.connect(
-    host=settings.mysql_host,
-    port=settings.mysql_port,
-    user=settings.mysql_user,
-    password=settings.mysql_password,
-    connect_timeout=3,
-    read_timeout=3,
-    write_timeout=3,
-)
-with conn.cursor() as cur:
-    cur.execute('SELECT 1')
-conn.close()
-PY
-  then
+  if ! mysql_ping; then
     echo "Error: MySQL still not reachable with MYSQL_HOST=127.0.0.1. Check MYSQL_PORT/MYSQL_USER/MYSQL_PASSWORD in .env" >&2
     return 1
   fi
-}
-
-calc_lookback_start_date() {
-  local days="${1:-365}"
-  LOOKBACK_DAYS="$days" "$VENV_PY" - <<'PY'
-from datetime import date, timedelta
-import os
-days = int(os.getenv('LOOKBACK_DAYS', '365'))
-print((date.today() - timedelta(days=days)).isoformat())
-PY
-}
-
-calc_default_init_lookback_days() {
-  PYTHONPATH=. "$VENV_PY" - <<'PY'
-from app.datasync.service.init_service import get_coverage_window
-
-print(get_coverage_window()["lookback_days"])
-PY
 }
 
 calc_default_init_start_date() {
@@ -182,34 +154,31 @@ PY
 
 needs_initialization() {
   PYTHONPATH=. "$VENV_PY" - <<'PY'
+import traceback
+
 from app.datasync.service.init_service import needs_initialization
 
-raise SystemExit(0 if needs_initialization() else 1)
+try:
+  raise SystemExit(0 if needs_initialization() else 1)
+except SystemExit:
+  raise
+except Exception:
+  traceback.print_exc()
+  raise SystemExit(2)
 PY
 }
 
 prepare_init_args() {
-  local configured_lookback_days
-  configured_lookback_days="$(calc_default_init_lookback_days)"
-
-  EFFECTIVE_INIT_LOOKBACK_DAYS="${INIT_LOOKBACK_DAYS:-$configured_lookback_days}"
   if [ -n "${INIT_START_DATE:-}" ]; then
     EFFECTIVE_INIT_START_DATE="$INIT_START_DATE"
-  elif [ -n "${INIT_LOOKBACK_DAYS:-}" ]; then
-    EFFECTIVE_INIT_START_DATE="$(calc_lookback_start_date "$EFFECTIVE_INIT_LOOKBACK_DAYS")"
   else
     EFFECTIVE_INIT_START_DATE="$(calc_default_init_start_date)"
   fi
 
   EFFECTIVE_INIT_DAILY_START_DATE="${INIT_DAILY_START_DATE:-$EFFECTIVE_INIT_START_DATE}"
-  EFFECTIVE_INIT_DAILY_LOOKBACK_DAYS="${INIT_DAILY_LOOKBACK_DAYS:-}"
 
   INIT_ARGS=("--start-date" "$EFFECTIVE_INIT_START_DATE")
-  if [ -n "$EFFECTIVE_INIT_DAILY_LOOKBACK_DAYS" ]; then
-    INIT_ARGS+=("--daily-lookback-days" "$EFFECTIVE_INIT_DAILY_LOOKBACK_DAYS")
-  else
-    INIT_ARGS+=("--daily-start-date" "$EFFECTIVE_INIT_DAILY_START_DATE")
-  fi
+  INIT_ARGS+=("--daily-start-date" "$EFFECTIVE_INIT_DAILY_START_DATE")
   if [ "${INIT_SKIP_AUX:-0}" = "1" ]; then
     INIT_ARGS+=("--skip-aux")
   fi
@@ -261,6 +230,7 @@ stop() {
   stop_pid_file "$BACKFILL_LOOP_PID_FILE" "DataSync backfill loop"
   stop_pid_file "$BACKFILL_ONESHOT_PID_FILE" "DataSync backfill one-shot"
   pkill -f "$DAEMON_PATTERN" || true
+  pkill -f "$BOOTSTRAP_PATTERN" || true
   pkill -f "$INIT_PATTERN" || true
   pkill -f "$SYNC_INIT_PATTERN" || true
   pkill -f "$SYNC_RECONCILE_PATTERN" || true
@@ -309,28 +279,34 @@ start_backfill_loop() {
   echo $! > "$BACKFILL_LOOP_PID_FILE"
 }
 
-start() {
-  stop || true
+bootstrap_start() {
+  local skip_initial_daily=0
+  local skip_initial_reconcile=0
+  local init_check_status=0
+
+  trap 'rm -f "$INIT_PID_FILE"' EXIT
+
   load_env
   ensure_db_host_reachable
 
-  local skip_initial_daily=0
-  local skip_initial_reconcile=0
-
   if needs_initialization; then
     prepare_init_args
-    echo "Initialization markers missing; running first-deploy init sequence..."
-    echo "  start_date=${EFFECTIVE_INIT_START_DATE} daily_start_date=${EFFECTIVE_INIT_DAILY_START_DATE} lookback_days=${EFFECTIVE_INIT_LOOKBACK_DAYS}"
-    echo "  logs: $INIT_OUT_FILE"
-    : > "$INIT_OUT_FILE"
-    if ! run_init_sequence "${INIT_ARGS[@]}" >>"$INIT_OUT_FILE" 2>&1; then
-      echo "DataSync initialization failed; see $INIT_OUT_FILE" >&2
+    echo "Initialization markers missing; running first-deploy init sequence in background coordinator..."
+    echo "  start_date=${EFFECTIVE_INIT_START_DATE} daily_start_date=${EFFECTIVE_INIT_DAILY_START_DATE}"
+    if ! run_init_sequence "${INIT_ARGS[@]}"; then
+      echo "DataSync initialization failed; daemon/backfill were not started" >&2
       return 1
     fi
     skip_initial_daily=1
     skip_initial_reconcile=1
   else
-    echo "Initialization markers present; skipping first-deploy init"
+    init_check_status=$?
+    if [ "$init_check_status" -eq 1 ]; then
+      echo "Initialization markers present; skipping first-deploy init"
+    else
+      echo "Failed to determine initialization state; daemon/backfill were not started" >&2
+      return 1
+    fi
   fi
 
   start_daemon "$skip_initial_daily" "$skip_initial_reconcile"
@@ -342,6 +318,34 @@ start() {
   echo "  log: $BACKFILL_LOOP_OUT_FILE"
 }
 
+start() {
+  stop || true
+  load_env
+  ensure_db_host_reachable
+
+  : > "$INIT_OUT_FILE"
+  echo "Starting DataSync bootstrap coordinator in background..."
+  nohup "$SCRIPT_PATH" __bootstrap_start >>"$INIT_OUT_FILE" 2>&1 &
+  echo $! > "$INIT_PID_FILE"
+  sleep 1
+  echo "DataSync bootstrap started in background (pid $(cat "$INIT_PID_FILE"))"
+  echo "  init log: $INIT_OUT_FILE"
+
+  if pid_is_running "$(read_pid_file "$PID_FILE")"; then
+    echo "DataSync daemon running (pid $(cat "$PID_FILE"))"
+    echo "  log: $OUT_FILE"
+  else
+    echo "DataSync daemon will be started by the bootstrap coordinator"
+  fi
+
+  if pid_is_running "$(read_pid_file "$BACKFILL_LOOP_PID_FILE")"; then
+    echo "DataSync backfill loop running (pid $(cat "$BACKFILL_LOOP_PID_FILE"))"
+    echo "  log: $BACKFILL_LOOP_OUT_FILE"
+  else
+    echo "DataSync backfill loop will be started by the bootstrap coordinator"
+  fi
+}
+
 init_data() {
   stop || true
   load_env
@@ -349,7 +353,7 @@ init_data() {
   prepare_init_args
 
   echo "Starting DataSync initialization sequence in background..."
-  echo "  start_date=${EFFECTIVE_INIT_START_DATE} daily_start_date=${EFFECTIVE_INIT_DAILY_START_DATE} lookback_days=${EFFECTIVE_INIT_LOOKBACK_DAYS}"
+  echo "  start_date=${EFFECTIVE_INIT_START_DATE} daily_start_date=${EFFECTIVE_INIT_DAILY_START_DATE}"
   echo "  logs: $INIT_OUT_FILE"
 
   run_init_sequence "${INIT_ARGS[@]}" >>"$INIT_OUT_FILE" 2>&1 &
@@ -362,11 +366,9 @@ run_backfill() {
   load_env
   ensure_db_host_reachable
 
-  local lookback_days="${BACKFILL_LOOKBACK_DAYS:-}"
   local backfill_args=("--backfill")
-  if [ -n "$lookback_days" ]; then
-    backfill_args+=("--lookback-days" "$lookback_days")
-  fi
+  local backfill_start_date
+  backfill_start_date="$(calc_default_init_start_date)"
 
   if backfill_running; then
     echo "DataSync backfill is already running"
@@ -375,11 +377,11 @@ run_backfill() {
   fi
 
   echo "Starting DataSync one-shot backfill in background..."
-  echo "  lookback_days=${lookback_days:-all}"
+  echo "  start_date=${backfill_start_date}"
   echo "  logs: $BACKFILL_ONESHOT_OUT_FILE"
 
   (
-    log_line "Starting one-shot backfill (lookback_days=${lookback_days:-all})"
+    log_line "Starting one-shot backfill (start_date=${backfill_start_date})"
     env PYTHONPATH=. "$VENV_PY" -u -m app.datasync.scheduler "${backfill_args[@]}"
     log_line "Backfill command finished"
   ) >>"$BACKFILL_ONESHOT_OUT_FILE" 2>&1 &
@@ -426,6 +428,9 @@ status() {
 case "${1-}" in
   start)
     start
+    ;;
+  __bootstrap_start)
+    bootstrap_start
     ;;
   stop)
     stop
@@ -475,18 +480,13 @@ PY
     echo "Init options via env vars:"
     echo "  INIT_START_DATE=YYYY-MM-DD   # optional explicit historical start date"
     echo "  INIT_DAILY_START_DATE=YYYY-MM-DD  # optional: limit stock_daily ingest start date"
-    echo "  INIT_DAILY_LOOKBACK_DAYS=365      # optional: limit stock_daily ingest by days"
-    echo "  INIT_LOOKBACK_DAYS=3650      # optional override for env-based init window"
     echo "  INIT_SKIP_AUX=1              # optional: skip adj/dividend/top10"
     echo "  INIT_SKIP_VNPY=1             # optional: skip vnpy sync"
     echo "  INIT_SKIP_SCHEMA=1           # optional: skip schema init"
     echo "  INIT_RESET_PROGRESS=1        # optional: reset init_progress before execution"
     echo ""
     echo "Runtime/backfill options via env vars:"
-    echo "  DATASYNC_INIT_LOOKBACK_DEV_DAYS=365        # optional dev coverage window"
-    echo "  DATASYNC_INIT_LOOKBACK_STAGING_DAYS=3650   # optional staging coverage window"
-    echo "  DATASYNC_INIT_LOOKBACK_PROD_DAYS=7300      # optional prod coverage window"
-    echo "  BACKFILL_LOOKBACK_DAYS=365                 # optional manual one-shot backfill limit"
+    echo "  SYNC_INIT_DEFAULT_START_DATE=2010-01-01    # optional explicit sync start date; otherwise env window applies"
     echo "  BACKFILL_IDLE_INTERVAL_HOURS=4             # dedicated backfill loop sleep interval"
     exit 2
     ;;

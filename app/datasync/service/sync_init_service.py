@@ -9,23 +9,29 @@ from datetime import date, timedelta
 from sqlalchemy import text
 
 from app.datasync.registry import DataSourceRegistry
-from app.infrastructure.config import get_runtime_int, get_runtime_str
+from app.infrastructure.config import get_runtime_int
 from app.infrastructure.db.connections import get_quantmate_engine
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_START_DATE = date.fromisoformat(
-    get_runtime_str(
-        env_keys="SYNC_INIT_DEFAULT_START_DATE",
-        db_key="datasync.sync_init.default_start_date",
-        default="2020-01-01",
-    )
-)
 BATCH_SIZE = get_runtime_int(
     env_keys="SYNC_INIT_BATCH_SIZE",
     db_key="datasync.sync_init.batch_size",
     default=500,
 )
+
+
+def _resolve_default_sync_window(end_date: date | None = None) -> tuple[date, date]:
+    resolved_end_date = end_date or (date.today() - timedelta(days=1))
+
+    try:
+        from app.datasync.service.init_service import get_coverage_window
+
+        coverage_window = get_coverage_window(target_end_date=resolved_end_date)
+        return coverage_window["start_date"], resolved_end_date
+    except Exception:
+        logger.exception("Failed to resolve env-aware sync init window; falling back to current end date")
+        return resolved_end_date, resolved_end_date
 
 SYNC_STATUS_INIT_SQL = """
 CREATE TABLE IF NOT EXISTS sync_status_init (
@@ -140,10 +146,11 @@ def initialize_sync_status(
 
     initialized_bounds = _get_initialized_bounds(source, item_key)
 
+    default_start_date, default_end_date = _resolve_default_sync_window(end_date)
     if start_date is None:
-        start_date = DEFAULT_START_DATE
+        start_date = default_start_date
     if end_date is None:
-        end_date = date.today() - timedelta(days=1)
+        end_date = default_end_date
 
     from app.datasync.service.sync_engine import get_trade_calendar
 
@@ -183,6 +190,8 @@ def reconcile_enabled_sync_status(
     end_date: date | None = None,
 ) -> dict[str, object]:
     """Ensure enabled, registry-backed interfaces have pending status rows."""
+    from app.datasync.capabilities import is_item_sync_supported, load_source_config_map
+
     ensure_sync_status_init_table()
 
     engine = get_quantmate_engine()
@@ -196,7 +205,7 @@ def reconcile_enabled_sync_status(
         params["item_key"] = item_key
 
     sql = (
-        "SELECT dsi.source, dsi.item_key "
+        "SELECT dsi.source, dsi.item_key, dsi.api_name, dsi.permission_points, dsi.requires_permission "
         "FROM data_source_items dsi "
         "JOIN data_source_configs dsc ON dsi.source = dsc.source_key "
         f"WHERE {' AND '.join(clauses)} "
@@ -209,10 +218,22 @@ def reconcile_enabled_sync_status(
     pending_records = 0
     items_reconciled = 0
     skipped_unsupported: list[dict[str, str]] = []
+    source_configs = load_source_config_map(source)
 
     for row in rows:
         source_key = row[0]
         enabled_item_key = row[1]
+        item = {
+            "source": source_key,
+            "item_key": enabled_item_key,
+            "api_name": row[2] if len(row) > 2 else None,
+            "permission_points": row[3] if len(row) > 3 else None,
+            "requires_permission": row[4] if len(row) > 4 else None,
+        }
+        if not is_item_sync_supported(registry, item, source_configs=source_configs):
+            skipped_unsupported.append({"source": source_key, "item_key": enabled_item_key})
+            continue
+
         iface = registry.get_interface(source_key, enabled_item_key)
         if iface is None:
             skipped_unsupported.append({"source": source_key, "item_key": enabled_item_key})
