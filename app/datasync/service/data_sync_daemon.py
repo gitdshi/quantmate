@@ -95,6 +95,16 @@ from app.domains.extdata.dao.sync_log_dao import (
 
 # Tushare daemon compatibility flags
 DRY_RUN = get_runtime_bool(env_keys="DRY_RUN", db_key="datasync.dry_run", default=False)
+LOOKBACK_DAYS = get_runtime_int(
+    env_keys="LOOKBACK_DAYS",
+    db_key="datasync.legacy_backfill_lookback_days",
+    default=30,
+)
+LOOKBACK_YEARS = get_runtime_int(
+    env_keys="LOOKBACK_YEARS",
+    db_key="datasync.legacy_reconcile_lookback_years",
+    default=15,
+)
 
 
 # Import AkShare for trade calendar
@@ -893,9 +903,14 @@ def missing_data_backfill(**_compat):
     """
     from app.datasync.service.init_service import get_coverage_window
 
-    coverage_window = get_coverage_window()
-    window_start = coverage_window["start_date"]
-    window_end = coverage_window["end_date"]
+    lookback_days = _compat.get("lookback_days")
+    coverage_window = None
+    window_start = None
+    window_end = None
+    if lookback_days is None:
+        coverage_window = get_coverage_window()
+        window_start = coverage_window["start_date"]
+        window_end = coverage_window["end_date"]
 
     # Check DB lock
     if is_backfill_locked():
@@ -911,10 +926,19 @@ def missing_data_backfill(**_compat):
         return
 
     try:
-        logger.info("Starting missing data backfill (start=%s end=%s)", window_start, window_end)
+        if lookback_days is not None:
+            logger.info("Starting missing data backfill (lookback_days=%s)", lookback_days)
+        else:
+            logger.info("Starting missing data backfill (start=%s end=%s)", window_start, window_end)
 
         # Get failed steps
-        failed = get_failed_steps(window_start, window_end)
+        if lookback_days is not None:
+            failed = get_failed_steps(lookback_days=lookback_days)
+        else:
+            try:
+                failed = get_failed_steps(window_start, window_end)
+            except TypeError:
+                failed = get_failed_steps(lookback_days=LOOKBACK_DAYS)
         if not failed:
             logger.info("No failed steps to backfill")
             return
@@ -1168,9 +1192,11 @@ def _get_dynamic_scheduler():
     return scheduler_module
 
 
-def _run_dynamic_reconcile(target_date: Optional[date]):
+def _run_dynamic_reconcile(target_date: Optional[date], lookback_years: int | None = None):
     """Delegate legacy init CLI usage to the dynamic reconciliation flow."""
     scheduler_module = _get_dynamic_scheduler()
+    if lookback_years is not None:
+        logger.info("Ignoring legacy lookback_years=%s for dynamic reconcile", lookback_years)
     return scheduler_module.run_reconcile(target_end_date=target_date)
 
 
@@ -1221,6 +1247,8 @@ def main():
     parser.add_argument("--backfill", action="store_true", help="Run backfill once")
     parser.add_argument("--init", action="store_true", help="Initialize sync status table")
     parser.add_argument("--date", type=lambda raw: datetime.strptime(raw, "%Y-%m-%d").date(), help="Target date (YYYY-MM-DD)")
+    parser.add_argument("--lookback-days", type=int, default=LOOKBACK_DAYS, help="Legacy backfill lookback window")
+    parser.add_argument("--lookback-years", type=int, default=LOOKBACK_YEARS, help="Legacy reconcile lookback window")
     parser.add_argument("--refresh-calendar", action="store_true", help="Refresh trade calendar")
 
     args = parser.parse_args()
@@ -1229,7 +1257,7 @@ def main():
         logger.warning(
             "Legacy --init entrypoint is deprecated; delegating to dynamic sync-status reconciliation"
         )
-        result = _run_dynamic_reconcile(target_date=args.date)
+        result = _run_dynamic_reconcile(target_date=args.date, lookback_years=args.lookback_years)
         logger.info("Reconcile result: %s", result)
     elif args.refresh_calendar:
         refresh_trade_calendar()
@@ -1239,7 +1267,7 @@ def main():
         logger.info("Daily sync results: %s", results)
     elif args.backfill:
         logger.warning("Legacy --backfill entrypoint is deprecated; delegating to dynamic scheduler backfill")
-        results = _get_dynamic_scheduler().run_backfill()
+        results = _get_dynamic_scheduler().run_backfill(lookback_days=args.lookback_days)
         logger.info("Backfill results: %s", results)
     elif args.daemon:
         run_daemon()
