@@ -193,14 +193,36 @@ jobs:
             set -e
             cd /opt/quantmate
 
+            print_disk_diagnostics() {
+              echo "==> Filesystem usage"
+              df -h || true
+              echo "==> Docker disk usage"
+              docker system df || true
+            }
+
+            cleanup_docker_artifacts() {
+              echo "==> Pruning unused Docker data to recover disk space"
+              docker system prune -af || true
+              docker builder prune -af || true
+              print_disk_diagnostics
+            }
+
+            print_disk_diagnostics
+
             echo "==> Pulling image tag: $IMAGE_TAG"
-            GITHUB_OWNER=$GITHUB_OWNER IMAGE_TAG=$IMAGE_TAG \
-              docker compose -f docker-compose.staging.yml pull api worker datasync
+            if ! GITHUB_OWNER=$GITHUB_OWNER IMAGE_TAG=$IMAGE_TAG \
+              docker compose -f docker-compose.staging.yml pull api worker datasync; then
+              echo "Initial image pull failed; retrying once after Docker cleanup"
+              cleanup_docker_artifacts
+              GITHUB_OWNER=$GITHUB_OWNER IMAGE_TAG=$IMAGE_TAG \
+                docker compose -f docker-compose.staging.yml pull api worker datasync
+            fi
 
             echo "==> Rolling restart"
             if ! GITHUB_OWNER=$GITHUB_OWNER IMAGE_TAG=$IMAGE_TAG \
               docker compose -f docker-compose.staging.yml up -d api worker datasync; then
-              echo "Compose restart hit a stale container reference, cleaning api/worker/datasync and retrying once"
+              echo "Compose restart failed, cleaning api/worker/datasync and retrying once"
+              print_disk_diagnostics
               for name in \
                 quantmate-api-1 \
                 quantmate-worker-1 \
@@ -208,6 +230,7 @@ jobs:
                 docker rm -f "$name" >/dev/null 2>&1 || true
               done
               docker compose -f docker-compose.staging.yml rm -sf api worker datasync >/dev/null 2>&1 || true
+              cleanup_docker_artifacts
               GITHUB_OWNER=$GITHUB_OWNER IMAGE_TAG=$IMAGE_TAG \
                 docker compose -f docker-compose.staging.yml up -d api worker datasync
             fi
