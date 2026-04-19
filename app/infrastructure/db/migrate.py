@@ -178,6 +178,15 @@ def _strip_leading_sql_comments(stmt: str) -> str:
     return stmt[i:].strip()
 
 
+def _execute_migration_statement(conn, executable: str) -> None:
+    """Execute a migration statement via SQLAlchemy compilation.
+
+    This avoids DB-API pyformat interpolation issues for literal `%` characters
+    inside SQL strings, for example in LIKE patterns.
+    """
+    conn.execute(text(executable))
+
+
 def apply_migrations(dry_run: bool = False) -> list[str]:
     """Apply all pending migrations. Returns list of applied versions."""
     engine = get_quantmate_engine()
@@ -206,7 +215,7 @@ def apply_migrations(dry_run: bool = False) -> list[str]:
                 executable = _strip_leading_sql_comments(stmt)
                 if not executable:
                     continue
-                conn.exec_driver_sql(executable)
+                _execute_migration_statement(conn, executable)
 
             # Record migration
             conn.execute(

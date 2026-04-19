@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch, call
 
 import pytest
+from sqlalchemy.sql.elements import TextClause
 
 from app.infrastructure.db.migrate import (
     _split_sql_statements,
@@ -205,7 +206,13 @@ def test_apply_migrations_real(tmp_path):
          patch("app.infrastructure.db.migrate.get_quantmate_engine", return_value=mock_engine):
         applied = apply_migrations(dry_run=False)
     assert applied == ["001"]
-    mock_conn.exec_driver_sql.assert_called_once()
+    migration_calls = [
+        call_args
+        for call_args in mock_conn.execute.call_args_list
+        if call_args.args and isinstance(call_args.args[0], TextClause)
+        and str(call_args.args[0]) == "CREATE TABLE t (id INT)"
+    ]
+    assert len(migration_calls) == 1
     mock_conn.commit.assert_called()
 
 
@@ -222,3 +229,27 @@ def test_apply_migrations_skips_already_applied(tmp_path):
          patch("app.infrastructure.db.migrate.get_quantmate_engine", return_value=mock_engine):
         applied = apply_migrations()
     assert applied == []
+
+
+def test_apply_migrations_real_handles_percent_literals(tmp_path):
+    (tmp_path / "001_like.sql").write_text(
+        "SELECT * FROM data_source_items WHERE permission_points LIKE '%单独权限%';"
+    )
+    mock_engine = MagicMock()
+    mock_conn = MagicMock()
+    mock_conn.__enter__ = lambda s: s
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_engine.connect.return_value = mock_conn
+    mock_conn.execute.return_value.fetchall.return_value = []
+
+    with patch("app.infrastructure.db.migrate.MIGRATIONS_DIR", tmp_path), \
+         patch("app.infrastructure.db.migrate.get_quantmate_engine", return_value=mock_engine):
+        applied = apply_migrations(dry_run=False)
+
+    assert applied == ["001"]
+    assert any(
+        call_args.args
+        and isinstance(call_args.args[0], TextClause)
+        and "%单独权限%" in str(call_args.args[0])
+        for call_args in mock_conn.execute.call_args_list
+    )
