@@ -127,6 +127,46 @@ class TestInitializeSyncStatus:
         args = mock_cal.call_args[0]
         assert args[0] == date(2024, 5, 1)
 
+    def test_non_historical_interface_seeds_calendar_day(self):
+        from app.datasync.service.sync_init_service import initialize_sync_status
+
+        engine, conn = _conn_ctx()
+
+        with patch(f"{_INIT_MOD}.ensure_sync_status_init_table"), \
+             patch(f"{_INIT_MOD}.get_quantmate_engine", return_value=engine), \
+             patch(f"{_INIT_MOD}._record_init") as mock_record:
+            result = initialize_sync_status(
+                "tushare",
+                "stock_company",
+                start_date=date(2024, 1, 6),
+                end_date=date(2024, 1, 6),
+                use_trade_calendar=False,
+            )
+
+        assert result == 1
+        assert conn.execute.called
+        mock_record.assert_called_once_with("tushare", "stock_company", date(2024, 1, 6), date(2024, 1, 6))
+
+    def test_non_historical_interface_repairs_missing_same_day_row_within_existing_bounds(self):
+        from app.datasync.service.sync_init_service import initialize_sync_status
+
+        engine, conn = _conn_ctx()
+
+        with patch(f"{_INIT_MOD}.ensure_sync_status_init_table"), \
+             patch(f"{_INIT_MOD}._get_initialized_bounds", return_value=(date(2024, 1, 6), date(2024, 1, 6))), \
+             patch(f"{_INIT_MOD}.get_quantmate_engine", return_value=engine), \
+             patch(f"{_INIT_MOD}._record_init"):
+            result = initialize_sync_status(
+                "tushare",
+                "stock_company",
+                start_date=date(2024, 1, 6),
+                end_date=date(2024, 1, 6),
+                use_trade_calendar=False,
+            )
+
+        assert result == 1
+        assert conn.execute.called
+
 
 class TestReconcileEnabledSyncStatus:
     def test_non_historical_interface_only_initializes_target_day(self):
@@ -154,6 +194,7 @@ class TestReconcileEnabledSyncStatus:
             start_date=date(2024, 1, 5),
             end_date=date(2024, 1, 5),
             reconcile_missing=True,
+            use_trade_calendar=False,
         )
 
     def test_skips_enabled_item_when_token_points_do_not_support_it(self):

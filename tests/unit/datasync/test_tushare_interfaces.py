@@ -377,11 +377,11 @@ class TestTushareCatalogInterface:
 
         iface = TushareCatalogInterface(
             TushareCatalogSpec(
-                interface_key="hsgt_stk_hold",
-                display_name="沪深股通持仓",
-                api_name="hsgt_stk_hold",
-                target_table="hsgt_stk_hold",
-                sync_priority=101,
+                interface_key="block_trade",
+                display_name="大宗交易",
+                api_name="block_trade",
+                target_table="block_trade",
+                sync_priority=90,
             )
         )
 
@@ -391,12 +391,55 @@ class TestTushareCatalogInterface:
             result = iface.sync_date(date(2024, 1, 5))
 
         assert iface.supports_backfill() is True
+        assert iface.supports_scheduled_sync() is True
         assert iface.backfill_mode() == "date"
-        assert iface.requires_nonempty_trading_day_data() is True
+        assert iface.requires_nonempty_trading_day_data() is False
         assert result.status == SyncStatus.SUCCESS
         assert result.rows_synced == 1
-        mock_call.assert_called_once_with("hsgt_stk_hold", trade_date="20240105")
+        mock_call.assert_called_once_with("block_trade", trade_date="20240105")
         mock_insert.assert_called_once()
+
+    def test_runtime_unsupported_catalog_item_disables_scheduled_sync(self):
+        from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface, TushareCatalogSpec
+
+        iface = TushareCatalogInterface(
+            TushareCatalogSpec(
+                interface_key="fina_indicator",
+                display_name="财务指标数据",
+                api_name="fina_indicator",
+                target_table="fina_indicator",
+                sync_priority=55,
+            )
+        )
+
+        assert iface.supports_scheduled_sync() is False
+        assert iface.supports_backfill() is False
+
+    @pytest.mark.parametrize(
+        ("interface_key", "api_name"),
+        [
+            ("company_change", "company_change"),
+            ("pledge_detail", "pledge_detail"),
+            ("top_list", "top_list"),
+            ("stk_factor_pro", "stk_factor_pro"),
+            ("fund_nav", "fund_nav"),
+        ],
+    )
+    def test_known_generic_unsupported_catalog_items_are_scheduler_disabled(self, interface_key, api_name):
+        from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface, TushareCatalogSpec
+
+        iface = TushareCatalogInterface(
+            TushareCatalogSpec(
+                interface_key=interface_key,
+                display_name=interface_key,
+                api_name=api_name,
+                target_table=interface_key,
+                sync_priority=999,
+            )
+        )
+
+        assert iface.supports_scheduled_sync() is False
+        assert iface.supports_backfill() is False
 
     def test_range_catalog_sync_uses_range_mode(self):
         from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface, TushareCatalogSpec

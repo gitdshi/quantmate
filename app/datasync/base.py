@@ -63,6 +63,14 @@ class BaseIngestInterface(ABC):
         """Whether this interface should participate in historical backfill."""
         return True
 
+    def supports_scheduled_sync(self) -> bool:
+        """Whether the runtime scheduler should include this interface.
+
+        Some interfaces are kept registered for bootstrap/table management but do
+        not have a correct steady-state daily/backfill implementation.
+        """
+        return True
+
     def backfill_mode(self) -> str:
         """Backfill execution mode: `date` or `range`."""
         return "date"

@@ -96,6 +96,72 @@ _NONEMPTY_TRADING_DAY_APIS = {
     "industry_daily",
 }
 
+# These catalog interfaces stay registered so bootstrap code can still resolve
+# DDL and metadata, but the runtime scheduler should not execute them. Some are
+# bootstrap-only per-symbol datasets, and others currently map to APIs that are
+# not callable in this environment with the generic scheduler path.
+_RUNTIME_UNSUPPORTED_INTERFACE_KEYS = {
+    "pro_bar",
+    "ipo",
+    "digital_currency",
+    "hsgt_stk_hold",
+    "hsgt_cash_flow",
+    "income",
+    "income_vip",
+    "balancesheet",
+    "balancesheet_vip",
+    "cashflow",
+    "cashflow_vip",
+    "fina_indicator",
+    "fina_indicator_vip",
+    "fina_audit",
+    "fina_mainbz",
+    "fina_mainbz_vip",
+    "etf_daily",
+    "etf_weight",
+    "etf_nav",
+    "industry_daily",
+    "industry_moneyflow",
+    "capital_flow",
+    # Interfaces that currently require extra per-symbol/per-period inputs or
+    # are not callable through the generic query path in this environment.
+    "bo_monthly",
+    "bo_weekly",
+    "bond_holder",
+    "broker_stock",
+    "cn_bci",
+    "cn_cpi",
+    "cn_gdp",
+    "cn_m2",
+    "company_change",
+    "cyq_chips",
+    "dc_cons",
+    "deposit_rate",
+    "finacial_social",
+    "fund_div",
+    "fund_nav",
+    "fund_portfolio",
+    "fund_top10",
+    "fut_main_settle",
+    "index_dailybasic",
+    "index_weight",
+    "loan_rate",
+    "new_bond",
+    "opt_daily_s",
+    "opt_greeks",
+    "p_bond_basic",
+    "pledge_detail",
+    "stk_delisted",
+    "stk_factor",
+    "stk_factor_pro",
+    "stk_holdernum",
+    "stk_suspended",
+    "tme_express",
+    "top_holders",
+    "top_inst",
+    "top_list",
+}
+
 
 @dataclass(frozen=True)
 class TushareCatalogSpec:
@@ -128,7 +194,12 @@ class TushareCatalogInterface(BaseIngestInterface):
     def get_ddl(self) -> str:
         return ddl.get_catalog_ddl(self.info.target_table)
 
+    def supports_scheduled_sync(self) -> bool:
+        return self._spec.interface_key not in _RUNTIME_UNSUPPORTED_INTERFACE_KEYS
+
     def supports_backfill(self) -> bool:
+        if not self.supports_scheduled_sync():
+            return False
         return self._date_param() is not None or self._range_params() is not None
 
     def backfill_mode(self) -> str:

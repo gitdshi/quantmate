@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -101,6 +101,98 @@ class TestGetFailedRecords:
         assert "COALESCE(rows_synced, 0) = 0" in sql
 
 
+class TestBackfillRetryFiltering:
+    def test_detects_quota_cooldown_records(self):
+        from app.datasync.service.sync_engine import _is_quota_cooldown_record
+
+        updated_at = datetime(2024, 1, 3, 12, 0, 0)
+        record = (
+            date(2024, 1, 3),
+            "tushare",
+            "us_daily",
+            0,
+            "抱歉，您每天最多访问该接口5次，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
+            "pending",
+            0,
+            updated_at,
+        )
+
+        assert _is_quota_cooldown_record(record, now=updated_at + timedelta(hours=1)) is True
+        assert _is_quota_cooldown_record(record, now=updated_at + timedelta(hours=6)) is False
+
+    def test_filters_quota_cooldown_records(self):
+        from app.datasync.service.sync_engine import _filter_backfill_retry_records
+
+        updated_at = datetime(2024, 1, 3, 12, 0, 0)
+        records = [
+            (
+                date(2024, 1, 3),
+                "tushare",
+                "us_daily",
+                0,
+                "抱歉，您每天最多访问该接口5次，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
+                "pending",
+                0,
+                updated_at,
+            ),
+            (
+                date(2024, 1, 3),
+                "tushare",
+                "stock_daily",
+                0,
+                "some other error",
+                "pending",
+                0,
+                updated_at,
+            ),
+        ]
+
+        filtered = _filter_backfill_retry_records(records, now=updated_at + timedelta(minutes=30))
+
+        assert filtered == [records[1]]
+
+    def test_keeps_only_one_quota_retry_per_interface_per_pass(self):
+        from app.datasync.service.sync_engine import _filter_backfill_retry_records
+
+        updated_at = datetime(2024, 1, 3, 12, 0, 0)
+        records = [
+            (
+                date(2024, 1, 4),
+                "tushare",
+                "report_rc",
+                0,
+                "抱歉，您每小时最多访问该接口10次，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
+                "pending",
+                0,
+                updated_at,
+            ),
+            (
+                date(2024, 1, 3),
+                "tushare",
+                "report_rc",
+                0,
+                "抱歉，您每小时最多访问该接口10次，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
+                "pending",
+                0,
+                updated_at,
+            ),
+            (
+                date(2024, 1, 4),
+                "tushare",
+                "stock_daily",
+                0,
+                "some other error",
+                "pending",
+                0,
+                updated_at,
+            ),
+        ]
+
+        filtered = _filter_backfill_retry_records(records, now=updated_at + timedelta(hours=2))
+
+        assert filtered == [records[0], records[2]]
+
+
 class TestBackfillHelpers:
     def test_groups_backfill_records_by_date(self):
         from app.datasync.service.sync_engine import _group_backfill_records_by_date
@@ -162,6 +254,14 @@ class TestBackfillHelpers:
         assert sync_sem is not backfill_sem
         assert sync_sem.value == 3
         assert backfill_sem.value == 1
+
+    def test_backfill_defaults_akshare_to_serial(self):
+        from app.datasync.service.sync_engine import _get_backfill_source_concurrency_limit
+
+        with patch(f"{_MOD}.get_runtime_config", side_effect=lambda **kwargs: kwargs["default"]):
+            limit = _get_backfill_source_concurrency_limit("akshare")
+
+        assert limit == 1
 
     def test_groups_contiguous_trade_dates(self):
         from app.datasync.service.sync_engine import _group_contiguous_trade_dates
@@ -295,6 +395,26 @@ class TestDailySync:
             result = daily_sync(registry, target_date=date(2024, 1, 5))
         assert result["tushare/stock_daily"]["status"] == "success"
         mock_ensure.assert_called_once()
+
+    def test_skips_runtime_unsupported_interface(self):
+        from app.datasync.service.sync_engine import daily_sync
+
+        registry = MagicMock()
+        iface = MagicMock()
+        iface.supports_scheduled_sync.return_value = False
+        registry.get_interface.return_value = iface
+
+        with patch(f"{_MOD}._get_enabled_items", return_value=[
+            {"source": "tushare", "item_key": "fina_indicator",
+             "target_database": "ts", "target_table": "fina_indicator",
+             "table_created": 1, "sync_priority": 10},
+        ]), \
+            patch(f"{_MOD}._write_status") as mock_write:
+            result = daily_sync(registry, target_date=date(2024, 1, 5))
+
+        assert result["tushare/fina_indicator"]["skipped"] is True
+        assert result["tushare/fina_indicator"]["status"] == "success"
+        mock_write.assert_called_once()
 
     def test_handles_missing_interface(self):
         from app.datasync.service.sync_engine import daily_sync
@@ -430,6 +550,26 @@ class TestBackfillRetry:
         assert "tushare/stock_daily@2024-01-03" in result
         assert result["tushare/stock_daily@2024-01-03"]["status"] == "success"
 
+    def test_skips_runtime_unsupported_backfill_interface(self):
+        from app.datasync.service.sync_engine import backfill_retry
+
+        registry = MagicMock()
+        iface = MagicMock()
+        iface.supports_scheduled_sync.return_value = False
+        registry.get_interface.return_value = iface
+
+        with patch(f"{_MOD}._get_enabled_backfill_keys", return_value={("tushare", "fina_indicator")}), \
+             patch(f"{_MOD}._get_failed_records", return_value=[(date(2024, 1, 3), "tushare", "fina_indicator", 0)]), \
+             patch(f"{_MOD}._write_status") as mock_write, \
+             patch("app.domains.extdata.dao.data_sync_status_dao.acquire_backfill_lock"), \
+             patch("app.domains.extdata.dao.data_sync_status_dao.release_backfill_lock"), \
+             patch("app.domains.extdata.dao.data_sync_status_dao.is_backfill_locked", return_value=False):
+            result = backfill_retry(registry, max_workers=1)
+
+        assert result["tushare/fina_indicator@2024-01-03"]["skipped"] is True
+        assert result["tushare/fina_indicator@2024-01-03"]["status"] == "success"
+        mock_write.assert_called_once()
+
     def test_quota_pause_does_not_consume_retry_budget(self):
         from app.datasync.base import SyncResult, SyncStatus
         from app.datasync.service.sync_engine import backfill_retry
@@ -455,6 +595,128 @@ class TestBackfillRetry:
         assert result["tushare/stock_daily@2024-01-03"]["status"] == "pending"
         assert mock_write.call_args_list[0].kwargs["retry_count"] == 3
         assert mock_write.call_args_list[-1].kwargs["retry_count"] == 2
+
+    def test_skips_quota_cooled_records_before_task_submission(self):
+        from app.datasync.service.sync_engine import backfill_retry
+
+        registry = MagicMock()
+
+        quota_updated_at = datetime.now() - timedelta(hours=1)
+        cooled_record = (
+            date(2024, 1, 3),
+            "tushare",
+            "us_daily",
+            0,
+            "抱歉，您每天最多访问该接口5次，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
+            "pending",
+            0,
+            quota_updated_at,
+        )
+
+        with patch(f"{_MOD}._get_enabled_backfill_keys", return_value={("tushare", "us_daily")}), \
+             patch(f"{_MOD}._get_failed_records", return_value=[cooled_record]), \
+             patch(f"{_MOD}._write_status") as mock_write, \
+             patch("app.domains.extdata.dao.data_sync_status_dao.acquire_backfill_lock"), \
+             patch("app.domains.extdata.dao.data_sync_status_dao.release_backfill_lock"), \
+             patch("app.domains.extdata.dao.data_sync_status_dao.is_backfill_locked", return_value=False):
+            result = backfill_retry(registry, max_workers=1)
+
+        assert result == {}
+        mock_write.assert_not_called()
+        registry.get_interface.assert_not_called()
+
+    def test_submits_only_one_quota_retry_task_per_interface(self):
+        from app.datasync.base import SyncResult, SyncStatus
+        from app.datasync.service.sync_engine import backfill_retry
+
+        registry = MagicMock()
+        iface = MagicMock()
+        iface.sync_date.return_value = SyncResult(status=SyncStatus.SUCCESS, rows_synced=1)
+        registry.get_interface.return_value = iface
+
+        updated_at = datetime.now() - timedelta(hours=2)
+        records = [
+            (
+                date(2024, 1, 4),
+                "tushare",
+                "report_rc",
+                0,
+                "抱歉，您每小时最多访问该接口10次，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
+                "pending",
+                0,
+                updated_at,
+            ),
+            (
+                date(2024, 1, 3),
+                "tushare",
+                "report_rc",
+                0,
+                "抱歉，您每小时最多访问该接口10次，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
+                "pending",
+                0,
+                updated_at,
+            ),
+        ]
+
+        with patch(f"{_MOD}._get_enabled_backfill_keys", return_value={("tushare", "report_rc")}), \
+             patch(f"{_MOD}._get_failed_records", return_value=records), \
+             patch(f"{_MOD}._write_status"), \
+             patch("app.domains.extdata.dao.data_sync_status_dao.acquire_backfill_lock"), \
+             patch("app.domains.extdata.dao.data_sync_status_dao.release_backfill_lock"), \
+             patch("app.domains.extdata.dao.data_sync_status_dao.is_backfill_locked", return_value=False):
+            result = backfill_retry(registry, max_workers=1)
+
+        assert registry.get_interface.call_count == 1
+        iface.sync_date.assert_called_once_with(date(2024, 1, 4))
+        assert "tushare/report_rc@2024-01-04" in result
+        assert "tushare/report_rc@2024-01-03" not in result
+
+    def test_defers_remaining_interface_tasks_after_quota_pause_in_same_pass(self):
+        from app.datasync.base import SyncResult, SyncStatus
+        from app.datasync.service.sync_engine import backfill_retry
+
+        registry = MagicMock()
+        quota_iface = MagicMock()
+        quota_iface.sync_date.return_value = SyncResult(
+            status=SyncStatus.PENDING,
+            rows_synced=0,
+            error_message="hour quota",
+            details={"quota_exceeded": True, "quota_scope": "hour", "quota_retry_after": "360"},
+        )
+        other_iface = MagicMock()
+        other_iface.sync_date.return_value = SyncResult(status=SyncStatus.SUCCESS, rows_synced=5)
+
+        def _get_interface(source, item_key):
+            if (source, item_key) == ("tushare", "report_rc"):
+                return quota_iface
+            if (source, item_key) == ("tushare", "stock_daily"):
+                return other_iface
+            return None
+
+        registry.get_interface.side_effect = _get_interface
+
+        records = [
+            (date(2024, 1, 4), "tushare", "report_rc", 0),
+            (date(2024, 1, 4), "tushare", "stock_daily", 0),
+            (date(2024, 1, 3), "tushare", "report_rc", 0),
+        ]
+
+        with patch(f"{_MOD}._get_enabled_backfill_keys", return_value={
+            ("tushare", "report_rc"),
+            ("tushare", "stock_daily"),
+        }), \
+             patch(f"{_MOD}._get_failed_records", return_value=records), \
+             patch(f"{_MOD}._write_status"), \
+             patch("app.domains.extdata.dao.data_sync_status_dao.acquire_backfill_lock"), \
+             patch("app.domains.extdata.dao.data_sync_status_dao.release_backfill_lock"), \
+             patch("app.domains.extdata.dao.data_sync_status_dao.is_backfill_locked", return_value=False):
+            result = backfill_retry(registry, max_workers=2)
+
+        quota_iface.sync_date.assert_called_once_with(date(2024, 1, 4))
+        other_iface.sync_date.assert_called_once_with(date(2024, 1, 4))
+        assert result["tushare/report_rc@2024-01-04"]["status"] == "pending"
+        assert result["tushare/stock_daily@2024-01-04"]["status"] == "success"
+        assert "tushare/report_rc@2024-01-03" not in result
 
     def test_reopens_historical_zero_row_success_for_strict_interface(self):
         from app.datasync.base import SyncResult, SyncStatus

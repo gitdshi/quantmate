@@ -16,6 +16,36 @@ from app.infrastructure.db.connections import get_quantmate_engine
 
 logger = logging.getLogger(__name__)
 
+_ENABLED_ITEM_METADATA_SQL = (
+    "SELECT dsi.source, dsi.item_key, dsi.api_name, dsi.permission_points, dsi.requires_permission "
+    "FROM data_source_items dsi "
+    "JOIN data_source_configs dsc ON dsi.source = dsc.source_key "
+    "WHERE dsi.enabled = 1 AND dsc.enabled = 1 "
+    "ORDER BY dsi.source, dsi.sync_priority, dsi.item_key"
+)
+
+_ENABLED_ITEM_METADATA_LEGACY_SQL = (
+    "SELECT dsi.source, dsi.item_key, dsi.item_key AS api_name, 0 AS permission_points, dsi.requires_permission "
+    "FROM data_source_items dsi "
+    "JOIN data_source_configs dsc ON dsi.source = dsc.source_key "
+    "WHERE dsi.enabled = 1 AND dsc.enabled = 1 "
+    "ORDER BY dsi.source, dsi.sync_priority, dsi.item_key"
+)
+
+_TUSHARE_ITEM_METADATA_SQL = (
+    "SELECT source, item_key, enabled, api_name, permission_points, requires_permission "
+    "FROM data_source_items "
+    "WHERE source = 'tushare' "
+    "ORDER BY sync_priority, item_key"
+)
+
+_TUSHARE_ITEM_METADATA_LEGACY_SQL = (
+    "SELECT source, item_key, enabled, item_key AS api_name, 0 AS permission_points, requires_permission "
+    "FROM data_source_items "
+    "WHERE source = 'tushare' "
+    "ORDER BY sync_priority, item_key"
+)
+
 DEFAULT_ENV_WINDOW_YEARS = {
     "dev": 1,
     "development": 1,
@@ -72,6 +102,36 @@ def _get_env_floor_start_date(reference_date: date | None = None, env: str | Non
     return resolved_reference - timedelta(days=365 * window_years)
 
 
+def _is_unknown_data_source_items_column_error(exc: Exception) -> bool:
+    return "unknown column" in str(exc or "").lower()
+
+
+def _execute_data_source_item_metadata_query(conn, primary_sql: str, legacy_sql: str):
+    try:
+        return conn.execute(text(primary_sql)).fetchall()
+    except Exception as exc:
+        if not _is_unknown_data_source_items_column_error(exc):
+            raise
+        logger.warning("Falling back to legacy data_source_items metadata query: %s", exc)
+        return conn.execute(text(legacy_sql)).fetchall()
+
+
+def _fetch_enabled_item_metadata_rows(conn):
+    return _execute_data_source_item_metadata_query(
+        conn,
+        _ENABLED_ITEM_METADATA_SQL,
+        _ENABLED_ITEM_METADATA_LEGACY_SQL,
+    )
+
+
+def _fetch_tushare_item_metadata_rows(conn):
+    return _execute_data_source_item_metadata_query(
+        conn,
+        _TUSHARE_ITEM_METADATA_SQL,
+        _TUSHARE_ITEM_METADATA_LEGACY_SQL,
+    )
+
+
 def get_coverage_window(target_end_date: date | None = None) -> dict[str, object]:
     today = date.today()
     end_date = target_end_date or (today - timedelta(days=1))
@@ -104,15 +164,7 @@ def _get_sync_status_coverage_state() -> dict[str, object]:
     registry = build_default_registry()
     engine = get_quantmate_engine()
     with engine.connect() as conn:
-        enabled_rows = conn.execute(
-            text(
-                "SELECT dsi.source, dsi.item_key, dsi.api_name, dsi.permission_points, dsi.requires_permission "
-                "FROM data_source_items dsi "
-                "JOIN data_source_configs dsc ON dsi.source = dsc.source_key "
-                "WHERE dsi.enabled = 1 AND dsc.enabled = 1 "
-                "ORDER BY dsi.source, dsi.sync_priority, dsi.item_key"
-            )
-        ).fetchall()
+        enabled_rows = _fetch_enabled_item_metadata_rows(conn)
         init_rows = conn.execute(
             text("SELECT source, interface_key, initialized_from, initialized_to FROM sync_status_init")
         ).fetchall()
@@ -300,14 +352,7 @@ def _sync_bootstrap_item_enablement(engine, registry: DataSourceRegistry) -> int
 
     try:
         with engine.connect() as conn:
-            rows = conn.execute(
-                text(
-                    "SELECT source, item_key, enabled, api_name, permission_points, requires_permission "
-                    "FROM data_source_items "
-                    "WHERE source = 'tushare' "
-                    "ORDER BY sync_priority, item_key"
-                )
-            ).fetchall()
+            rows = _fetch_tushare_item_metadata_rows(conn)
     except Exception:
         logger.exception("Failed to load Tushare items for bootstrap enablement sync")
         return 0

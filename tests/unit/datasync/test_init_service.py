@@ -118,6 +118,34 @@ class TestCoverageWindow:
         assert result["end_date"] == target_end
 
 
+class TestDataSourceItemMetadataCompatibility:
+    def test_falls_back_to_legacy_enabled_item_query_on_missing_columns(self):
+        from app.datasync.service.init_service import _fetch_enabled_item_metadata_rows
+
+        conn = MagicMock()
+        conn.execute.side_effect = [
+            Exception("(1054, \"Unknown column 'dsi.api_name' in 'field list'\")"),
+            MagicMock(fetchall=MagicMock(return_value=[("tushare", "stock_daily", "stock_daily", 0, "0")])),
+        ]
+
+        rows = _fetch_enabled_item_metadata_rows(conn)
+
+        assert rows == [("tushare", "stock_daily", "stock_daily", 0, "0")]
+
+    def test_falls_back_to_legacy_tushare_query_on_missing_columns(self):
+        from app.datasync.service.init_service import _fetch_tushare_item_metadata_rows
+
+        conn = MagicMock()
+        conn.execute.side_effect = [
+            Exception("(1054, \"Unknown column 'api_name' in 'field list'\")"),
+            MagicMock(fetchall=MagicMock(return_value=[("tushare", "stock_daily", 1, "stock_daily", 0, "0")])),
+        ]
+
+        rows = _fetch_tushare_item_metadata_rows(conn)
+
+        assert rows == [("tushare", "stock_daily", 1, "stock_daily", 0, "0")]
+
+
 class TestInitializationState:
     def test_detects_incomplete_init(self):
         from app.datasync.service.init_service import get_initialization_state

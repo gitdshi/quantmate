@@ -66,6 +66,15 @@ def is_item_sync_supported(
     if iface is None:
         return False
 
+    supports_scheduled_sync = getattr(iface, "supports_scheduled_sync", None)
+    if callable(supports_scheduled_sync):
+        try:
+            if not bool(supports_scheduled_sync()):
+                return False
+        except Exception:
+            logger.exception("Failed to inspect scheduled-sync support for %s/%s", source, item_key)
+            return False
+
     if source != "tushare":
         return True
 

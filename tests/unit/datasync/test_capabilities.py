@@ -110,3 +110,17 @@ class TestIsItemSyncSupported:
                 {"source": "akshare", "item_key": "fund_etf_daily"},
                 source_configs={},
             ) is True
+
+    def test_runtime_unsupported_interface_is_not_supported(self):
+        from app.datasync.capabilities import is_item_sync_supported
+
+        registry = MagicMock()
+        iface = MagicMock()
+        iface.supports_scheduled_sync.return_value = False
+        registry.get_interface.return_value = iface
+
+        assert is_item_sync_supported(
+            registry,
+            {"source": "tushare", "item_key": "fina_indicator", "api_name": "fina_indicator"},
+            source_configs={"tushare": {"config_json": {"token_points": 2000}}},
+        ) is False

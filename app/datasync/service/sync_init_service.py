@@ -1,4 +1,4 @@
-"""Calendar-based sync status reconciliation for enabled interfaces."""
+"""Calendar-aware sync status reconciliation for enabled interfaces."""
 
 from __future__ import annotations
 
@@ -127,12 +127,21 @@ def _insert_pending_rows(source: str, item_key: str, trade_days: list[date]) -> 
     return inserted
 
 
+def _build_calendar_dates(start_date: date, end_date: date) -> list[date]:
+    if start_date > end_date:
+        return []
+
+    total_days = (end_date - start_date).days + 1
+    return [start_date + timedelta(days=offset) for offset in range(total_days)]
+
+
 def initialize_sync_status(
     source: str,
     item_key: str,
     start_date: date | None = None,
     end_date: date | None = None,
     reconcile_missing: bool = True,
+    use_trade_calendar: bool = True,
 ) -> int:
     """Seed pending ``data_sync_status`` rows for every trading day in range.
 
@@ -155,7 +164,7 @@ def initialize_sync_status(
     from app.datasync.service.sync_engine import get_trade_calendar
 
     ranges: list[tuple[date, date]] = []
-    if initialized_bounds is None:
+    if initialized_bounds is None or (reconcile_missing and not use_trade_calendar):
         ranges.append((start_date, end_date))
     else:
         initialized_from, initialized_to = initialized_bounds
@@ -166,16 +175,22 @@ def initialize_sync_status(
 
     inserted = 0
     for range_start, range_end in ranges:
-        trade_days = get_trade_calendar(range_start, range_end)
-        if not trade_days:
-            logger.warning("No trading days found between %s and %s", range_start, range_end)
+        sync_dates = get_trade_calendar(range_start, range_end) if use_trade_calendar else _build_calendar_dates(range_start, range_end)
+        if not sync_dates:
+            if use_trade_calendar:
+                logger.warning("No trading days found between %s and %s", range_start, range_end)
             continue
 
         logger.info(
-            "Initializing sync status for %s/%s: %d trading days (%s -> %s)",
-            source, item_key, len(trade_days), trade_days[0], trade_days[-1],
+            "Initializing sync status for %s/%s: %d %s (%s -> %s)",
+            source,
+            item_key,
+            len(sync_dates),
+            "trading days" if use_trade_calendar else "calendar days",
+            sync_dates[0],
+            sync_dates[-1],
         )
-        inserted += _insert_pending_rows(source, item_key, trade_days)
+        inserted += _insert_pending_rows(source, item_key, sync_dates)
 
     _record_init(source, item_key, start_date, end_date)
     logger.info("Reconciled %d sync status rows for %s/%s", inserted, source, item_key)
@@ -191,6 +206,7 @@ def reconcile_enabled_sync_status(
 ) -> dict[str, object]:
     """Ensure enabled, registry-backed interfaces have pending status rows."""
     from app.datasync.capabilities import is_item_sync_supported, load_source_config_map
+    from app.datasync.service.init_service import _is_unknown_data_source_items_column_error
 
     ensure_sync_status_init_table()
 
@@ -212,8 +228,22 @@ def reconcile_enabled_sync_status(
         "ORDER BY dsi.source, dsi.sync_priority, dsi.item_key"
     )
 
+    legacy_sql = (
+        "SELECT dsi.source, dsi.item_key, dsi.item_key AS api_name, 0 AS permission_points, dsi.requires_permission "
+        "FROM data_source_items dsi "
+        "JOIN data_source_configs dsc ON dsi.source = dsc.source_key "
+        f"WHERE {' AND '.join(clauses)} "
+        "ORDER BY dsi.source, dsi.sync_priority, dsi.item_key"
+    )
+
     with engine.connect() as conn:
-        rows = conn.execute(text(sql), params).fetchall()
+        try:
+            rows = conn.execute(text(sql), params).fetchall()
+        except Exception as exc:
+            if not _is_unknown_data_source_items_column_error(exc):
+                raise
+            logger.warning("Falling back to legacy data_source_items metadata query: %s", exc)
+            rows = conn.execute(text(legacy_sql), params).fetchall()
 
     pending_records = 0
     items_reconciled = 0
@@ -241,10 +271,12 @@ def reconcile_enabled_sync_status(
 
         item_start_date = start_date
         item_end_date = end_date
+        use_trade_calendar = True
         method = getattr(iface, "supports_backfill", None)
         if callable(method) and not bool(method()):
             item_end_date = end_date if end_date is not None else date.today() - timedelta(days=1)
             item_start_date = item_end_date
+            use_trade_calendar = False
 
         pending_records += initialize_sync_status(
             source_key,
@@ -252,6 +284,7 @@ def reconcile_enabled_sync_status(
             start_date=item_start_date,
             end_date=item_end_date,
             reconcile_missing=True,
+            use_trade_calendar=use_trade_calendar,
         )
         items_reconciled += 1
 

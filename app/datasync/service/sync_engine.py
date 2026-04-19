@@ -11,9 +11,10 @@ independently per provider.
 from __future__ import annotations
 
 import logging
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from functools import lru_cache
 from threading import Semaphore
 from typing import Optional
@@ -43,6 +44,14 @@ BACKFILL_WORKERS = get_runtime_int(
 
 _FORCE_RETRY_ERROR_SIGNATURES: dict[tuple[str, str], tuple[str, ...]] = {
     ("tushare", "trade_cal"): ("unknown column", "updated_at"),
+}
+
+# AkShare backfill can exercise py_mini_racer-backed endpoints (for example
+# ETF history via Sina). On macOS, concurrent V8 initialization in those paths
+# can abort the interpreter, so keep AkShare backfill serial unless explicitly
+# overridden by env/DB config.
+_BACKFILL_SOURCE_SAFE_DEFAULTS: dict[str, int] = {
+    "akshare": 1,
 }
 
 # Maximum concurrent API calls per data source (respects Tushare rate limits)
@@ -85,7 +94,7 @@ def _get_source_concurrency_limit(source: str) -> int | None:
 
 
 def _get_backfill_source_concurrency_limit(source: str) -> int | None:
-    default_limit = _get_source_concurrency_limit(source)
+    default_limit = _BACKFILL_SOURCE_SAFE_DEFAULTS.get(source, _get_source_concurrency_limit(source))
     override = get_runtime_config(
         env_keys=f"BACKFILL_{_get_source_env_key(source)}_CONCURRENCY",
         db_key=f"datasync.backfill_source_concurrency.{source}",
@@ -223,7 +232,7 @@ def _get_failed_records(
     with engine.connect() as conn:
         rows = conn.execute(
             text(
-                "SELECT sync_date, source, interface_key, retry_count, error_message, status, COALESCE(rows_synced, 0) "
+                "SELECT sync_date, source, interface_key, retry_count, error_message, status, COALESCE(rows_synced, 0), updated_at "
                 "FROM data_sync_status "
                 f"WHERE {' AND '.join(where_clauses)} "
                 "ORDER BY sync_date DESC, source, interface_key"
@@ -235,8 +244,89 @@ def _get_failed_records(
             error_message = row[4] if len(row) > 4 else None
             status = row[5] if len(row) > 5 else None
             rows_synced = row[6] if len(row) > 6 else 0
-            records.append((row[0], row[1], row[2], row[3], error_message, status, int(rows_synced or 0)))
+            updated_at = row[7] if len(row) > 7 else None
+            records.append((row[0], row[1], row[2], row[3], error_message, status, int(rows_synced or 0), updated_at))
         return records
+
+
+def _parse_quota_retry_after_seconds(error_message: str | None) -> float | None:
+    if not error_message:
+        return None
+
+    try:
+        from app.datasync.service.tushare_ingest import parse_retry_after
+
+        retry_after = parse_retry_after(error_message)
+    except Exception:
+        logger.exception("Failed to parse quota retry_after from error message: %s", error_message)
+        return None
+
+    if retry_after is None:
+        return None
+
+    try:
+        return max(0.0, float(retry_after))
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_quota_cooldown_record(record: tuple[object, ...], now: datetime | None = None) -> bool:
+    status = record[5] if len(record) > 5 else None
+    error_message = record[4] if len(record) > 4 else None
+    updated_at = record[7] if len(record) > 7 else None
+
+    if status != SyncStatus.PENDING.value or not error_message or updated_at is None:
+        return False
+
+    retry_after_seconds = _parse_quota_retry_after_seconds(error_message)
+    if retry_after_seconds is None or retry_after_seconds <= 0:
+        return False
+
+    if not isinstance(updated_at, datetime):
+        return False
+
+    current_time = now or datetime.now(updated_at.tzinfo)
+    return updated_at + timedelta(seconds=retry_after_seconds) > current_time
+
+
+def _is_quota_pending_record(record: tuple[object, ...]) -> bool:
+    status = record[5] if len(record) > 5 else None
+    error_message = record[4] if len(record) > 4 else None
+    return status == SyncStatus.PENDING.value and _parse_quota_retry_after_seconds(error_message) is not None
+
+
+def _filter_backfill_retry_records(records: list[tuple[object, ...]], now: datetime | None = None) -> list[tuple[object, ...]]:
+    filtered: list[tuple[object, ...]] = []
+    current_time = now or datetime.now()
+    seen_quota_interfaces: set[tuple[str, str]] = set()
+
+    for record in records:
+        if _is_quota_cooldown_record(record, now=current_time):
+            sync_date, source, iface_key = record[:3]
+            logger.info(
+                "Skipping backfill retry for quota-cooled record %s/%s@%s until cooldown expires",
+                source,
+                iface_key,
+                sync_date,
+            )
+            continue
+
+        if _is_quota_pending_record(record):
+            source = str(record[1])
+            iface_key = str(record[2])
+            quota_key = (source, iface_key)
+            if quota_key in seen_quota_interfaces:
+                logger.info(
+                    "Skipping additional quota-limited retry for %s/%s in this backfill pass",
+                    source,
+                    iface_key,
+                )
+                continue
+            seen_quota_interfaces.add(quota_key)
+
+        filtered.append(record)
+
+    return filtered
 
 
 def _can_force_retry_terminal_error(source: str, iface_key: str, error_message: str | None) -> bool:
@@ -309,6 +399,18 @@ def _supports_backfill(iface, source: str, iface_key: str) -> bool:
         except Exception:
             logger.exception("Failed to inspect backfill support for %s/%s", source, iface_key)
     return supports_backfill
+
+
+def _supports_scheduled_sync(iface, source: str, iface_key: str) -> bool:
+    supports_scheduled_sync = True
+    method = getattr(iface, "supports_scheduled_sync", None)
+    if callable(method):
+        try:
+            supports_scheduled_sync = bool(method())
+        except Exception:
+            logger.exception("Failed to inspect scheduled-sync support for %s/%s", source, iface_key)
+            supports_scheduled_sync = False
+    return supports_scheduled_sync
 
 
 def _get_backfill_mode(iface, source: str, iface_key: str) -> str:
@@ -487,11 +589,61 @@ def _build_backfill_log_result(task: _BackfillTask, result: SyncResult) -> SyncR
     return SyncResult(result.status, result.rows_synced, result.error_message, details=details)
 
 
+def _submit_backfill_task(
+    executor: ThreadPoolExecutor,
+    future_map: dict,
+    active_interfaces: set[tuple[str, str]],
+    task: _BackfillTask,
+) -> None:
+    interface_key = (task.source, task.iface_key)
+    active_interfaces.add(interface_key)
+    for sync_date in task.dates:
+        attempt_retry_count = task.retry_counts[sync_date]
+        _write_status(
+            sync_date,
+            task.source,
+            task.iface_key,
+            SyncStatus.RUNNING.value,
+            retry_count=attempt_retry_count,
+        )
+    logger.info(
+        "Backfill submit mode=%s range=%s->%s interface=%s retry_dates=%d",
+        task.mode,
+        task.start_date,
+        task.end_date,
+        f"{task.source}/{task.iface_key}",
+        len(task.dates),
+    )
+    future = executor.submit(_execute_backfill_task, task)
+    future_map[future] = task
+
+
+def _pop_next_backfill_task(
+    pending_tasks: deque[_BackfillTask],
+    active_interfaces: set[tuple[str, str]],
+    blocked_interfaces: set[tuple[str, str]],
+) -> _BackfillTask | None:
+    total_pending = len(pending_tasks)
+    for _ in range(total_pending):
+        task = pending_tasks.popleft()
+        interface_key = (task.source, task.iface_key)
+        if interface_key in blocked_interfaces or interface_key in active_interfaces:
+            pending_tasks.append(task)
+            continue
+        return task
+    return None
+
+
 def _execute_backfill_task(task: _BackfillTask) -> SyncResult:
     sem = _get_backfill_source_semaphore(task.source)
     try:
         if sem:
             sem.acquire()
+        info = getattr(task.iface, "info", None)
+        target_database = getattr(info, "target_database", None)
+        target_table = getattr(info, "target_table", None)
+        if isinstance(target_database, str) and target_database and isinstance(target_table, str) and target_table:
+            ensure_table(target_database, target_table, task.iface.get_ddl())
         if task.mode == "range":
             return task.iface.sync_range(task.start_date, task.end_date)
         return task.iface.sync_date(task.start_date)
@@ -669,6 +821,17 @@ def _sync_one_item(
             logger.warning("No interface registered for %s, skipping", label)
             return label, {"status": "skipped", "reason": "no plugin"}
 
+        if not _supports_scheduled_sync(iface, source, item_key):
+            message = "Skipped scheduled sync for runtime-unsupported interface"
+            logger.info("[%d/%d] %s runtime scheduler disabled, skipping", idx, total, label)
+            _write_status(target_date, source, item_key, SyncStatus.SUCCESS.value, 0, message)
+            return label, {
+                "status": SyncStatus.SUCCESS.value,
+                "rows": 0,
+                "skipped": True,
+                "reason": "scheduled sync unsupported",
+            }
+
         existing_status, existing_rows = _get_status_snapshot(target_date, source, item_key)
         if existing_status == SyncStatus.SUCCESS.value and not (
             existing_rows == 0 and _should_retry_zero_row_success(iface, target_date, source, item_key)
@@ -799,7 +962,7 @@ def backfill_retry(
         enabled_backfill_keys = _get_enabled_backfill_keys()
         failed = [
             record
-            for record in _get_failed_records(window_start_date, window_end_date)
+            for record in _filter_backfill_retry_records(_get_failed_records(window_start_date, window_end_date))
             if (record[1], record[2]) in enabled_backfill_keys
         ]
         pending_range_records: dict[tuple[str, str], dict[str, object]] = {}
@@ -818,6 +981,25 @@ def backfill_retry(
             if iface is None:
                 logger.warning("Backfill skip date=%s interface=%s: no plugin registered", sync_date, f"{source}/{iface_key}")
                 results[label] = {"status": "skipped", "reason": "no plugin"}
+                continue
+
+            if not _supports_scheduled_sync(iface, source, iface_key):
+                logger.info("Skipping runtime-unsupported interface %s during backfill", label)
+                _write_status(
+                    sync_date,
+                    source,
+                    iface_key,
+                    SyncStatus.SUCCESS.value,
+                    0,
+                    "Skipped scheduled sync for runtime-unsupported interface",
+                    retry_count=effective_retry_count,
+                )
+                results[label] = {
+                    "status": SyncStatus.SUCCESS.value,
+                    "rows": 0,
+                    "skipped": True,
+                    "reason": "scheduled sync unsupported",
+                }
                 continue
 
             if _is_zero_row_success_record(record) and not _should_retry_zero_row_success(
@@ -909,35 +1091,48 @@ def backfill_retry(
 
         with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="datasync-backfill") as executor:
             future_map = {}
+            pending_tasks = deque(tasks)
+            active_interfaces: set[tuple[str, str]] = set()
+            blocked_interfaces: set[tuple[str, str]] = set()
 
-            for task in tasks:
-                for sync_date in task.dates:
-                    attempt_retry_count = task.retry_counts[sync_date]
-                    _write_status(
-                        sync_date,
-                        task.source,
-                        task.iface_key,
-                        SyncStatus.RUNNING.value,
-                        retry_count=attempt_retry_count,
+            while pending_tasks or future_map:
+                while len(future_map) < max_workers:
+                    next_task = _pop_next_backfill_task(
+                        pending_tasks,
+                        active_interfaces,
+                        blocked_interfaces,
                     )
-                logger.info(
-                    "Backfill submit mode=%s range=%s->%s interface=%s retry_dates=%d",
-                    task.mode,
-                    task.start_date,
-                    task.end_date,
-                    f"{task.source}/{task.iface_key}",
-                    len(task.dates),
-                )
-                future = executor.submit(_execute_backfill_task, task)
-                future_map[future] = task
+                    if next_task is None:
+                        break
+                    _submit_backfill_task(executor, future_map, active_interfaces, next_task)
 
-            for future in as_completed(future_map):
-                task = future_map[future]
+                if not future_map:
+                    break
+
+                future = next(as_completed(tuple(future_map)))
+                task = future_map.pop(future)
+                active_interfaces.discard((task.source, task.iface_key))
                 log_label = f"{task.source}/{task.iface_key}@{task.start_date}"
                 if task.mode == "range" and task.end_date != task.start_date:
                     log_label = f"{task.source}/{task.iface_key}@{task.start_date}->{task.end_date}"
                 try:
                     result = future.result()
+                    if _is_quota_pause_result(result):
+                        interface_key = (task.source, task.iface_key)
+                        blocked_interfaces.add(interface_key)
+                        deferred_count = sum(
+                            1
+                            for pending_task in pending_tasks
+                            if (pending_task.source, pending_task.iface_key) == interface_key
+                        )
+                        if deferred_count:
+                            logger.info(
+                                "Deferring remaining %d backfill tasks for quota-limited interface %s/%s until the next pass",
+                                deferred_count,
+                                task.source,
+                                task.iface_key,
+                            )
+
                     rows_by_date = _get_backfill_rows_by_date(task, result)
                     log_result = _build_backfill_log_result(task, result)
                     if task.mode == "date" and len(task.dates) == 1:

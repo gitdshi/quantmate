@@ -486,7 +486,7 @@ PY
     echo "  INIT_RESET_PROGRESS=1        # optional: reset init_progress before execution"
     echo ""
     echo "Runtime/backfill options via env vars:"
-    echo "  SYNC_INIT_DEFAULT_START_DATE=2010-01-01    # optional explicit sync start date; otherwise env window applies"
+    echo "  SYNC_INIT_DEFAULT_START_DATE=2010-01-01    # optional explicit sync start date; if empty, env window applies"
     echo "  BACKFILL_IDLE_INTERVAL_HOURS=4             # dedicated backfill loop sleep interval"
     exit 2
     ;;
