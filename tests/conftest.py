@@ -5,7 +5,7 @@ import asyncio
 import os
 import sys
 from pathlib import Path
-from typing import AsyncGenerator, Generator
+from typing import Generator
 
 import pytest
 from loguru import logger
@@ -97,7 +97,6 @@ def db_connection_sync():
     import sys
     from pathlib import Path
     from sqlalchemy import create_engine, text
-    from datetime import datetime
 
     # Ensure project root on path
     project_root = Path(__file__).parent.parent

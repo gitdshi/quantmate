@@ -7,13 +7,10 @@ tushare/akshare interfaces, vnpy_trading_service, paper_strategy_executor.
 
 from __future__ import annotations
 
-import json
-import sys
 import time
 import os
-from datetime import date, datetime, timedelta
-from types import SimpleNamespace
-from unittest.mock import MagicMock, patch, call, ANY
+from datetime import date
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pandas as pd

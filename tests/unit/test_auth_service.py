@@ -2,7 +2,6 @@ from datetime import timedelta
 
 import jwt
 import pytest
-from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 
 from app.api.exception_handlers import APIError

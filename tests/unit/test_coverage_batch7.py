@@ -13,16 +13,12 @@ Targets ~645 uncovered lines across:
 
 from __future__ import annotations
 
-import argparse
 import importlib
-import json
 import sys
-import threading
 import types
-from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, call, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pandas as pd

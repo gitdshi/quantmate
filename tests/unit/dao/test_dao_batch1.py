@@ -7,7 +7,6 @@ Covers: PortfolioDao, WatchlistDao, ReportDao, BulkBacktestDao,
 
 import pytest
 from datetime import date, datetime
-from unittest.mock import MagicMock
 
 # ── fake DB helpers ─────────────────────────────────────────────────
 

@@ -5,7 +5,7 @@ Target: P1-DSYNC-CODE-001 - Init 断点续跑 + 自适应限流实现
 
 import os
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import patch, MagicMock
 import pandas as pd
 
 # Set required environment variables before importing tushare_ingest

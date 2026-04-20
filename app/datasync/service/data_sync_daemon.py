@@ -60,6 +60,7 @@ from app.datasync.service.vnpy_ingest import (
 
 # Import DAOs
 from app.domains.extdata.dao.data_sync_status_dao import (
+    ensure_tables as _ensure_tables,
     write_step_status,
     get_step_status,
     get_failed_steps,
@@ -82,6 +83,10 @@ from app.domains.extdata.dao.data_sync_status_dao import (
     release_backfill_lock,
     is_backfill_locked,
 )
+
+# Backward-compatible module export used by legacy tests and monkeypatch-based callers.
+ensure_tables = _ensure_tables
+
 from app.domains.extdata.dao.tushare_dao import (
     upsert_dividend_df,
 )

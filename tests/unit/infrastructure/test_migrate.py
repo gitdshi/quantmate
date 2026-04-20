@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import textwrap
 from pathlib import Path
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlalchemy.sql.elements import TextClause

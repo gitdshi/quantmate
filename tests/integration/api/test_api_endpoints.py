@@ -4,8 +4,6 @@ Integration tests for API endpoints.
 Tests the FastAPI application endpoints with test client.
 """
 import pytest
-from fastapi.testclient import TestClient
-from app.api.main import app
 
 
 @pytest.mark.integration
@@ -33,7 +31,6 @@ class TestAuthEndpoints:
     def client(self, monkeypatch):
         """Return a TestClient instance with mocked dependencies."""
         # Mock MySQL and Redis health checks to avoid real connections
-        from unittest.mock import MagicMock
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
@@ -64,6 +61,3 @@ class TestAuthEndpoints:
 
 
 # Helper import for datetime
-from datetime import datetime
-from app.api.services.auth_service import get_password_hash
-from sqlalchemy import text

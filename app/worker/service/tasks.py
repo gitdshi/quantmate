@@ -1,7 +1,6 @@
 """Background Tasks for RQ Workers."""
 
 import sys
-import os
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional

@@ -5,10 +5,8 @@ Also tests route endpoints where feasible.
 """
 from __future__ import annotations
 
-import json
 from datetime import datetime
-from types import SimpleNamespace
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient

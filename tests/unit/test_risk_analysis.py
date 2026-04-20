@@ -1,5 +1,4 @@
 """Tests for RiskAnalysisService."""
-import pytest
 from app.domains.portfolio.risk_analysis_service import RiskAnalysisService, _norm_ppf
 
 

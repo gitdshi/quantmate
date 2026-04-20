@@ -1,6 +1,6 @@
 """Tests for P2: Alert management routes."""
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 

@@ -10,7 +10,6 @@ import json
 import logging
 import os
 import subprocess
-import tempfile
 import traceback
 from pathlib import Path
 

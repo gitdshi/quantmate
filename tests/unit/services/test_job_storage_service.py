@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
-import pytest
 
 _MOD = "app.api.services.job_storage_service"
 

@@ -1,4 +1,3 @@
-import pytest
 
 from app.domains.trading.matching_engine import (
     FillResult,

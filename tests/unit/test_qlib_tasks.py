@@ -1,7 +1,6 @@
 """Tests for Qlib background worker tasks."""
 import sys
 from datetime import date
-import pytest
 from unittest.mock import patch, MagicMock
 
 # Pre-mock qlib only when the dependency is unavailable.

@@ -18,8 +18,7 @@ import json
 import types
 import threading
 from datetime import date, datetime, timedelta
-from types import SimpleNamespace
-from unittest.mock import MagicMock, patch, PropertyMock, AsyncMock
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pandas as pd

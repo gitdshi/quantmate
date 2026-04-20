@@ -1,5 +1,4 @@
 """Unit tests for CompositeStrategyDao and CompositeBacktestDao."""
-import json
 import pytest
 from datetime import datetime
 from app.domains.composite.dao.composite_strategy_dao import CompositeStrategyDao

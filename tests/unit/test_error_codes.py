@@ -4,7 +4,7 @@ Unit tests for standardized error codes and exception handlers.
 Issue #16: 统一错误响应格式 (Standardized Error Codes)
 """
 import pytest
-from fastapi import FastAPI, status
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.errors import ErrorCode, ErrorResponse, ErrorEnvelope

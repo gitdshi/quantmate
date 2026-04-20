@@ -6,9 +6,7 @@ Targets ~147 miss across:
 """
 from __future__ import annotations
 
-import types
 from datetime import date, datetime
-from unittest.mock import MagicMock, patch, call
 
 import pytest
 

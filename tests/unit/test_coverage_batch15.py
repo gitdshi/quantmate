@@ -4,13 +4,10 @@ paper_strategy_executor, paper_trading routes, and data_sync_daemon.
 
 from __future__ import annotations
 
-import os
-import threading
-from datetime import date, datetime, timedelta
-from unittest.mock import MagicMock, patch, PropertyMock
+from datetime import date, datetime
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
-import pytest
 
 
 # ---------------------------------------------------------------------------

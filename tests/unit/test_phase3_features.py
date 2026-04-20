@@ -1,9 +1,8 @@
 """Tests for Data Source Toggle, Watchlists, Portfolio, Analytics, Trade Log (Phase 3)."""
 import pytest
-import json
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.services.auth_service import get_current_user

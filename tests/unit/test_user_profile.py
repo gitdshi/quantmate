@@ -1,8 +1,8 @@
 """Tests for Issue #8: User Profile API."""
 import pytest
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, patch
-from fastapi import FastAPI, Depends
+from unittest.mock import patch
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.routes.auth import router

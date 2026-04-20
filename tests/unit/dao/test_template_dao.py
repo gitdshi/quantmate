@@ -1,5 +1,4 @@
 """Unit tests for StrategyTemplateDao, StrategyCommentDao, StrategyRatingDao."""
-import json
 import pytest
 
 from app.domains.templates.dao.template_dao import (

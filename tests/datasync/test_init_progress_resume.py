@@ -6,7 +6,7 @@ Target: P1-DSYNC-CODE-001 - Init 断点续跑 + 自适应限流实现
 import os
 import pytest
 from unittest.mock import Mock, call, patch
-from datetime import date, datetime
+from datetime import date
 
 # Set required environment variables before importing
 os.environ.setdefault('MYSQL_URL', 'mysql+pymysql://test:test@localhost:3306')

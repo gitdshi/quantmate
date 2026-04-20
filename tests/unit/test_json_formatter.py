@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 
-import pytest
 
 import app.infrastructure.logging.json_formatter as _mod
 

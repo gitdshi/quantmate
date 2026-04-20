@@ -1,5 +1,4 @@
 """Tests for PnLMonitorService."""
-import pytest
 from app.domains.monitoring.pnl_monitor_service import PnLMonitorService
 
 

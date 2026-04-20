@@ -9,11 +9,9 @@ Targets ~230 miss across:
 """
 from __future__ import annotations
 
-import json
 import os
-from datetime import date, datetime, timedelta
-from types import SimpleNamespace
-from unittest.mock import MagicMock, patch, PropertyMock
+from datetime import date, datetime
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -323,7 +321,6 @@ class TestApiMain:
 
     def test_ensure_password_changed_exempt(self):
         from app.api.main import ensure_password_changed
-        from unittest.mock import AsyncMock
         import asyncio
         req = MagicMock()
         req.url.path = "/api/v1/auth/login"

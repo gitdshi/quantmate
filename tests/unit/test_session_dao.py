@@ -1,6 +1,5 @@
 from datetime import datetime, timedelta
 
-import pytest
 from sqlalchemy.exc import OperationalError
 
 from app.domains.auth.dao import session_dao

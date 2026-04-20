@@ -6,7 +6,7 @@ Tests CRUD operations and validation logic for the users table.
 import pytest
 from datetime import datetime
 from unittest.mock import patch
-from app.domains.auth.dao.user_dao import UserDao, UserRow
+from app.domains.auth.dao.user_dao import UserDao
 
 
 @pytest.mark.unit

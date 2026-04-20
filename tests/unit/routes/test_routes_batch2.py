@@ -9,9 +9,9 @@ Covers ~250 miss across:
 from __future__ import annotations
 
 import json
-from datetime import date, datetime
+from datetime import datetime
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient

@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 def client():
     """Create a test client with a minimal versioned app."""
     from fastapi import FastAPI, Request
-    from fastapi.responses import RedirectResponse, JSONResponse
+    from fastapi.responses import RedirectResponse
     from app.api.routes import auth, strategies, data, backtest, queue, system, strategy_code
 
     test_app = FastAPI()
@@ -39,7 +39,7 @@ def client():
 def simple_client():
     """Minimal app to test redirect logic without importing route modules."""
     from fastapi import FastAPI, Request
-    from fastapi.responses import RedirectResponse, JSONResponse
+    from fastapi.responses import RedirectResponse
 
     test_app = FastAPI()
 

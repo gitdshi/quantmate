@@ -8,8 +8,7 @@ factor engine to dynamically adapt to whatever data DataSync currently provides.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from app.infrastructure.db.connections import connection
 

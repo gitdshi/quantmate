@@ -6,8 +6,8 @@ Focus on testable utility functions and mocked DB operations.
 
 import pytest
 import numpy as np
-from datetime import datetime, date, timedelta
-from unittest.mock import MagicMock, patch, PropertyMock
+from datetime import date
+from unittest.mock import MagicMock
 
 import app.worker.service.tasks as _tasks
 

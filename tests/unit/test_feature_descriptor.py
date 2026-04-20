@@ -1,5 +1,4 @@
 """Tests for Feature Descriptor — build_feature_descriptor and build_prompt_context."""
-import pytest
 from unittest.mock import patch
 
 from app.domains.factors.feature_descriptor import (

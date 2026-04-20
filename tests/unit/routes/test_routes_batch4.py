@@ -3,12 +3,10 @@
 """
 from __future__ import annotations
 
-import ast
 import json
 from datetime import date, datetime
 from types import SimpleNamespace
-from typing import Dict, Any
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient

@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import date
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 import app.datasync.sources.akshare.interfaces as _mod
 

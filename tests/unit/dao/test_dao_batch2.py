@@ -5,10 +5,9 @@ Covers: SystemConfigDao, DataSourceConfigDao (system), IndicatorConfigDao,
         sync_log_dao (module-level + class SyncLogDao)
 """
 
-import json
 import pytest
 from datetime import date, datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 # ── fake DB helpers ─────────────────────────────────────────────────
 
@@ -93,7 +92,6 @@ class _FakeCursor:
 # =====================================================================
 # SystemConfigDao
 # =====================================================================
-import app.domains.system.dao.system_config_dao as _sys_cfg_mod
 from app.domains.system.dao.system_config_dao import SystemConfigDao, DataSourceConfigDao as SysDataSourceConfigDao
 
 
@@ -174,7 +172,6 @@ class TestSysDataSourceConfigDao:
 # =====================================================================
 # IndicatorConfigDao
 # =====================================================================
-import app.domains.system.dao.indicator_dao as _ind_mod
 from app.domains.system.dao.indicator_dao import IndicatorConfigDao
 
 

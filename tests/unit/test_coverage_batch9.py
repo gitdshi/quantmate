@@ -19,19 +19,14 @@ Covers:
 from __future__ import annotations
 
 import importlib
-import os
-import sys
-import threading
-import types
 from datetime import date, datetime, timedelta
 from types import SimpleNamespace
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pandas as pd
 import pytest
-from fastapi import Depends, FastAPI
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.exception_handlers import register_exception_handlers

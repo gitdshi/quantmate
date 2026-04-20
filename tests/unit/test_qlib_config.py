@@ -1,5 +1,4 @@
 """Tests for Qlib configuration and initialization helpers."""
-import pytest
 import sys
 from unittest.mock import patch, MagicMock
 

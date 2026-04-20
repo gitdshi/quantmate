@@ -6,7 +6,7 @@ The entire tasks module imports vnpy at module level, so we must mock it.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 import sys
 
 import pytest

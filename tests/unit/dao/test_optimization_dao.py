@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import json
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 _MOD = "app.domains.system.dao.optimization_dao"
 

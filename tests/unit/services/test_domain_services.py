@@ -6,7 +6,7 @@ These are the biggest domain-service coverage gaps.
 import pytest
 import numpy as np
 import pandas as pd
-from datetime import date, datetime
+from datetime import date
 from unittest.mock import MagicMock, patch
 
 # ── fake DB helpers ─────────────────────────────────────────────────

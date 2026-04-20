@@ -1,7 +1,7 @@
 """Unit tests for AlertRuleDao, AlertHistoryDao, NotificationChannelDao."""
 import json
 import pytest
-from sqlalchemy.exc import SQLAlchemyError, OperationalError
+from sqlalchemy.exc import OperationalError
 
 from app.domains.monitoring.dao import alert_dao as _alert_mod
 from app.domains.monitoring.dao.alert_dao import (

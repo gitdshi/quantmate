@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
-import pytest
 
 from app.cli import cmd_health, cmd_db_status, cmd_sync_status, cmd_create_user, main
 

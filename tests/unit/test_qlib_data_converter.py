@@ -1,13 +1,9 @@
 """Tests for Qlib data converter (tushare/akshare → Qlib binary format)."""
-import pytest
 import os
-import struct
 import tempfile
 from unittest.mock import patch, MagicMock
-from datetime import date
 
 import pandas as pd
-import numpy as np
 
 
 # Pre-mock qlib before import only when pyqlib is unavailable.

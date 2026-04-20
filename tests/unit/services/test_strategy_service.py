@@ -5,7 +5,6 @@ Tests the StrategyValidation logic for code parsing and security checks.
 """
 import pytest
 from app.api.services.strategy_service import compile_strategy, parse_strategy_file, validate_strategy_code
-from app.api.models.strategy import StrategyValidation
 
 
 @pytest.mark.unit

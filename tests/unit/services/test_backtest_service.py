@@ -8,7 +8,7 @@ BacktestServiceV2 (job management), BacktestService._load_builtin_strategies.
 import pytest
 import numpy as np
 from datetime import date, datetime
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock
 import json
 
 import app.api.services.backtest_service as _bs

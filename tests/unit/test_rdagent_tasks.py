@@ -1,6 +1,5 @@
 """Tests for rdagent_tasks — run_rdagent_mining_task and helpers."""
 import json
-import pytest
 from unittest.mock import patch, MagicMock
 
 from app.worker.service.rdagent_tasks import (

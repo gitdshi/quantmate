@@ -1,7 +1,5 @@
 """Tests for Issue #15: DB Migration framework."""
 import pytest
-import tempfile
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from app.infrastructure.db.migrate import (

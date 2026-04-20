@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 _MOD = "app.datasync.service.sync_engine"
 

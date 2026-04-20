@@ -8,7 +8,6 @@ from app.api.rate_limit import (
     _get_limit_for_path,
     _rate_limit_key,
     _extract_identifier,
-    _WINDOW_SECONDS,
 )
 
 

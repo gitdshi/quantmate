@@ -1,5 +1,4 @@
 """Tests for Data Catalog service — scan_database_columns, get_catalog, etc."""
-import pytest
 from unittest.mock import patch, MagicMock
 
 from app.domains.factors.data_catalog import (

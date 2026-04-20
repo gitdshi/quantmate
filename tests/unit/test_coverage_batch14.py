@@ -6,9 +6,8 @@ and settings routes.
 from __future__ import annotations
 
 import os
-import types
-from datetime import date, datetime, timedelta
-from unittest.mock import MagicMock, patch, PropertyMock
+from datetime import date, datetime
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
@@ -720,7 +719,6 @@ class TestTushareIngestFunctions:
     @patch("app.datasync.service.tushare_ingest.call_pro")
     def test_ingest_dividend_with_missing_ann_date(self, mock_pro, mock_start, mock_finish, mock_upsert):
         """Cover the branch where ann_date is missing and filled by imp_ann_date."""
-        import numpy as np
 
         df = pd.DataFrame(
             {

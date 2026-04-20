@@ -2,7 +2,7 @@
 factors, indicators, kyc, multi_market, optimization, reports, risk,
 system_config, teams, templates, trading."""
 from __future__ import annotations
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import MagicMock, patch
 import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient

@@ -6,11 +6,9 @@ Targets ~900+ uncovered statements across datasync layer.
 
 import pytest
 import pandas as pd
-import numpy as np
-from datetime import date, datetime, timedelta
-from unittest.mock import MagicMock, patch, PropertyMock
+from datetime import date, timedelta
+from unittest.mock import MagicMock
 import time
-import os
 
 # =====================================================================
 # tushare_ingest utilities

@@ -1,8 +1,8 @@
 """Tests for Issue #9: KYC Verification."""
 import pytest
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, patch
-from fastapi import FastAPI, Depends
+from unittest.mock import patch
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.routes.kyc import router, _require_admin, _mask_name

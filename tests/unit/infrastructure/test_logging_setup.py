@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import logging
 import os
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
-import pytest
 
 from app.infrastructure.logging.logging_setup import configure_logging, get_logger
 

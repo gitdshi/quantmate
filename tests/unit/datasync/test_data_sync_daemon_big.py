@@ -12,8 +12,8 @@ DataSyncDaemon.
 from __future__ import annotations
 
 import argparse
-from datetime import date, timedelta
-from unittest.mock import MagicMock, patch, call
+from datetime import date
+from unittest.mock import MagicMock, patch
 import pytest
 
 _MOD = "app.datasync.service.data_sync_daemon"

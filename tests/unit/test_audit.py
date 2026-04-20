@@ -1,15 +1,13 @@
 """Tests for Issue #2: Audit Logging System."""
 import pytest
-import json
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, patch, AsyncMock
-from fastapi import FastAPI, Depends, Request
+from unittest.mock import MagicMock, patch
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.audit_middleware import (
     _classify_request,
     _extract_resource_id,
-    _SKIP_PATHS,
     AuditMiddleware,
 )
 
@@ -120,9 +118,8 @@ class TestAuditRoutes:
 
     @pytest.fixture
     def non_admin_client(self):
-        from app.api.routes.audit import router, _require_admin
-        from app.api.exception_handlers import APIError, register_exception_handlers
-        from app.api.errors import ErrorCode
+        from app.api.routes.audit import router
+        from app.api.exception_handlers import register_exception_handlers
 
         app = FastAPI()
         register_exception_handlers(app)
