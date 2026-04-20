@@ -56,8 +56,13 @@ LOG_MODULE_SPECS: dict[str, LogModuleSpec] = {
     "datasync-backfill": LogModuleSpec(
         key="datasync-backfill",
         label="DataSync Backfill",
-        service_names=("worker",),
-        name_fragments=("quantmate_worker", "quantmate-worker"),
+        service_names=("datasync-backfill", "worker"),
+        name_fragments=(
+            "quantmate_datasync_backfill",
+            "quantmate-datasync-backfill",
+            "quantmate_worker",
+            "quantmate-worker",
+        ),
         include_terms=("backfill",),
     ),
     "worker": LogModuleSpec(
@@ -145,6 +150,20 @@ def _container_matches_spec(container: Any, spec: LogModuleSpec) -> bool:
     return any(fragment in container_name for fragment in spec.name_fragments)
 
 
+def _container_match_priority(container: Any, spec: LogModuleSpec) -> tuple[int, str]:
+    labels = getattr(container, "labels", {}) or {}
+    service_name = str(labels.get("com.docker.compose.service") or "").strip().lower()
+    if service_name in spec.service_names:
+        return spec.service_names.index(service_name), str(getattr(container, "name", "") or "")
+
+    container_name = str(getattr(container, "name", "") or "").strip().lower()
+    for index, fragment in enumerate(spec.name_fragments):
+        if fragment in container_name:
+            return len(spec.service_names) + index, container_name
+
+    return len(spec.service_names) + len(spec.name_fragments), container_name
+
+
 def _resolve_log_container(client: Any, spec: LogModuleSpec) -> Any:
     try:
         containers = client.containers.list(all=True)
@@ -165,7 +184,7 @@ def _resolve_log_container(client: Any, spec: LogModuleSpec) -> Any:
 
     running = [container for container in matched if str(getattr(container, "status", "")).lower() == "running"]
     candidates = running or matched
-    candidates.sort(key=lambda container: str(getattr(container, "name", "")))
+    candidates.sort(key=lambda container: _container_match_priority(container, spec))
     return candidates[0]
 
 

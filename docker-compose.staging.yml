@@ -24,6 +24,7 @@ services:
       # Tushare Settings
       - TUSHARE_TOKEN=${TUSHARE_TOKEN}
       - TUSHARE_DATABASE=tushare
+      - RDAGENT_SIDECAR_URL=http://rdagent-service:8001
       # Redis Settings
       - REDIS_HOST=redis
       - REDIS_PORT=6379
@@ -57,6 +58,7 @@ services:
       redis:
         condition: service_healthy
     environment:
+      - APP_ENV=staging
       - MYSQL_HOST=${MYSQL_HOST}
       - MYSQL_PORT=3306
       - MYSQL_USER=${MYSQL_USER:-quantmate}
@@ -64,6 +66,7 @@ services:
       - SECRET_KEY=${SECRET_KEY}
       - TUSHARE_TOKEN=${TUSHARE_TOKEN}
       - TUSHARE_DATABASE=tushare
+      - RDAGENT_SIDECAR_URL=http://rdagent-service:8001
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - DEBUG=false
@@ -94,10 +97,59 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - DEBUG=false
-    command: ["python", "-m", "app.datasync.service.data_sync_daemon", "--daemon"]
+    command: ["python", "-m", "app.datasync.scheduler", "--daemon"]
     networks:
       - quantmate_network
     restart: unless-stopped
+
+  # Dedicated backfill loop for retryable sync_status work
+  datasync-backfill:
+    image: ghcr.io/${GITHUB_OWNER:-gitdshi}/quantmate-api:${IMAGE_TAG:-latest}
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - APP_ENV=staging
+      - MYSQL_HOST=${MYSQL_HOST}
+      - MYSQL_PORT=3306
+      - MYSQL_USER=${MYSQL_USER:-quantmate}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - SECRET_KEY=${SECRET_KEY}
+      - TUSHARE_TOKEN=${TUSHARE_TOKEN}
+      - TUSHARE_DATABASE=tushare
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - DEBUG=false
+    command: ["python", "-m", "app.datasync.scheduler", "--backfill-loop"]
+    networks:
+      - quantmate_network
+    restart: unless-stopped
+
+  # RD-Agent sidecar used by worker factor-mining jobs
+  rdagent-service:
+    build:
+      context: ./rdagent-service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      - RDAGENT_WORKSPACE=/tmp/rdagent_workspace
+      - CHAT_MODEL=${RDAGENT_LLM_MODEL:-gpt-4o-mini}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - RDAGENT_SERVICE_PORT=8001
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - rdagent_workspace_data:/tmp/rdagent_workspace
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - quantmate_network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health').read()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
 
   # Redis
   redis:
@@ -151,6 +203,8 @@ volumes:
   mysql_data:
     driver: local
   redis_data:
+    driver: local
+  rdagent_workspace_data:
     driver: local
 
 networks:

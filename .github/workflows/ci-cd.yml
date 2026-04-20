@@ -10,6 +10,7 @@ on:
       - "pytest.ini"
       - "mysql/**"
       - "Dockerfile"
+      - "rdagent-service/**"
       - "docker-compose.staging.yml"
       - "nginx/staging.conf"
       - ".github/workflows/ci-cd.yml"
@@ -161,7 +162,7 @@ jobs:
           host: ${{ secrets.STAGING_HOST }}
           username: ${{ secrets.STAGING_USER }}
           key: ${{ secrets.STAGING_SSH_KEY }}
-          source: "docker-compose.staging.yml,nginx/staging.conf"
+          source: "docker-compose.staging.yml,nginx/staging.conf,rdagent-service"
           target: /opt/quantmate
           strip_components: 0
 
@@ -200,6 +201,9 @@ jobs:
               docker system df || true
             }
 
+            IMAGE_SERVICES="api worker datasync datasync-backfill"
+            DEPLOY_SERVICES="api worker datasync datasync-backfill rdagent-service"
+
             cleanup_docker_artifacts() {
               echo "==> Pruning unused Docker data to recover disk space"
               docker system prune -af || true
@@ -211,28 +215,30 @@ jobs:
 
             echo "==> Pulling image tag: $IMAGE_TAG"
             if ! GITHUB_OWNER=$GITHUB_OWNER IMAGE_TAG=$IMAGE_TAG \
-              docker compose -f docker-compose.staging.yml pull api worker datasync; then
+              docker compose -f docker-compose.staging.yml pull $IMAGE_SERVICES; then
               echo "Initial image pull failed; retrying once after Docker cleanup"
               cleanup_docker_artifacts
               GITHUB_OWNER=$GITHUB_OWNER IMAGE_TAG=$IMAGE_TAG \
-                docker compose -f docker-compose.staging.yml pull api worker datasync
+                docker compose -f docker-compose.staging.yml pull $IMAGE_SERVICES
             fi
 
             echo "==> Rolling restart"
             if ! GITHUB_OWNER=$GITHUB_OWNER IMAGE_TAG=$IMAGE_TAG \
-              docker compose -f docker-compose.staging.yml up -d api worker datasync; then
-              echo "Compose restart failed, cleaning api/worker/datasync and retrying once"
+              docker compose -f docker-compose.staging.yml up -d --build $DEPLOY_SERVICES; then
+              echo "Compose restart failed, cleaning staging backend services and retrying once"
               print_disk_diagnostics
               for name in \
                 quantmate-api-1 \
                 quantmate-worker-1 \
-                quantmate-datasync-1; do
+                quantmate-datasync-1 \
+                quantmate-datasync-backfill-1 \
+                quantmate-rdagent-service-1; do
                 docker rm -f "$name" >/dev/null 2>&1 || true
               done
-              docker compose -f docker-compose.staging.yml rm -sf api worker datasync >/dev/null 2>&1 || true
+              docker compose -f docker-compose.staging.yml rm -sf $DEPLOY_SERVICES >/dev/null 2>&1 || true
               cleanup_docker_artifacts
               GITHUB_OWNER=$GITHUB_OWNER IMAGE_TAG=$IMAGE_TAG \
-                docker compose -f docker-compose.staging.yml up -d api worker datasync
+                docker compose -f docker-compose.staging.yml up -d --build $DEPLOY_SERVICES
             fi
 
             echo "==> Waiting for API to become healthy"

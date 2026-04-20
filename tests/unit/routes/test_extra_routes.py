@@ -425,6 +425,26 @@ class TestSystemRoutes:
         r = sys_client.get("/api/v1/system/logs/modules")
         assert r.status_code == 200
         assert any(item["key"] == "api" for item in r.json()["data"])
+        assert any(item["key"] == "datasync-backfill" for item in r.json()["data"])
+
+    def test_resolve_log_container_prefers_dedicated_backfill_service(self):
+        from app.api.routes import system
+
+        worker = MagicMock()
+        worker.labels = {"com.docker.compose.service": "worker"}
+        worker.status = "running"
+        worker.name = "quantmate-worker-1"
+
+        backfill = MagicMock()
+        backfill.labels = {"com.docker.compose.service": "datasync-backfill"}
+        backfill.status = "running"
+        backfill.name = "quantmate-datasync-backfill-1"
+
+        client = MagicMock()
+        client.containers.list.return_value = [worker, backfill]
+
+        resolved = system._resolve_log_container(client, system.LOG_MODULE_SPECS["datasync-backfill"])
+        assert resolved is backfill
 
     @patch(f"{_SYS}.create_log_stream")
     def test_stream_logs(self, M, sys_client):
