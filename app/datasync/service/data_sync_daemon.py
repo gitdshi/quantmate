@@ -60,7 +60,6 @@ from app.datasync.service.vnpy_ingest import (
 
 # Import DAOs
 from app.domains.extdata.dao.data_sync_status_dao import (
-    ensure_tables,
     write_step_status,
     get_step_status,
     get_failed_steps,

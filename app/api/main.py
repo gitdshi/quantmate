@@ -1,7 +1,6 @@
 """QuantMate API - FastAPI Application."""
 
 import sys
-import os
 import secrets
 from pathlib import Path
 from contextlib import asynccontextmanager

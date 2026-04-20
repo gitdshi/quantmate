@@ -1,7 +1,5 @@
 """RD-Agent Auto Pilot routes — autonomous factor mining via RD-Agent."""
 
-from typing import Optional
-
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field
 
