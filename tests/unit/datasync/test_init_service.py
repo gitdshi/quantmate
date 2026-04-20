@@ -146,6 +146,64 @@ class TestDataSourceItemMetadataCompatibility:
         assert rows == [("tushare", "stock_daily", 1, "stock_daily", 0, "0")]
 
 
+class TestReconcileBounds:
+    def test_get_source_initialized_bounds_uses_enabled_items_only(self):
+        from app.datasync.service.sync_init_service import _get_source_initialized_bounds
+
+        engine, conn = _engine_ctx()
+        conn.execute.return_value = MagicMock(fetchone=MagicMock(return_value=(date(2024, 1, 1), date(2024, 1, 31))))
+
+        with patch("app.datasync.service.sync_init_service.get_quantmate_engine", return_value=engine):
+            result = _get_source_initialized_bounds("tushare")
+
+        assert result == (date(2024, 1, 1), date(2024, 1, 31))
+
+    def test_reconcile_enabled_sync_status_inherits_source_window_for_new_item(self):
+        from app.datasync.service.sync_init_service import reconcile_enabled_sync_status
+
+        engine, conn = _engine_ctx()
+        conn.execute.return_value = MagicMock(
+            fetchall=MagicMock(return_value=[("tushare", "daily", "daily", 0, None)]),
+        )
+
+        registry = MagicMock()
+        iface = MagicMock()
+        iface.supports_backfill.return_value = True
+        registry.get_interface.return_value = iface
+
+        with patch("app.datasync.service.sync_init_service.get_quantmate_engine", return_value=engine), \
+             patch("app.datasync.capabilities.load_source_config_map", return_value={}), \
+             patch("app.datasync.capabilities.is_item_sync_supported", return_value=True), \
+             patch("app.datasync.service.sync_init_service._get_initialized_bounds", return_value=None), \
+             patch(
+                 "app.datasync.service.sync_init_service._get_source_initialized_bounds",
+                 return_value=(date(2024, 1, 1), date(2024, 1, 31)),
+             ), \
+             patch("app.datasync.service.sync_init_service.initialize_sync_status", return_value=23) as init_mock:
+            result = reconcile_enabled_sync_status(registry, source="tushare", item_key="daily")
+
+        init_mock.assert_called_once_with(
+            "tushare",
+            "daily",
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 1, 31),
+            reconcile_missing=True,
+            use_trade_calendar=True,
+        )
+        assert result["pending_records"] == 23
+        assert result["item_results"] == [
+            {
+                "source": "tushare",
+                "item_key": "daily",
+                "start_date": "2024-01-01",
+                "end_date": "2024-01-31",
+                "pending_records": 23,
+                "supports_backfill": True,
+                "inherited_bounds": True,
+            }
+        ]
+
+
 class TestInitializationState:
     def test_detects_incomplete_init(self):
         from app.datasync.service.init_service import get_initialization_state

@@ -218,6 +218,15 @@ async def update_datasource_item(
     return result
 
 
+@router.post("/datasource-items/{source}/rebuild-sync-status", dependencies=[require_permission("system", "manage")])
+async def rebuild_datasource_sync_status(
+    source: str,
+    current_user: TokenData = Depends(get_current_user),
+):
+    """Rebuild pending sync status rows for all currently enabled items in a source."""
+    return _rebuild_source_sync_status(source)
+
+
 # ---------------------------------------------------------------------------
 # Data Source Configs
 # ---------------------------------------------------------------------------
@@ -321,23 +330,18 @@ def _trigger_sync_init(source: str, item_key: str) -> Optional[str]:
         from app.datasync.service.sync_init_service import reconcile_enabled_sync_status
 
         registry = build_default_registry()
-        reconcile_enabled_sync_status(registry, source=source, item_key=item_key)
-
-        from app.worker.service.config import get_queue
-        from app.worker.service.datasync_tasks import run_backfill_task
-
-        queue = get_queue("low")
-        job = queue.enqueue(
-            run_backfill_task,
-            source,
-            item_key,
-            job_timeout=get_runtime_int(
-                env_keys="DATASYNC_BACKFILL_JOB_TIMEOUT_SECONDS",
-                db_key="datasync.backfill_job_timeout_seconds",
-                default=3600,
+        result = reconcile_enabled_sync_status(registry, source=source, item_key=item_key)
+        item_result = next(
+            (
+                row
+                for row in result.get("item_results", [])
+                if row.get("source") == source and row.get("item_key") == item_key
             ),
+            None,
         )
-        return job.id
+        if not item_result or int(item_result.get("pending_records", 0) or 0) <= 0:
+            return None
+        return _enqueue_backfill_task(source, item_key)
     except Exception:
         logger.warning("Sync init for %s/%s failed (non-fatal)", source, item_key, exc_info=True)
         return None
@@ -346,13 +350,60 @@ def _trigger_sync_init(source: str, item_key: str) -> Optional[str]:
 def _reconcile_source_sync(source: str) -> None:
     """Best-effort reconciliation when a whole source is enabled again."""
     try:
-        from app.datasync.registry import build_default_registry
-        from app.datasync.service.sync_init_service import reconcile_enabled_sync_status
-
-        registry = build_default_registry()
-        reconcile_enabled_sync_status(registry, source=source)
+        _rebuild_source_sync_status(source)
     except Exception:
         logger.warning("Source sync reconciliation for %s failed (non-fatal)", source, exc_info=True)
+
+
+def _enqueue_backfill_task(source: str, item_key: str) -> Optional[str]:
+    from app.worker.service.config import get_queue
+    from app.worker.service.datasync_tasks import run_backfill_task
+
+    queue = get_queue("low")
+    job = queue.enqueue(
+        run_backfill_task,
+        source,
+        item_key,
+        job_timeout=get_runtime_int(
+            env_keys="DATASYNC_BACKFILL_JOB_TIMEOUT_SECONDS",
+            db_key="datasync.backfill_job_timeout_seconds",
+            default=3600,
+        ),
+    )
+    return job.id
+
+
+def _rebuild_source_sync_status(source: str) -> dict[str, object]:
+    from app.datasync.registry import build_default_registry
+    from app.datasync.service.sync_init_service import reconcile_enabled_sync_status
+
+    registry = build_default_registry()
+    result = reconcile_enabled_sync_status(registry, source=source)
+
+    backfill_jobs: list[dict[str, str]] = []
+    for item in result.get("item_results", []):
+        pending_records = int(item.get("pending_records", 0) or 0)
+        if pending_records <= 0:
+            continue
+
+        job_id = _enqueue_backfill_task(str(item["source"]), str(item["item_key"]))
+        if job_id:
+            backfill_jobs.append(
+                {
+                    "source": str(item["source"]),
+                    "item_key": str(item["item_key"]),
+                    "job_id": job_id,
+                }
+            )
+
+    return {
+        "source": source,
+        "pending_records": result.get("pending_records", 0),
+        "items_reconciled": result.get("items_reconciled", 0),
+        "skipped_unsupported": result.get("skipped_unsupported", []),
+        "item_results": result.get("item_results", []),
+        "backfill_jobs": backfill_jobs,
+    }
 
 
 def _list_items_with_sync_support(

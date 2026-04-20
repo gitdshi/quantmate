@@ -420,3 +420,23 @@ class TestSystemRoutes:
     def test_version(self, sys_client):
         r = sys_client.get("/api/v1/system/version")
         assert r.status_code in (200, 500)
+
+    def test_list_log_modules(self, sys_client):
+        r = sys_client.get("/api/v1/system/logs/modules")
+        assert r.status_code == 200
+        assert any(item["key"] == "api" for item in r.json()["data"])
+
+    @patch(f"{_SYS}.create_log_stream")
+    def test_stream_logs(self, M, sys_client):
+        M.return_value = iter([
+            'event: meta\ndata: {"type":"meta","module":"api"}\n\n',
+            'event: log\ndata: {"type":"log","module":"api","line":"ready"}\n\n',
+        ])
+        r = sys_client.get("/api/v1/system/logs/stream?module=api&tail=50")
+        assert r.status_code == 200
+        assert "text/event-stream" in r.headers["content-type"]
+        assert '"line":"ready"' in r.text
+
+    def test_stream_logs_rejects_unknown_module(self, sys_client):
+        r = sys_client.get("/api/v1/system/logs/stream?module=unknown")
+        assert r.status_code == 400

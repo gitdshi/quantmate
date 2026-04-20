@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from datetime import date, timedelta
 
 from sqlalchemy import text
@@ -84,6 +83,71 @@ def _get_initialized_bounds(source: str, item_key: str) -> tuple[date, date] | N
         return None
 
     return initialized_from, initialized_to
+
+
+def _get_source_initialized_bounds(source: str) -> tuple[date, date] | None:
+    engine = get_quantmate_engine()
+    with engine.connect() as conn:
+        row = conn.execute(
+            text(
+                "SELECT MIN(ssi.initialized_from), MAX(ssi.initialized_to) "
+                "FROM sync_status_init ssi "
+                "JOIN data_source_items dsi "
+                "  ON dsi.source = ssi.source AND dsi.item_key = ssi.interface_key "
+                "JOIN data_source_configs dsc ON dsi.source = dsc.source_key "
+                "WHERE ssi.source = :s AND dsi.enabled = 1 AND dsc.enabled = 1"
+            ),
+            {"s": source},
+        ).fetchone()
+    if row is None:
+        return None
+
+    try:
+        initialized_from = row[0]
+        initialized_to = row[1]
+    except Exception:
+        return None
+
+    if not isinstance(initialized_from, date) or not isinstance(initialized_to, date):
+        return None
+
+    return initialized_from, initialized_to
+
+
+def _resolve_reconcile_bounds(
+    source: str,
+    item_key: str,
+    start_date: date | None,
+    end_date: date | None,
+    use_trade_calendar: bool,
+) -> tuple[date, date, bool]:
+    item_bounds = _get_initialized_bounds(source, item_key)
+    source_bounds = None
+    if item_bounds is None and (start_date is None or end_date is None):
+        source_bounds = _get_source_initialized_bounds(source)
+
+    default_start_date, default_end_date = _resolve_default_sync_window(end_date)
+
+    resolved_start_date = (
+        start_date
+        or (item_bounds[0] if item_bounds is not None else None)
+        or (source_bounds[0] if source_bounds is not None else None)
+        or default_start_date
+    )
+    resolved_end_date = (
+        end_date
+        or (item_bounds[1] if item_bounds is not None else None)
+        or (source_bounds[1] if source_bounds is not None else None)
+        or default_end_date
+    )
+
+    if use_trade_calendar:
+        if resolved_start_date > resolved_end_date:
+            resolved_start_date = resolved_end_date
+    else:
+        resolved_start_date = resolved_end_date
+
+    return resolved_start_date, resolved_end_date, item_bounds is None and source_bounds is not None
 
 
 def _record_init(source: str, item_key: str, start: date, end: date) -> None:
@@ -197,6 +261,50 @@ def initialize_sync_status(
     return inserted
 
 
+def reconcile_sync_status_item(
+    registry: DataSourceRegistry,
+    source: str,
+    item_key: str,
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> dict[str, object] | None:
+    iface = registry.get_interface(source, item_key)
+    if iface is None:
+        return None
+
+    use_trade_calendar = True
+    method = getattr(iface, "supports_backfill", None)
+    if callable(method) and not bool(method()):
+        use_trade_calendar = False
+
+    item_start_date, item_end_date, inherited_bounds = _resolve_reconcile_bounds(
+        source,
+        item_key,
+        start_date,
+        end_date,
+        use_trade_calendar=use_trade_calendar,
+    )
+
+    pending_records = initialize_sync_status(
+        source,
+        item_key,
+        start_date=item_start_date,
+        end_date=item_end_date,
+        reconcile_missing=True,
+        use_trade_calendar=use_trade_calendar,
+    )
+
+    return {
+        "source": source,
+        "item_key": item_key,
+        "start_date": item_start_date.isoformat(),
+        "end_date": item_end_date.isoformat(),
+        "pending_records": pending_records,
+        "supports_backfill": use_trade_calendar,
+        "inherited_bounds": inherited_bounds,
+    }
+
+
 def reconcile_enabled_sync_status(
     registry: DataSourceRegistry,
     source: str | None = None,
@@ -247,6 +355,7 @@ def reconcile_enabled_sync_status(
 
     pending_records = 0
     items_reconciled = 0
+    item_results: list[dict[str, object]] = []
     skipped_unsupported: list[dict[str, str]] = []
     source_configs = load_source_config_map(source)
 
@@ -269,27 +378,24 @@ def reconcile_enabled_sync_status(
             skipped_unsupported.append({"source": source_key, "item_key": enabled_item_key})
             continue
 
-        item_start_date = start_date
-        item_end_date = end_date
-        use_trade_calendar = True
-        method = getattr(iface, "supports_backfill", None)
-        if callable(method) and not bool(method()):
-            item_end_date = end_date if end_date is not None else date.today() - timedelta(days=1)
-            item_start_date = item_end_date
-            use_trade_calendar = False
-
-        pending_records += initialize_sync_status(
+        item_result = reconcile_sync_status_item(
+            registry,
             source_key,
             enabled_item_key,
-            start_date=item_start_date,
-            end_date=item_end_date,
-            reconcile_missing=True,
-            use_trade_calendar=use_trade_calendar,
+            start_date=start_date,
+            end_date=end_date,
         )
+        if item_result is None:
+            skipped_unsupported.append({"source": source_key, "item_key": enabled_item_key})
+            continue
+
+        pending_records += int(item_result["pending_records"])
         items_reconciled += 1
+        item_results.append(item_result)
 
     return {
         "pending_records": pending_records,
         "items_reconciled": items_reconciled,
+        "item_results": item_results,
         "skipped_unsupported": skipped_unsupported,
     }
