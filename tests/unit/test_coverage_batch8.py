@@ -1308,8 +1308,8 @@ class TestCalendarServiceExtended:
     def test_fetch_events_dispatch(self, monkeypatch):
         svc = self.mod.CalendarService()
         monkeypatch.setattr(svc, "_macro_events", lambda s, e: [{"type": "macro"}])
-        monkeypatch.setattr(svc, "_ipo_events", lambda: [{"type": "ipo"}])
-        monkeypatch.setattr(svc, "_dividend_events", lambda: [{"type": "dividend"}])
+        monkeypatch.setattr(svc, "_ipo_events", lambda s, e: [{"type": "ipo"}])
+        monkeypatch.setattr(svc, "_dividend_events", lambda s, e: [{"type": "dividend"}])
         monkeypatch.setattr(self.mod, "ak", MagicMock())  # ensure ak is not None
 
         for et, expected in [("macro", "macro"), ("ipo", "ipo"), ("dividend", "dividend")]:
