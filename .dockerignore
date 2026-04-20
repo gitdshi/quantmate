@@ -23,5 +23,17 @@
 **/obj
 **/secrets.dev.yaml
 **/values.dev.yaml
+.coverage
+.data
+.data_bak
+.pytest_cache
+.ruff_cache
+.venv
+logs
+package-lock.json
+package.json
+rdagent-service
+strategies
+tests
 LICENSE
 README.md

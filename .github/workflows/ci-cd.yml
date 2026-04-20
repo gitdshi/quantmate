@@ -4,10 +4,12 @@ on:
   push:
     branches: [main]
     paths:
+      - ".dockerignore"
       - ".env.example"
       - "app/**"
       - "tests/**"
       - "requirements.txt"
+      - "requirements.runtime.txt"
       - "pytest.ini"
       - "mysql/**"
       - "Dockerfile"
@@ -18,10 +20,12 @@ on:
   pull_request:
     branches: [main, develop]
     paths:
+      - ".dockerignore"
       - ".env.example"
       - "app/**"
       - "tests/**"
       - "requirements.txt"
+      - "requirements.runtime.txt"
       - "pytest.ini"
       - ".github/workflows/ci-cd.yml"
   workflow_dispatch: {}
@@ -29,6 +33,10 @@ on:
 permissions:
   contents: read
   packages: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   PYTHON_VERSION: "3.11"
@@ -143,8 +151,8 @@ jobs:
           tags: |
             ${{ env.IMAGE }}:latest
             ${{ env.IMAGE }}:sha-${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=api-image
+          cache-to: type=gha,mode=max,scope=api-image
 
 # ---------------------------------------------------------------------------
 # Stage 3: Deploy Staging (only after publish succeeds)
@@ -156,6 +164,20 @@ jobs:
     environment: staging
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect rdagent rebuild requirement
+        id: deploy_flags
+        run: |
+          rebuild_rdagent=false
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            rebuild_rdagent=true
+          elif [ -n "${{ github.event.before }}" ] && \
+            git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" | grep -Eq '^(rdagent-service/|docker-compose\.staging\.yml$)'; then
+            rebuild_rdagent=true
+          fi
+          echo "rebuild_rdagent=$rebuild_rdagent" >> "$GITHUB_OUTPUT"
 
       - name: Prepare staging config bundle
         run: |
@@ -184,11 +206,12 @@ jobs:
         env:
           GITHUB_OWNER: ${{ github.repository_owner }}
           IMAGE_TAG: sha-${{ github.sha }}
+          REBUILD_RDAGENT: ${{ steps.deploy_flags.outputs.rebuild_rdagent }}
         with:
           host: ${{ secrets.STAGING_HOST }}
           username: ${{ secrets.STAGING_USER }}
           key: ${{ secrets.STAGING_SSH_KEY }}
-          envs: GITHUB_OWNER,IMAGE_TAG
+          envs: GITHUB_OWNER,IMAGE_TAG,REBUILD_RDAGENT
           script: |
             set -e
             cd /opt/quantmate
@@ -228,13 +251,28 @@ jobs:
             }
 
             IMAGE_SERVICES="api worker datasync datasync-backfill"
-            DEPLOY_SERVICES="api worker datasync datasync-backfill rdagent-service"
+            ALL_SERVICES="api worker datasync datasync-backfill rdagent-service"
 
             cleanup_docker_artifacts() {
               echo "==> Pruning unused Docker data to recover disk space"
               docker system prune -af || true
               docker builder prune -af || true
               print_disk_diagnostics
+            }
+
+            restart_services() {
+              GITHUB_OWNER=$GITHUB_OWNER IMAGE_TAG=$IMAGE_TAG \
+                docker compose -f docker-compose.staging.yml up -d $IMAGE_SERVICES
+
+              if [ "$REBUILD_RDAGENT" = "true" ]; then
+                echo "==> Rebuilding rdagent-service"
+                GITHUB_OWNER=$GITHUB_OWNER IMAGE_TAG=$IMAGE_TAG \
+                  docker compose -f docker-compose.staging.yml up -d --build rdagent-service
+              else
+                echo "==> Reusing existing rdagent-service image"
+                GITHUB_OWNER=$GITHUB_OWNER IMAGE_TAG=$IMAGE_TAG \
+                  docker compose -f docker-compose.staging.yml up -d rdagent-service
+              fi
             }
 
             rebuild_env_from_example_if_needed
@@ -262,8 +300,7 @@ jobs:
             fi
 
             echo "==> Rolling restart"
-            if ! GITHUB_OWNER=$GITHUB_OWNER IMAGE_TAG=$IMAGE_TAG \
-              docker compose -f docker-compose.staging.yml up -d --build $DEPLOY_SERVICES; then
+            if ! restart_services; then
               echo "Compose restart failed, cleaning staging backend services and retrying once"
               print_disk_diagnostics
               for name in \
@@ -274,10 +311,9 @@ jobs:
                 quantmate-rdagent-service-1; do
                 docker rm -f "$name" >/dev/null 2>&1 || true
               done
-              docker compose -f docker-compose.staging.yml rm -sf $DEPLOY_SERVICES >/dev/null 2>&1 || true
+              docker compose -f docker-compose.staging.yml rm -sf $ALL_SERVICES >/dev/null 2>&1 || true
               cleanup_docker_artifacts
-              GITHUB_OWNER=$GITHUB_OWNER IMAGE_TAG=$IMAGE_TAG \
-                docker compose -f docker-compose.staging.yml up -d --build $DEPLOY_SERVICES
+              restart_services
             fi
 
             echo "==> Waiting for API to become healthy"

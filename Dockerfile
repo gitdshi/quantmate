@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.7
+
 # QuantMate API Dockerfile
 FROM python:3.11
 
@@ -10,22 +12,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first for layer caching
-COPY requirements.txt ./
+# Copy dependency manifests first for layer caching
+COPY requirements.txt requirements.runtime.txt ./
 
 # Install Python dependencies using trusted HTTP mirror to bypass SSL issues
 # Clear any proxy environment that might break apt in the build environment
 ARG TARGETARCH
 ENV http_proxy= https_proxy= HTTP_PROXY= HTTPS_PROXY= no_proxy= NO_PROXY=
-RUN if [ "$TARGETARCH" = "arm64" ]; then \
-      grep -v '^pyqlib>=0\.9\.0$' requirements.txt > requirements.docker.txt; \
+RUN --mount=type=cache,target=/root/.cache/pip \
+    if [ "$TARGETARCH" = "arm64" ]; then \
+      grep -v '^pyqlib>=0\.9\.0$' requirements.runtime.txt > requirements.docker.txt; \
     else \
-      cp requirements.txt requirements.docker.txt; \
+      cp requirements.runtime.txt requirements.docker.txt; \
     fi \
-    && pip install --no-cache-dir \
-    --index-url http://pypi.tuna.tsinghua.edu.cn/simple \
-    --trusted-host pypi.tuna.tsinghua.edu.cn \
-    -r requirements.docker.txt
+    && PIP_DISABLE_PIP_VERSION_CHECK=1 pip install \
+      --index-url http://pypi.tuna.tsinghua.edu.cn/simple \
+      --trusted-host pypi.tuna.tsinghua.edu.cn \
+      -r requirements.docker.txt
 
 # Copy application code
 COPY app/ ./app/
