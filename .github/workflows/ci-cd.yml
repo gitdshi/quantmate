@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
     paths:
+      - ".env.example"
       - "app/**"
       - "tests/**"
       - "requirements.txt"
@@ -17,6 +18,7 @@ on:
   pull_request:
     branches: [main, develop]
     paths:
+      - ".env.example"
       - "app/**"
       - "tests/**"
       - "requirements.txt"
@@ -155,6 +157,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Prepare staging config bundle
+        run: |
+          mkdir -p .deploy_bundle/nginx .deploy_bundle/.github/scripts
+          cp docker-compose.staging.yml .deploy_bundle/docker-compose.staging.yml
+          cp .env.example .deploy_bundle/.env.example.incoming
+          cp nginx/staging.conf .deploy_bundle/nginx/staging.conf
+          cp .github/scripts/merge_env_from_example.py .deploy_bundle/.github/scripts/merge_env_from_example.py
+          cp -R rdagent-service .deploy_bundle/rdagent-service
+
       # Push the latest docker-compose.staging.yml and nginx config to the server
       - name: Copy config files to staging server
         uses: appleboy/scp-action@v0.1.7
@@ -162,24 +173,12 @@ jobs:
           host: ${{ secrets.STAGING_HOST }}
           username: ${{ secrets.STAGING_USER }}
           key: ${{ secrets.STAGING_SSH_KEY }}
-          source: "docker-compose.staging.yml,nginx/staging.conf,rdagent-service"
+          source: ".deploy_bundle/docker-compose.staging.yml,.deploy_bundle/.env.example.incoming,.deploy_bundle/nginx/staging.conf,.deploy_bundle/.github/scripts/merge_env_from_example.py,.deploy_bundle/rdagent-service"
           target: /opt/quantmate
-          strip_components: 0
+          strip_components: 1
 
       # Pull new image and rolling-restart backend services only.
       # The portal image is published by the portal repo and may not share this commit SHA.
-      - name: Grant qlib DB access to quantmate user
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.STAGING_HOST }}
-          username: ${{ secrets.STAGING_USER }}
-          key: ${{ secrets.STAGING_SSH_KEY }}
-          script: |
-            # Ensure qlib database exists and quantmate user has access (idempotent)
-            sudo mysql -e "CREATE DATABASE IF NOT EXISTS \`qlib\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; GRANT ALL PRIVILEGES ON \`qlib\`.* TO 'quantmate'@'%'; FLUSH PRIVILEGES;" 2>/dev/null \
-              && echo "qlib grant applied" \
-              || echo "qlib grant skipped (manual step may be required)"
-
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         env:
@@ -193,6 +192,33 @@ jobs:
           script: |
             set -e
             cd /opt/quantmate
+
+            ENV_FILE=.env
+            EXAMPLE_FILE=.env.example
+            INCOMING_EXAMPLE_FILE=.env.example.incoming
+
+            rebuild_env_from_example_if_needed() {
+              if [ ! -f "$INCOMING_EXAMPLE_FILE" ]; then
+                echo "==> No incoming .env.example provided; keeping existing env files"
+                return
+              fi
+
+              example_changed=0
+              if [ ! -f "$EXAMPLE_FILE" ] || ! cmp -s "$EXAMPLE_FILE" "$INCOMING_EXAMPLE_FILE"; then
+                example_changed=1
+              fi
+
+              if [ "$example_changed" -eq 1 ] || [ ! -f "$ENV_FILE" ]; then
+                echo "==> Regenerating .env from incoming .env.example"
+                python3 .github/scripts/merge_env_from_example.py \
+                  "$INCOMING_EXAMPLE_FILE" "$ENV_FILE" "$ENV_FILE.merged"
+                mv "$ENV_FILE.merged" "$ENV_FILE"
+              else
+                echo "==> .env.example unchanged; keeping existing .env"
+              fi
+
+              mv "$INCOMING_EXAMPLE_FILE" "$EXAMPLE_FILE"
+            }
 
             print_disk_diagnostics() {
               echo "==> Filesystem usage"
@@ -211,6 +237,7 @@ jobs:
               print_disk_diagnostics
             }
 
+            rebuild_env_from_example_if_needed
             print_disk_diagnostics
 
             echo "==> Pulling image tag: $IMAGE_TAG"

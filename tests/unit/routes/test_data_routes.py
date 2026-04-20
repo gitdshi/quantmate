@@ -74,10 +74,27 @@ class TestDataRoutes:
 
     @patch(f"{_ROUTE}.DataService")
     def test_list_tushare_tables(self, MockSvc, client):
-        MockSvc.return_value.list_tushare_tables.return_value = [{"name": "stock_daily", "column_count": 5, "primary_keys": ["id"]}]
-        resp = client.get("/api/v1/data/tushare/tables?keyword=daily")
+        MockSvc.return_value.list_tushare_tables.return_value = [
+            {
+                "name": "stock_daily",
+                "target_database": "tushare",
+                "target_table": "stock_daily",
+                "table_created": True,
+                "category": "股票数据",
+                "sub_category": "行情数据",
+                "column_count": 5,
+                "primary_keys": ["id"],
+            }
+        ]
+        resp = client.get("/api/v1/data/tushare/tables?keyword=daily&category=股票数据&sub_category=行情数据")
         assert resp.status_code == 200
         assert resp.json()["data"][0]["name"] == "stock_daily"
+        assert resp.json()["data"][0]["category"] == "股票数据"
+        MockSvc.return_value.list_tushare_tables.assert_called_once_with(
+            keyword="daily",
+            category="股票数据",
+            sub_category="行情数据",
+        )
 
     @patch(f"{_ROUTE}.DataService")
     def test_get_tushare_table_schema(self, MockSvc, client):

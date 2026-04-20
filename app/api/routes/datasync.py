@@ -5,11 +5,11 @@ Provides endpoints for monitoring sync status, summaries, and triggering manual 
 
 from __future__ import annotations
 
-from datetime import date, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 from app.api.dependencies.permissions import require_permission
 from app.api.services.auth_service import get_current_user
@@ -19,6 +19,47 @@ from app.api.exception_handlers import APIError
 from app.infrastructure.config import get_runtime_int, get_settings
 
 router = APIRouter(prefix="/datasync", tags=["DataSync"])
+
+
+def _get_sync_status_response(
+    sync_date: Optional[str],
+    source: Optional[str],
+    status: Optional[str],
+    limit: int,
+    offset: int,
+):
+    from sqlalchemy import text
+    from app.infrastructure.db.connections import get_quantmate_engine
+
+    engine = get_quantmate_engine()
+
+    conditions = []
+    params: dict = {}
+    if sync_date:
+        conditions.append("sync_date = :sd")
+        params["sd"] = sync_date
+    if source:
+        conditions.append("source = :src")
+        params["src"] = source
+    if status:
+        conditions.append("status = :st")
+        params["st"] = status
+
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+    with engine.connect() as conn:
+        count_row = conn.execute(text(f"SELECT COUNT(*) FROM data_sync_status {where}"), params).fetchone()
+        total = count_row[0] if count_row else 0
+        rows = conn.execute(
+            text(
+                f"SELECT * FROM data_sync_status {where} "
+                f"ORDER BY sync_date DESC, source, interface_key "
+                f"LIMIT :lim OFFSET :off"
+            ),
+            {**params, "lim": limit, "off": offset},
+        ).fetchall()
+
+    return {"data": [dict(row._mapping) for row in rows], "total": total, "limit": limit, "offset": offset}
 
 
 class ManualSyncRequest(BaseModel):
@@ -40,43 +81,7 @@ async def get_sync_status(
     current_user: TokenData = Depends(get_current_user),
 ):
     """Get paginated sync status records."""
-    from sqlalchemy import text
-    from app.infrastructure.db.connections import get_quantmate_engine
-
-    engine = get_quantmate_engine()
-
-    conditions = []
-    params: dict = {}
-    if sync_date:
-        conditions.append("sync_date = :sd")
-        params["sd"] = sync_date
-    if source:
-        conditions.append("source = :src")
-        params["src"] = source
-    if status:
-        conditions.append("status = :st")
-        params["st"] = status
-
-    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-
-    with engine.connect() as conn:
-        # Total count
-        count_row = conn.execute(text(f"SELECT COUNT(*) FROM data_sync_status {where}"), params).fetchone()
-        total = count_row[0] if count_row else 0
-
-        # Data
-        rows = conn.execute(
-            text(
-                f"SELECT * FROM data_sync_status {where} "
-                f"ORDER BY sync_date DESC, source, interface_key "
-                f"LIMIT :lim OFFSET :off"
-            ),
-            {**params, "lim": limit, "off": offset},
-        ).fetchall()
-
-        data = [dict(r._mapping) for r in rows]
-
-    return {"data": data, "total": total, "limit": limit, "offset": offset}
+    return await run_in_threadpool(_get_sync_status_response, sync_date, source, status, limit, offset)
 
 
 @router.get("/status/summary", dependencies=[require_permission("system", "read")])
@@ -85,46 +90,10 @@ async def get_sync_summary(
     current_user: TokenData = Depends(get_current_user),
 ):
     """Get a summary of sync status grouped by date and source."""
-    from sqlalchemy import text
-    from app.infrastructure.db.connections import get_quantmate_engine
+    from app.domains.extdata.service import DataSyncDashboardService
 
-    engine = get_quantmate_engine()
-    cutoff = (date.today() - timedelta(days=days)).isoformat()
-
-    with engine.connect() as conn:
-        # Per-date per-source status counts
-        rows = conn.execute(
-            text(
-                "SELECT sync_date, source, status, COUNT(*) as cnt "
-                "FROM data_sync_status WHERE sync_date >= :cutoff "
-                "GROUP BY sync_date, source, status "
-                "ORDER BY sync_date DESC, source, status"
-            ),
-            {"cutoff": cutoff},
-        ).fetchall()
-
-        summary: dict = {}
-        for r in rows:
-            d = r[0].isoformat() if hasattr(r[0], "isoformat") else str(r[0])
-            if d not in summary:
-                summary[d] = {}
-            src = r[1]
-            if src not in summary[d]:
-                summary[d][src] = {"success": 0, "error": 0, "pending": 0, "running": 0, "partial": 0}
-            summary[d][src][r[2]] = r[3]
-
-        # Overall counts
-        overall = conn.execute(
-            text("SELECT status, COUNT(*) FROM data_sync_status WHERE sync_date >= :cutoff GROUP BY status"),
-            {"cutoff": cutoff},
-        ).fetchall()
-        overall_map = {r[0]: r[1] for r in overall}
-
-    return {
-        "days": days,
-        "overall": overall_map,
-        "by_date": summary,
-    }
+    service = DataSyncDashboardService()
+    return await run_in_threadpool(service.get_summary, days=days)
 
 
 @router.get("/status/latest", dependencies=[require_permission("system", "read")])
@@ -132,31 +101,10 @@ async def get_latest_sync_status(
     current_user: TokenData = Depends(get_current_user),
 ):
     """Get the most recent sync date and its status."""
-    from sqlalchemy import text
-    from app.infrastructure.db.connections import get_quantmate_engine
+    from app.domains.extdata.service import DataSyncDashboardService
 
-    engine = get_quantmate_engine()
-
-    with engine.connect() as conn:
-        row = conn.execute(text("SELECT MAX(sync_date) FROM data_sync_status")).fetchone()
-        if not row or row[0] is None:
-            return {"latest_date": None, "items": []}
-
-        latest_date = row[0]
-        items = conn.execute(
-            text(
-                "SELECT source, interface_key, status, rows_synced, error_message, "
-                "retry_count, started_at, finished_at "
-                "FROM data_sync_status WHERE sync_date = :sd "
-                "ORDER BY source, interface_key"
-            ),
-            {"sd": latest_date},
-        ).fetchall()
-
-        return {
-            "latest_date": latest_date.isoformat() if hasattr(latest_date, "isoformat") else str(latest_date),
-            "items": [dict(r._mapping) for r in items],
-        }
+    service = DataSyncDashboardService()
+    return await run_in_threadpool(service.get_latest)
 
 
 @router.get("/status/initialization", dependencies=[require_permission("system", "read")])
@@ -164,9 +112,10 @@ async def get_sync_initialization_status(
     current_user: TokenData = Depends(get_current_user),
 ):
     """Return whether all enabled sync-supported interfaces are initialized for the current coverage window."""
-    from app.datasync.service.init_service import get_initialization_state
+    from app.domains.extdata.service import DataSyncDashboardService
 
-    return get_initialization_state()
+    service = DataSyncDashboardService()
+    return await run_in_threadpool(service.get_initialization)
 
 
 # ---------------------------------------------------------------------------

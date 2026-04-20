@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
+from starlette.concurrency import run_in_threadpool
 from typing import Optional
 
 from app.api.services.auth_service import get_current_user_optional
@@ -18,7 +19,7 @@ async def get_sentiment_overview(
     """Get market sentiment overview — advance/decline, volume, index momentum."""
     from app.domains.market.sentiment_service import SentimentService
 
-    return SentimentService().get_overview()
+    return await run_in_threadpool(SentimentService().get_overview)
 
 
 @router.get("/fear-greed")
@@ -28,4 +29,4 @@ async def get_fear_greed(
     """Get composite fear & greed index (0-100)."""
     from app.domains.market.sentiment_service import SentimentService
 
-    return SentimentService().get_fear_greed()
+    return await run_in_threadpool(SentimentService().get_fear_greed)

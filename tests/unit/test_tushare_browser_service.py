@@ -55,22 +55,135 @@ class TestTushareBrowserService:
     def test_list_tables(self, sqlite_tushare_engine):
         from app.domains.extdata.tushare_browser_service import TushareBrowserService
 
-        with patch(f"{_MOD}.get_tushare_engine", return_value=sqlite_tushare_engine):
+        metadata_rows = [
+            {
+                "source": "tushare",
+                "item_key": "stock_daily",
+                "item_name": "日线行情",
+                "target_database": "tushare",
+                "target_table": "stock_daily",
+                "table_created": 1,
+                "category": "股票数据",
+                "sub_category": "行情数据",
+            },
+            {
+                "source": "tushare",
+                "item_key": "stock_basic",
+                "item_name": "股票基础列表",
+                "target_database": "tushare",
+                "target_table": "stock_basic",
+                "table_created": 1,
+                "category": "股票数据",
+                "sub_category": "基础数据",
+            },
+            {
+                "source": "tushare",
+                "item_key": "adj_factor",
+                "item_name": "复权因子",
+                "target_database": "tushare",
+                "target_table": "adj_factor",
+                "table_created": 0,
+                "category": "股票数据",
+                "sub_category": "行情数据",
+            },
+        ]
+
+        with patch(f"{_MOD}.get_tushare_engine", return_value=sqlite_tushare_engine), patch(
+            f"{_MOD}.DataSourceItemDao"
+        ) as MockDao:
+            MockDao.return_value.list_with_categories.return_value = metadata_rows
             service = TushareBrowserService()
             tables = service.list_tables()
 
         names = [item["name"] for item in tables]
         assert "stock_daily" in names
         assert "stock_basic" in names
+        assert all(item["table_created"] is True for item in tables)
+        assert tables[0]["target_database"] == "tushare"
 
     def test_list_tables_keyword(self, sqlite_tushare_engine):
         from app.domains.extdata.tushare_browser_service import TushareBrowserService
 
-        with patch(f"{_MOD}.get_tushare_engine", return_value=sqlite_tushare_engine):
+        metadata_rows = [
+            {
+                "source": "tushare",
+                "item_key": "stock_daily",
+                "item_name": "日线行情",
+                "target_database": "tushare",
+                "target_table": "stock_daily",
+                "table_created": 1,
+                "category": "股票数据",
+                "sub_category": "行情数据",
+            },
+            {
+                "source": "tushare",
+                "item_key": "stock_basic",
+                "item_name": "股票基础列表",
+                "target_database": "tushare",
+                "target_table": "stock_basic",
+                "table_created": 1,
+                "category": "股票数据",
+                "sub_category": "基础数据",
+            },
+        ]
+
+        with patch(f"{_MOD}.get_tushare_engine", return_value=sqlite_tushare_engine), patch(
+            f"{_MOD}.DataSourceItemDao"
+        ) as MockDao:
+            MockDao.return_value.list_with_categories.return_value = metadata_rows
             service = TushareBrowserService()
             tables = service.list_tables(keyword="daily")
 
         assert [item["name"] for item in tables] == ["stock_daily"]
+
+    def test_list_tables_filters_by_category_and_sub_category(self, sqlite_tushare_engine):
+        from app.domains.extdata.tushare_browser_service import TushareBrowserService
+
+        metadata_rows = [
+            {
+                "source": "tushare",
+                "item_key": "stock_daily",
+                "item_name": "日线行情",
+                "target_database": "tushare",
+                "target_table": "stock_daily",
+                "table_created": 1,
+                "category": "股票数据",
+                "sub_category": "行情数据",
+            },
+            {
+                "source": "tushare",
+                "item_key": "stock_basic",
+                "item_name": "股票基础列表",
+                "target_database": "tushare",
+                "target_table": "stock_basic",
+                "table_created": 1,
+                "category": "股票数据",
+                "sub_category": "基础数据",
+            },
+        ]
+
+        with patch(f"{_MOD}.get_tushare_engine", return_value=sqlite_tushare_engine), patch(
+            f"{_MOD}.DataSourceItemDao"
+        ) as MockDao:
+            MockDao.return_value.list_with_categories.return_value = metadata_rows
+            service = TushareBrowserService()
+            tables = service.list_tables(category="股票数据", sub_category="行情数据")
+
+        MockDao.return_value.list_with_categories.assert_called_once_with(source="tushare", category="股票数据")
+        assert [item["name"] for item in tables] == ["stock_daily"]
+
+    def test_list_tables_falls_back_to_physical_tables_for_legacy_metadata(self, sqlite_tushare_engine):
+        from app.domains.extdata.tushare_browser_service import TushareBrowserService
+
+        with patch(f"{_MOD}.get_tushare_engine", return_value=sqlite_tushare_engine), patch(
+            f"{_MOD}.DataSourceItemDao"
+        ) as MockDao:
+            MockDao.return_value.list_with_categories.side_effect = RuntimeError("Unknown column 'category'")
+            service = TushareBrowserService()
+            tables = service.list_tables(keyword="daily")
+
+        assert [item["name"] for item in tables] == ["stock_daily"]
+        assert tables[0]["target_table"] == "stock_daily"
 
     def test_get_schema(self, sqlite_tushare_engine):
         from app.domains.extdata.tushare_browser_service import TushareBrowserService

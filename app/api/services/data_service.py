@@ -198,9 +198,18 @@ class DataService:
                 result[key] = {"error": str(e), "display_name": meta["name"], "symbol": meta["symbol"]}
         return result
 
-    def list_tushare_tables(self, keyword: Optional[str] = None) -> List[Dict[str, Any]]:
-        """List physical Tushare tables for browser UI."""
-        return self._tushare_browser.list_tables(keyword=keyword)
+    def list_tushare_tables(
+        self,
+        keyword: Optional[str] = None,
+        category: Optional[str] = None,
+        sub_category: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """List browser-visible Tushare tables with metadata filters."""
+        return self._tushare_browser.list_tables(
+            keyword=keyword,
+            category=category,
+            sub_category=sub_category,
+        )
 
     def get_tushare_table_schema(self, table_name: str) -> Dict[str, Any]:
         """Return Tushare table schema for browser UI."""

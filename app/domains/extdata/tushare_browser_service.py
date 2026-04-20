@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from datetime import date, datetime, time
 from decimal import Decimal
+import logging
 from typing import Any
 
 from sqlalchemy import MetaData, String, Table, and_, cast, func, inspect, select
 from sqlalchemy.sql.sqltypes import Boolean, Date, DateTime, Float, Integer, Numeric, Time
 
+from app.domains.market.dao.data_source_item_dao import DataSourceItemDao
 from app.infrastructure.db.connections import get_tushare_engine
 
 
@@ -16,6 +18,14 @@ MAX_PAGE_SIZE = 100
 DEFAULT_PAGE_SIZE = 50
 MAX_FILTERS = 10
 MAX_IN_VALUES = 50
+
+
+logger = logging.getLogger(__name__)
+
+
+def _is_unknown_data_source_items_column_error(exc: Exception) -> bool:
+    lowered = str(exc or "").lower()
+    return "unknown column" in lowered or "no such column" in lowered
 
 
 class TushareBrowserError(ValueError):
@@ -28,10 +38,89 @@ class TushareBrowserService:
     def __init__(self) -> None:
         self._engine = get_tushare_engine()
 
-    def list_tables(self, keyword: str | None = None) -> list[dict[str, Any]]:
+    def list_tables(
+        self,
+        keyword: str | None = None,
+        category: str | None = None,
+        sub_category: str | None = None,
+    ) -> list[dict[str, Any]]:
         inspector = inspect(self._engine)
+        metadata_tables = self._list_metadata_tables(
+            inspector,
+            keyword=keyword,
+            category=category,
+            sub_category=sub_category,
+        )
+        if metadata_tables is not None:
+            return metadata_tables
+
+        return self._list_physical_tables(inspector, keyword=keyword)
+
+    def _list_metadata_tables(
+        self,
+        inspector: Any,
+        *,
+        keyword: str | None = None,
+        category: str | None = None,
+        sub_category: str | None = None,
+    ) -> list[dict[str, Any]] | None:
+        try:
+            rows = DataSourceItemDao().list_with_categories(source="tushare", category=category)
+        except Exception as exc:
+            if not _is_unknown_data_source_items_column_error(exc):
+                raise
+            logger.warning("Falling back to physical Tushare table listing: %s", exc)
+            return None
+
+        keyword_lower = keyword.strip().lower() if keyword else None
+        sub_category_lower = sub_category.strip().lower() if sub_category else None
+        target_databases = self._resolve_target_databases()
+        available_tables = set(inspector.get_table_names())
+        items: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+
+        for row in rows:
+            target_database = str(row.get("target_database") or "").strip()
+            target_table = str(row.get("target_table") or "").strip()
+            if not target_database or target_database.lower() not in target_databases:
+                continue
+            if not target_table or target_table not in available_tables:
+                continue
+            if sub_category_lower and str(row.get("sub_category") or "").strip().lower() != sub_category_lower:
+                continue
+
+            item_name = str(row.get("item_name") or row.get("display_name") or "").strip()
+            if keyword_lower and keyword_lower not in target_table.lower() and keyword_lower not in item_name.lower():
+                continue
+
+            dedupe_key = (target_database.lower(), target_table.lower())
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+
+            columns = inspector.get_columns(target_table)
+            primary_keys = inspector.get_pk_constraint(target_table).get("constrained_columns") or []
+            items.append(
+                {
+                    "name": target_table,
+                    "target_database": target_database,
+                    "target_table": target_table,
+                    "table_created": bool(row.get("table_created")),
+                    "item_key": row.get("item_key"),
+                    "item_name": row.get("item_name") or row.get("display_name"),
+                    "category": row.get("category"),
+                    "sub_category": row.get("sub_category"),
+                    "column_count": len(columns),
+                    "primary_keys": primary_keys,
+                }
+            )
+
+        return items
+
+    def _list_physical_tables(self, inspector: Any, *, keyword: str | None = None) -> list[dict[str, Any]]:
         keyword_lower = keyword.strip().lower() if keyword else None
         items: list[dict[str, Any]] = []
+        target_database = self._default_target_database()
 
         for table_name in sorted(inspector.get_table_names()):
             if keyword_lower and keyword_lower not in table_name.lower():
@@ -41,11 +130,25 @@ class TushareBrowserService:
             items.append(
                 {
                     "name": table_name,
+                    "target_database": target_database,
+                    "target_table": table_name,
+                    "table_created": True,
+                    "item_key": table_name,
+                    "item_name": table_name,
+                    "category": None,
+                    "sub_category": None,
                     "column_count": len(columns),
                     "primary_keys": primary_keys,
                 }
             )
         return items
+
+    def _default_target_database(self) -> str:
+        database_name = str(getattr(self._engine.url, "database", "") or "").strip()
+        return database_name or "tushare"
+
+    def _resolve_target_databases(self) -> set[str]:
+        return {"tushare", self._default_target_database().lower()}
 
     def get_schema(self, table_name: str) -> dict[str, Any]:
         inspector = inspect(self._engine)

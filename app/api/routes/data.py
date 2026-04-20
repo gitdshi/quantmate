@@ -202,11 +202,19 @@ async def get_realtime_quote_series(
 @router.get("/tushare/tables")
 async def list_tushare_tables(
     keyword: Optional[str] = Query(None, description="Optional table-name keyword filter"),
+    category: Optional[str] = Query(None, description="Optional Tushare category filter"),
+    sub_category: Optional[str] = Query(None, description="Optional Tushare sub-category filter"),
     current_user: Optional[TokenData] = Depends(get_current_user_optional),
 ):
-    """List physical tables in the Tushare database."""
+    """List browser-visible Tushare tables derived from data_source_items metadata."""
     service = DataService()
-    return {"data": service.list_tushare_tables(keyword=keyword)}
+    return {
+        "data": service.list_tushare_tables(
+            keyword=keyword,
+            category=category,
+            sub_category=sub_category,
+        )
+    }
 
 
 @router.get("/tushare/tables/{table_name}/schema")

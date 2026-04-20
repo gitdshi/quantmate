@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query
+from starlette.concurrency import run_in_threadpool
 from typing import Optional
 
 from app.api.services.auth_service import get_current_user_optional
@@ -25,7 +26,7 @@ async def get_trade_days(
     svc = CalendarService()
     s = datetime.strptime(start_date, "%Y-%m-%d").date() if start_date else None
     e = datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else None
-    return svc.get_trade_days(exchange=exchange, start_date=s, end_date=e)
+    return await run_in_threadpool(svc.get_trade_days, exchange=exchange, start_date=s, end_date=e)
 
 
 @router.get("/events")
@@ -42,4 +43,4 @@ async def get_events(
     svc = CalendarService()
     s = datetime.strptime(start_date, "%Y-%m-%d").date() if start_date else None
     e = datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else None
-    return svc.get_events(start_date=s, end_date=e, event_type=event_type)
+    return await run_in_threadpool(svc.get_events, start_date=s, end_date=e, event_type=event_type)

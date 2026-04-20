@@ -12,15 +12,20 @@ from unittest.mock import MagicMock, patch
 # ── fake DB helpers ─────────────────────────────────────────────────
 class _FR:
     def __init__(self, rows=None, rowcount=0, lastrowid=0):
-        self._rows = rows or []; self.rowcount = rowcount; self.lastrowid = lastrowid
+        self._rows = rows or []
+        self.rowcount = rowcount
+        self.lastrowid = lastrowid
     def fetchone(self): return self._rows[0] if self._rows else None
     def fetchall(self): return self._rows
 
 class _FC:
     def __init__(self, result=None):
-        self.result = result or _FR(); self.committed = False; self.executed = []
+        self.result = result or _FR()
+        self.committed = False
+        self.executed = []
     def execute(self, *a, **kw):
-        self.executed.append((a, kw)); return self.result
+        self.executed.append((a, kw))
+        return self.result
     def commit(self): self.committed = True
 
 class _Ctx:
@@ -337,6 +342,11 @@ from app.domains.market.calendar_service import CalendarService
 
 @pytest.mark.unit
 class TestCalendarService:
+    @pytest.fixture(autouse=True)
+    def _clear_calendar_caches(self):
+        _cal_mod._TRADE_DAYS_CACHE.clear()
+        _cal_mod._EVENTS_CACHE.clear()
+
     def test_trade_days_from_db(self, monkeypatch):
         rows = [("20240102", 1), ("20240103", 1), ("20240104", 0)]
         conn = _FC(_FR(rows))
@@ -407,20 +417,20 @@ class TestCalendarService:
         assert len(result) >= 0
 
     def test_fetch_events_ipo(self, monkeypatch):
-        fake_ak = MagicMock()
-        fake_df = pd.DataFrame({"上市日期": ["2024-01-01"], "股票简称": ["test"], "股票代码": ["000001"], "发行价格": ["10"]})
-        fake_ak.stock_xgsglb_em.return_value = fake_df
-        monkeypatch.setattr(_cal_mod, "ak", fake_ak)
-        result = CalendarService()._ipo_events()
+        rows = [("000001.SZ", "test", date(2024, 1, 1), 10)]
+        conn = _FC(_FR(rows))
+        monkeypatch.setattr(_cal_mod, "connection", lambda n: _Ctx(conn))
+        result = CalendarService()._ipo_events(date(2024, 1, 1), date(2024, 1, 31))
         assert len(result) >= 0
+        assert result[0]["symbol"] == "000001"
 
     def test_fetch_events_dividend(self, monkeypatch):
-        fake_ak = MagicMock()
-        fake_df = pd.DataFrame({"除权除息日": ["2024-06-01"], "名称": ["test"], "代码": ["000001"], "分红方案": ["10送5"]})
-        fake_ak.stock_fhps_em.return_value = fake_df
-        monkeypatch.setattr(_cal_mod, "ak", fake_ak)
-        result = CalendarService()._dividend_events()
+        rows = [(date(2024, 6, 1), "000001.SZ", "test", "000001", 0.5, 0.2, 0.1)]
+        conn = _FC(_FR(rows))
+        monkeypatch.setattr(_cal_mod, "connection", lambda n: _Ctx(conn))
+        result = CalendarService()._dividend_events(date(2024, 6, 1), date(2024, 6, 30))
         assert len(result) >= 0
+        assert "cash 0.5" in result[0]["detail"]
 
     def test_macro_events_exception(self, monkeypatch):
         fake_ak = MagicMock()
@@ -429,16 +439,12 @@ class TestCalendarService:
         assert CalendarService()._macro_events(date(2024, 1, 1), date(2024, 1, 31)) == []
 
     def test_ipo_events_exception(self, monkeypatch):
-        fake_ak = MagicMock()
-        fake_ak.stock_xgsglb_em.side_effect = Exception("fail")
-        monkeypatch.setattr(_cal_mod, "ak", fake_ak)
-        assert CalendarService()._ipo_events() == []
+        monkeypatch.setattr(_cal_mod, "connection", lambda n: (_ for _ in ()).throw(Exception("fail")))
+        assert CalendarService()._ipo_events(date(2024, 1, 1), date(2024, 1, 31)) == []
 
     def test_dividend_events_exception(self, monkeypatch):
-        fake_ak = MagicMock()
-        fake_ak.stock_fhps_em.side_effect = Exception("fail")
-        monkeypatch.setattr(_cal_mod, "ak", fake_ak)
-        assert CalendarService()._dividend_events() == []
+        monkeypatch.setattr(_cal_mod, "connection", lambda n: (_ for _ in ()).throw(Exception("fail")))
+        assert CalendarService()._dividend_events(date(2024, 1, 1), date(2024, 1, 31)) == []
 
 
 # =====================================================================
@@ -450,6 +456,10 @@ from app.domains.market.sentiment_service import SentimentService
 
 @pytest.mark.unit
 class TestSentimentService:
+    @pytest.fixture(autouse=True)
+    def _clear_sentiment_cache(self):
+        _sent_mod._SENTIMENT_CACHE.clear()
+
     def test_overview_no_akshare(self, monkeypatch):
         monkeypatch.setattr(_sent_mod, "ak", None)
         result = SentimentService().get_overview()
@@ -522,3 +532,17 @@ class TestSentimentService:
         monkeypatch.setattr(_sent_mod, "ak", fake_ak)
         result = SentimentService().get_fear_greed()
         assert result["score"] >= 50
+
+    def test_sentiment_snapshot_reuses_single_market_fetch(self, monkeypatch):
+        fake_ak = MagicMock()
+        spot_df = pd.DataFrame({"涨跌幅": [1.0, -0.5, 0.0], "成交额": [1e8, 2e8, 1.5e8]})
+        idx_df = pd.DataFrame({"代码": ["000001"], "最新价": [3200], "涨跌幅": [0.8]})
+        fake_ak.stock_zh_a_spot_em.return_value = spot_df
+        fake_ak.stock_zh_index_spot_em.return_value = idx_df
+        monkeypatch.setattr(_sent_mod, "ak", fake_ak)
+
+        SentimentService().get_overview()
+        SentimentService().get_fear_greed()
+
+        assert fake_ak.stock_zh_a_spot_em.call_count == 1
+        assert fake_ak.stock_zh_index_spot_em.call_count == 1
