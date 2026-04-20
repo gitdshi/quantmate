@@ -793,7 +793,21 @@ class TestSettingsRoutes:
         mock_queue.enqueue.return_value = mock_job
 
         with patch("app.datasync.registry.build_default_registry", return_value=MagicMock()) as mock_registry, \
-             patch("app.datasync.service.sync_init_service.reconcile_enabled_sync_status") as mock_init, \
+             patch(
+                 "app.datasync.service.sync_init_service.reconcile_enabled_sync_status",
+                 return_value={
+                     "pending_records": 3,
+                     "items_reconciled": 1,
+                     "item_results": [
+                         {
+                             "source": "tushare",
+                             "item_key": "stock_daily",
+                             "pending_records": 3,
+                         }
+                     ],
+                     "skipped_unsupported": [],
+                 },
+             ) as mock_init, \
              patch("app.worker.service.config.get_queue", return_value=mock_queue):
             result = _trigger_sync_init("tushare", "stock_daily")
 
