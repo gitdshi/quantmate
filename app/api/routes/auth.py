@@ -7,6 +7,7 @@ from app.api.models.user import (
     UserCreate,
     UserLogin,
     User,
+    RefreshTokenRequest,
     Token,
     TokenData,
     PasswordChangeRequest,
@@ -75,7 +76,12 @@ async def login(credentials: UserLogin, request: Request):
 
     service = AuthService()
     try:
-        t = service.login(login_id, credentials.password)
+        t = service.login(
+            login_id,
+            credentials.password,
+            device_info=request.headers.get("user-agent"),
+            ip_address=client_ip,
+        )
     except PermissionError as e:
         msg = str(e)
         if "disabled" in msg:
@@ -98,11 +104,18 @@ async def login(credentials: UserLogin, request: Request):
 
 
 @router.post("/refresh", response_model=Token)
-async def refresh_token(refresh_token: str):
+async def refresh_token(body: RefreshTokenRequest, request: Request):
     """Refresh access token using refresh token."""
+    client_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (
+        request.client.host if request.client else None
+    )
     service = AuthService()
     try:
-        t = service.refresh(refresh_token)
+        t = service.refresh(
+            body.refresh_token,
+            device_info=request.headers.get("user-agent"),
+            ip_address=client_ip,
+        )
     except PermissionError as e:
         raise APIError(status_code=status.HTTP_401_UNAUTHORIZED, code=ErrorCode.AUTH_INVALID_TOKEN, message=str(e))
 

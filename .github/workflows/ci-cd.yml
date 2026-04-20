@@ -249,6 +249,18 @@ jobs:
                 docker compose -f docker-compose.staging.yml pull $IMAGE_SERVICES
             fi
 
+            echo "==> Stopping sync daemons before restart"
+            GITHUB_OWNER=$GITHUB_OWNER IMAGE_TAG=$IMAGE_TAG \
+              docker compose -f docker-compose.staging.yml stop datasync datasync-backfill || true
+
+            echo "==> Releasing backfill lock before restart"
+            if ! GITHUB_OWNER=$GITHUB_OWNER IMAGE_TAG=$IMAGE_TAG \
+              docker compose -f docker-compose.staging.yml run --rm --no-deps api \
+              python -c "from app.domains.extdata.dao.data_sync_status_dao import release_backfill_lock; release_backfill_lock()"
+            then
+              echo "Backfill lock release skipped; continuing with restart"
+            fi
+
             echo "==> Rolling restart"
             if ! GITHUB_OWNER=$GITHUB_OWNER IMAGE_TAG=$IMAGE_TAG \
               docker compose -f docker-compose.staging.yml up -d --build $DEPLOY_SERVICES; then

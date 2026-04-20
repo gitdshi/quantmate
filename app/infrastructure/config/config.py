@@ -16,13 +16,13 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     app_name: str = "QuantMate API"
-    app_version: str = "1.0.0"
+    app_version: str = "1.0.0-snapshot"
     debug: bool = False
     environment: str = Field(default="development", validation_alias=AliasChoices("QUANTMATE_ENV", "APP_ENV"))
 
     secret_key: str  # JWT 密钥，必须从环境变量 SECRET_KEY 读取
     algorithm: str = "HS256"
-    access_token_expire_minutes: int = 60 * 24
+    access_token_expire_minutes: int = 60 * 4
     refresh_token_expire_days: int = 7
 
     mysql_host: str = "127.0.0.1"

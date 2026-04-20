@@ -124,3 +124,29 @@ class TestIsItemSyncSupported:
             {"source": "tushare", "item_key": "fina_indicator", "api_name": "fina_indicator"},
             source_configs={"tushare": {"config_json": {"token_points": 2000}}},
         ) is False
+
+    def test_runtime_unsupported_interface_still_reports_capability_support(self):
+        from app.datasync.capabilities import get_item_support_state
+
+        registry = MagicMock()
+        iface = MagicMock()
+        iface.supports_scheduled_sync.return_value = False
+        registry.get_interface.return_value = iface
+
+        state = get_item_support_state(
+            registry,
+            {
+                "source": "tushare",
+                "item_key": "fina_indicator",
+                "api_name": "fina_indicator",
+                "permission_points": 2000,
+                "requires_permission": "0",
+            },
+            source_configs={"tushare": {"config_json": {"token_points": 2000}}},
+        )
+
+        assert state == {
+            "capability_supported": True,
+            "auto_sync_supported": False,
+            "sync_supported": False,
+        }

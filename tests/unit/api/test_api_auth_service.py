@@ -62,6 +62,13 @@ def test_access_token_must_change_password():
     assert data.must_change_password is True
 
 
+def test_access_token_with_session_id():
+    tok = create_access_token(3, "session-user", session_id=17)
+    data = decode_token(tok)
+    assert data is not None
+    assert data.session_id == 17
+
+
 # ── refresh token ─────────────────────────────────────────────────
 
 def test_create_and_decode_refresh_token():

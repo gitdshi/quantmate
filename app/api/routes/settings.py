@@ -410,7 +410,7 @@ def _list_items_with_sync_support(
     source: Optional[str] = None,
     category: Optional[str] = None,
 ) -> list[dict]:
-    from app.datasync.capabilities import build_supported_item_keys, load_source_config_map
+    from app.datasync.capabilities import get_item_support_state, load_source_config_map
     from app.datasync.registry import build_default_registry
     from app.domains.market.dao.data_source_item_dao import DataSourceItemDao
 
@@ -421,13 +421,12 @@ def _list_items_with_sync_support(
         items = dao.list_all(source=source)
 
     registry = build_default_registry()
-    support_map = build_supported_item_keys(
-        registry,
-        items,
-        source_configs=load_source_config_map(source),
-    )
+    source_configs = load_source_config_map(source)
     for item in items:
-        item["sync_supported"] = _is_item_sync_supported(support_map, item["source"], item["item_key"])
+        support_state = get_item_support_state(registry, item, source_configs=source_configs)
+        item["capability_supported"] = support_state["capability_supported"]
+        item["auto_sync_supported"] = support_state["auto_sync_supported"]
+        item["sync_supported"] = support_state["sync_supported"]
     return items
 
 

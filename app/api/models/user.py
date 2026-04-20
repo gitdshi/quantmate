@@ -66,6 +66,13 @@ class TokenData(BaseModel):
     username: str
     exp: datetime
     must_change_password: bool = False
+    session_id: Optional[int] = None
+
+
+class RefreshTokenRequest(BaseModel):
+    """Refresh token request payload."""
+
+    refresh_token: str = Field(..., min_length=1)
 
 
 class PasswordChangeRequest(BaseModel):

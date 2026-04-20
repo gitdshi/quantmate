@@ -51,35 +51,85 @@ def build_supported_item_keys(
     return supported
 
 
+def build_capability_item_keys(
+    registry: DataSourceRegistry,
+    items: Iterable[Mapping[str, Any]],
+    *,
+    source_configs: Mapping[str, Mapping[str, Any]] | None = None,
+) -> set[tuple[str, str]]:
+    supported: set[tuple[str, str]] = set()
+    for item in items:
+        if is_item_capability_supported(registry, item, source_configs=source_configs):
+            source = str(item.get("source") or "").strip()
+            item_key = str(item.get("item_key") or "").strip()
+            if source and item_key:
+                supported.add((source, item_key))
+    return supported
+
+
+def get_item_support_state(
+    registry: DataSourceRegistry,
+    item: Mapping[str, Any],
+    *,
+    source_configs: Mapping[str, Mapping[str, Any]] | None = None,
+) -> dict[str, bool]:
+    source = str(item.get("source") or "").strip()
+    item_key = str(item.get("item_key") or "").strip()
+    if not source or not item_key:
+        return {
+            "capability_supported": False,
+            "auto_sync_supported": False,
+            "sync_supported": False,
+        }
+
+    iface = registry.get_interface(source, item_key)
+    if iface is None:
+        return {
+            "capability_supported": False,
+            "auto_sync_supported": False,
+            "sync_supported": False,
+        }
+
+    auto_sync_supported = _iface_supports_scheduled_sync(iface, source=source, item_key=item_key)
+    if source == "tushare":
+        capability_supported = _is_tushare_item_supported(item, source_config=(source_configs or {}).get(source))
+    else:
+        capability_supported = True
+
+    return {
+        "capability_supported": capability_supported,
+        "auto_sync_supported": auto_sync_supported,
+        "sync_supported": capability_supported and auto_sync_supported,
+    }
+
+
+def is_item_capability_supported(
+    registry: DataSourceRegistry,
+    item: Mapping[str, Any],
+    *,
+    source_configs: Mapping[str, Mapping[str, Any]] | None = None,
+) -> bool:
+    return get_item_support_state(registry, item, source_configs=source_configs)["capability_supported"]
+
+
 def is_item_sync_supported(
     registry: DataSourceRegistry,
     item: Mapping[str, Any],
     *,
     source_configs: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> bool:
-    source = str(item.get("source") or "").strip()
-    item_key = str(item.get("item_key") or "").strip()
-    if not source or not item_key:
-        return False
+    return get_item_support_state(registry, item, source_configs=source_configs)["sync_supported"]
 
-    iface = registry.get_interface(source, item_key)
-    if iface is None:
-        return False
 
+def _iface_supports_scheduled_sync(iface: object, *, source: str, item_key: str) -> bool:
     supports_scheduled_sync = getattr(iface, "supports_scheduled_sync", None)
-    if callable(supports_scheduled_sync):
-        try:
-            if not bool(supports_scheduled_sync()):
-                return False
-        except Exception:
-            logger.exception("Failed to inspect scheduled-sync support for %s/%s", source, item_key)
-            return False
-
-    if source != "tushare":
+    if not callable(supports_scheduled_sync):
         return True
-
-    source_config = (source_configs or {}).get(source)
-    return _is_tushare_item_supported(item, source_config=source_config)
+    try:
+        return bool(supports_scheduled_sync())
+    except Exception:
+        logger.exception("Failed to inspect scheduled-sync support for %s/%s", source, item_key)
+        return False
 
 
 def _is_tushare_item_supported(item: Mapping[str, Any], *, source_config: Mapping[str, Any] | None = None) -> bool:

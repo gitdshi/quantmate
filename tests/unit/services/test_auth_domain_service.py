@@ -43,6 +43,7 @@ def test_frontend_role_other():
 @pytest.fixture
 def auth_svc():
     with patch("app.domains.auth.service.UserDao") as DaoCls, \
+         patch("app.domains.auth.service.SessionDao") as SessionDaoCls, \
          patch("app.domains.auth.service.get_password_hash", return_value="hashed"), \
          patch("app.domains.auth.service.verify_password") as mock_verify, \
          patch("app.domains.auth.service.create_access_token", return_value="access_tok"), \
@@ -50,6 +51,10 @@ def auth_svc():
          patch("app.domains.auth.service.decode_token") as mock_decode:
         svc = AuthService()
         svc._users = DaoCls.return_value
+        svc._sessions = SessionDaoCls.return_value
+        svc._sessions.create.return_value = 11
+        svc._sessions.get_active.return_value = {"id": 11, "user_id": 1}
+        svc._sessions.touch_by_id.return_value = True
         yield svc, mock_verify, mock_decode
 
 
@@ -149,6 +154,7 @@ def test_refresh_success(auth_svc, monkeypatch):
     _mock_rbac(monkeypatch)
     td = MagicMock()
     td.user_id = 1
+    td.session_id = None
     mock_decode.return_value = td
     svc._users.get_user_by_id.return_value = {
         "id": 1, "username": "alice", "is_active": True,
@@ -169,6 +175,7 @@ def test_refresh_inactive_user(auth_svc, monkeypatch):
     svc, _, mock_decode = auth_svc
     td = MagicMock()
     td.user_id = 1
+    td.session_id = None
     mock_decode.return_value = td
     svc._users.get_user_by_id.return_value = {"id": 1, "is_active": False}
     with pytest.raises(PermissionError, match="inactive"):
