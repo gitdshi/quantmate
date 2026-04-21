@@ -482,6 +482,8 @@ def ensure_source_item_table(source: str, item_key: str) -> None:
     target_tbl = (item or {}).get('target_table') or iface.info.target_table
     if not target_db or not target_tbl:
         raise RuntimeError(f"Missing target mapping for {source}/{item_key}")
+    if not iface.should_ensure_table_before_sync():
+        return
 
     ensure_table(target_db, target_tbl, iface.get_ddl())
 

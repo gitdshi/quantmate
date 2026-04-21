@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime
 import hashlib
 import re
+
+import pandas as pd
 
 STOCK_BASIC_DDL = """
 CREATE TABLE IF NOT EXISTS stock_basic (
@@ -428,11 +431,58 @@ CREATE TABLE IF NOT EXISTS index_basic (
 """
 
 
+_DATE_COLUMN_NAMES = frozenset(
+    {
+        "ann_date",
+        "cal_date",
+        "date",
+        "delist_date",
+        "end_date",
+        "ex_date",
+        "f_ann_date",
+        "imp_ann_date",
+        "ipo_date",
+        "issue_date",
+        "list_date",
+        "pay_date",
+        "pretrade_date",
+        "record_date",
+        "resume_date",
+        "start_date",
+        "suspend_date",
+        "trade_date",
+    }
+)
+
+_CODE_COLUMN_PRIORITY = (
+    "ts_code",
+    "index_code",
+    "con_code",
+    "fund_code",
+    "stock_code",
+    "bond_code",
+    "code",
+    "symbol",
+)
+
+_SAMPLE_INFERRED_TABLES = frozenset({"report_rc", "us_basic", "us_daily", "shibor_lpr"})
+
+
+def uses_sample_inferred_schema(table_name: str) -> bool:
+    normalized = str(table_name or "").strip()
+    if not normalized:
+        return False
+    return normalized in _SAMPLE_INFERRED_TABLES or normalized not in _CATALOG_DDL_MAP
+
+
 def get_catalog_ddl(table_name: str) -> str:
     normalized = str(table_name or "").strip()
-    if normalized in _CATALOG_DDL_MAP:
+    if uses_sample_inferred_schema(normalized):
+        raise ValueError(f"Tushare table {normalized} requires sample-based schema inference")
+    try:
         return _CATALOG_DDL_MAP[normalized]
-    return build_payload_table_ddl(normalized)
+    except KeyError as exc:
+        raise ValueError(f"No static DDL registered for Tushare table {normalized}") from exc
 
 
 def _safe_index_name(table_name: str, column_name: str) -> str:
@@ -443,45 +493,283 @@ def _safe_index_name(table_name: str, column_name: str) -> str:
     return f"{raw[:51]}_{digest}"
 
 
-def build_payload_table_ddl(table_name: str) -> str:
-    idx_key = _safe_index_name(table_name, "key_hash")
-    idx_ts_code = _safe_index_name(table_name, "ts_code")
-    idx_trade_date = _safe_index_name(table_name, "trade_date")
-    idx_ann_date = _safe_index_name(table_name, "ann_date")
-    idx_end_date = _safe_index_name(table_name, "end_date")
-    idx_code = _safe_index_name(table_name, "code")
-    idx_name = _safe_index_name(table_name, "name")
+def _safe_unique_index_name(table_name: str, key_columns: tuple[str, ...]) -> str:
+    suffix = "_".join(key_columns) if key_columns else "row_key"
+    raw = re.sub(r"[^0-9a-zA-Z_]+", "_", f"ux_{table_name}_{suffix}")
+    if len(raw) <= 60:
+        return raw
+    digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:8]
+    return f"{raw[:51]}_{digest}"
+
+
+def _normalize_column_name(name: str) -> str:
+    normalized = re.sub(r"[^0-9a-zA-Z_]+", "_", str(name or "").strip()).strip("_").lower()
+    return normalized or "value"
+
+
+def _coerce_records(rows: pd.DataFrame | list[dict]) -> list[dict]:
+    if isinstance(rows, pd.DataFrame):
+        return rows.to_dict(orient="records") if rows is not None and not rows.empty else []
+    return list(rows or [])
+
+
+def _ordered_source_columns(rows: pd.DataFrame | list[dict], records: list[dict]) -> list[str]:
+    if isinstance(rows, pd.DataFrame):
+        return [str(column) for column in rows.columns]
+
+    ordered: list[str] = []
+    for record in records:
+        for key in record.keys():
+            column = str(key)
+            if column not in ordered:
+                ordered.append(column)
+    return ordered
+
+
+def _clean_sample_value(value):
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except Exception:
+        pass
+    return value
+
+
+def _is_code_column(name: str) -> bool:
+    normalized = _normalize_column_name(name)
+    if normalized in _CODE_COLUMN_PRIORITY:
+        return True
+    return normalized.endswith("_code") or normalized in {"code", "symbol"}
+
+
+def _looks_like_date_column(name: str) -> bool:
+    normalized = _normalize_column_name(name)
+    return normalized in _DATE_COLUMN_NAMES or normalized.endswith("_date")
+
+
+def _looks_like_date_value(value) -> bool:
+    cleaned = _clean_sample_value(value)
+    if cleaned is None:
+        return False
+    if isinstance(cleaned, (datetime, date)):
+        return True
+
+    text = str(cleaned).strip()
+    if not text:
+        return False
+    if re.fullmatch(r"\d{8}", text) or re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+        return True
+    try:
+        pd.to_datetime(text)
+        return True
+    except Exception:
+        return False
+
+
+def _is_bool_value(value) -> bool:
+    return isinstance(value, bool)
+
+
+def _is_int_like_value(value) -> bool:
+    cleaned = _clean_sample_value(value)
+    if cleaned is None or _is_bool_value(cleaned):
+        return False
+    if isinstance(cleaned, int):
+        return True
+    if isinstance(cleaned, float):
+        return float(cleaned).is_integer()
+    return False
+
+
+def _is_numeric_value(value) -> bool:
+    cleaned = _clean_sample_value(value)
+    if cleaned is None or _is_bool_value(cleaned):
+        return False
+    return isinstance(cleaned, (int, float))
+
+
+def _varchar_bucket(max_length: int) -> int:
+    for bucket in (16, 32, 64, 128, 255, 512):
+        if max_length <= bucket:
+            return bucket
+    return 1024
+
+
+def _infer_column_spec(column_name: str, values: list[object]) -> dict[str, object]:
+    normalized_name = _normalize_column_name(column_name)
+    samples = [_clean_sample_value(value) for value in values if _clean_sample_value(value) is not None]
+
+    spec: dict[str, object] = {
+        "name": normalized_name,
+        "source_fields": [str(column_name)],
+        "normalizer": "clean",
+        "nullable": True,
+    }
+
+    if samples and any(isinstance(value, (dict, list)) for value in samples):
+        spec["sql_type"] = "JSON"
+        spec["normalizer"] = "json"
+        return spec
+
+    if samples and _looks_like_date_column(normalized_name) and all(_looks_like_date_value(value) for value in samples):
+        spec["sql_type"] = "DATE"
+        spec["normalizer"] = "date"
+        return spec
+
+    if samples and all(_is_bool_value(value) for value in samples):
+        spec["sql_type"] = "TINYINT(1)"
+        spec["normalizer"] = "bool"
+        return spec
+
+    if samples and all(_is_int_like_value(value) for value in samples):
+        spec["sql_type"] = "BIGINT"
+        spec["normalizer"] = "int"
+        return spec
+
+    if samples and all(_is_numeric_value(value) for value in samples):
+        spec["sql_type"] = "DOUBLE"
+        spec["normalizer"] = "float"
+        return spec
+
+    max_length = max((len(str(value)) for value in samples), default=32)
+    if _is_code_column(normalized_name):
+        spec["sql_type"] = f"VARCHAR({max(32, min(_varchar_bucket(max_length), 128))})"
+    elif max_length <= 512:
+        spec["sql_type"] = f"VARCHAR({_varchar_bucket(max_length)})"
+    else:
+        spec["sql_type"] = "TEXT"
+    return spec
+
+
+def _resolve_date_column(
+    column_specs: list[dict[str, object]],
+    preferred_date_column: str | None = None,
+) -> str | None:
+    by_source = {
+        str(spec["source_fields"][0]): str(spec["name"])
+        for spec in column_specs
+        if spec.get("source_fields")
+    }
+    if preferred_date_column and preferred_date_column in by_source:
+        return by_source[preferred_date_column]
+
+    for candidate in _DATE_COLUMN_NAMES:
+        for spec in column_specs:
+            if spec["name"] == candidate:
+                return str(spec["name"])
+    for spec in column_specs:
+        if _looks_like_date_column(str(spec["name"])):
+            return str(spec["name"])
+    return None
+
+
+def _resolve_code_column(
+    column_specs: list[dict[str, object]],
+    preferred_key_fields: tuple[str, ...] | list[str] | None = None,
+) -> str | None:
+    by_source = {
+        str(spec["source_fields"][0]): str(spec["name"])
+        for spec in column_specs
+        if spec.get("source_fields")
+    }
+    for candidate in preferred_key_fields or ():
+        if candidate in by_source and _is_code_column(candidate):
+            return by_source[candidate]
+
+    names = {str(spec["name"]) for spec in column_specs}
+    for candidate in _CODE_COLUMN_PRIORITY:
+        if candidate in names:
+            return candidate
+    for spec in column_specs:
+        if _is_code_column(str(spec["name"])):
+            return str(spec["name"])
+    return None
+
+
+def _resolve_key_columns(
+    column_specs: list[dict[str, object]],
+    preferred_date_column: str | None = None,
+    preferred_key_fields: tuple[str, ...] | list[str] | None = None,
+) -> tuple[str, ...]:
+    date_column = _resolve_date_column(column_specs, preferred_date_column)
+    code_column = _resolve_code_column(column_specs, preferred_key_fields)
+    if code_column and date_column and code_column != date_column:
+        return (date_column, code_column)
+    if code_column:
+        return (code_column,)
+    if date_column:
+        return (date_column,)
+
+    preferred = [
+        str(spec["name"])
+        for spec in column_specs
+        if spec.get("source_fields") and str(spec["source_fields"][0]) in set(preferred_key_fields or ())
+    ]
+    if preferred:
+        return tuple(dict.fromkeys(preferred))
+    if column_specs:
+        return (str(column_specs[0]["name"]),)
+    return ()
+
+
+def _column_ddl(column_spec: dict[str, object], key_columns: tuple[str, ...]) -> str:
+    name = str(column_spec["name"])
+    sql_type = str(column_spec["sql_type"])
+    nullable = "NOT NULL" if name in key_columns else "NULL"
+    return f"`{name}` {sql_type} {nullable}"
+
+
+def build_dynamic_table_ddl(
+    table_name: str,
+    column_specs: list[dict[str, object]],
+    key_columns: tuple[str, ...],
+) -> str:
+    lines = [f"    {_column_ddl(spec, key_columns)}" for spec in column_specs]
+    lines.append("    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+    lines.append("    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP")
+
+    indexes: list[str] = []
+    if key_columns:
+        unique_index_name = _safe_unique_index_name(table_name, key_columns)
+        joined_columns = ", ".join(f"`{column}`" for column in key_columns)
+        indexes.append(f"    UNIQUE KEY `{unique_index_name}` ({joined_columns})")
+
+    body = ",\n".join(lines + indexes)
     return f"""
 CREATE TABLE IF NOT EXISTS `{table_name}` (
-    `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
-    `ts_code` VARCHAR(32) DEFAULT NULL,
-    `symbol` VARCHAR(32) DEFAULT NULL,
-    `code` VARCHAR(32) DEFAULT NULL,
-    `name` VARCHAR(255) DEFAULT NULL,
-    `exchange` VARCHAR(32) DEFAULT NULL,
-    `market` VARCHAR(64) DEFAULT NULL,
-    `trade_date` DATE DEFAULT NULL,
-    `ann_date` DATE DEFAULT NULL,
-    `end_date` DATE DEFAULT NULL,
-    `key_hash` CHAR(64) NOT NULL,
-    `data` JSON NOT NULL,
-    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY `{idx_key}` (`key_hash`),
-    INDEX `{idx_ts_code}` (`ts_code`),
-    INDEX `{idx_trade_date}` (`trade_date`),
-    INDEX `{idx_ann_date}` (`ann_date`),
-    INDEX `{idx_end_date}` (`end_date`),
-    INDEX `{idx_code}` (`code`),
-    INDEX `{idx_name}` (`name`)
+{body}
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 """.strip()
 
 
-REPORT_RC_DDL = build_payload_table_ddl("report_rc")
-US_BASIC_DDL = build_payload_table_ddl("us_basic")
-US_DAILY_DDL = build_payload_table_ddl("us_daily")
-SHIBOR_LPR_DDL = build_payload_table_ddl("shibor_lpr")
+def infer_dynamic_table_schema(
+    table_name: str,
+    rows: pd.DataFrame | list[dict],
+    *,
+    preferred_date_column: str | None = None,
+    preferred_key_fields: tuple[str, ...] | list[str] | None = None,
+) -> dict[str, object]:
+    records = _coerce_records(rows)
+    if not records:
+        raise ValueError(f"Cannot infer schema for {table_name} without sample rows")
+
+    column_specs = [
+        _infer_column_spec(column_name, [record.get(column_name) for record in records])
+        for column_name in _ordered_source_columns(rows, records)
+    ]
+    key_columns = _resolve_key_columns(
+        column_specs,
+        preferred_date_column=preferred_date_column,
+        preferred_key_fields=preferred_key_fields,
+    )
+    return {
+        "column_specs": column_specs,
+        "key_columns": key_columns,
+        "unique_index_name": _safe_unique_index_name(table_name, key_columns),
+        "ddl": build_dynamic_table_ddl(table_name, column_specs, key_columns),
+    }
 
 TUSHARE_BOOTSTRAP_TABLES = frozenset(
     {
@@ -489,10 +777,6 @@ TUSHARE_BOOTSTRAP_TABLES = frozenset(
         "new_share",
         "stock_daily",
         "suspend_d",
-        "report_rc",
-        "us_basic",
-        "us_daily",
-        "shibor_lpr",
     }
 )
 
@@ -507,10 +791,6 @@ _CATALOG_DDL_MAP = {
     "stock_company": STOCK_COMPANY_DDL,
     "new_share": NEW_SHARE_DDL,
     "stock_daily": STOCK_DAILY_DDL,
-    "report_rc": REPORT_RC_DDL,
-    "us_basic": US_BASIC_DDL,
-    "us_daily": US_DAILY_DDL,
-    "shibor_lpr": SHIBOR_LPR_DDL,
     "bak_daily": BAK_DAILY_DDL,
     "stock_moneyflow": STOCK_MONEYFLOW_DDL,
     "suspend_d": SUSPEND_D_DDL,

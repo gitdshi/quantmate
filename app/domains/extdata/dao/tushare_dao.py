@@ -943,56 +943,18 @@ def insert_catalog_rows(
     rows: pd.DataFrame | list[dict],
     *,
     key_fields: tuple[str, ...] | list[str] | None = None,
+    column_specs: list[dict] | None = None,
+    key_columns: tuple[str, ...] | list[str] | None = None,
 ) -> int:
     dataframe = _to_dataframe(rows)
     upserter = _CATALOG_UPSERTS.get(table_name)
     if upserter is not None:
         return upserter(dataframe)
-    return upsert_payload_rows(table_name, rows, key_fields=key_fields)
-
-
-def upsert_payload_rows(
-    table_name: str,
-    rows: pd.DataFrame | list[dict],
-    *,
-    key_fields: tuple[str, ...] | list[str] | None = None,
-) -> int:
-    records = _coerce_records(rows)
-    if not records:
-        return 0
-
-    insert_sql = text(
-        f"INSERT INTO `{table_name}` ("
-        "ts_code, symbol, code, name, exchange, market, trade_date, ann_date, end_date, key_hash, data"
-        ") VALUES ("
-        ":ts_code, :symbol, :code, :name, :exchange, :market, :trade_date, :ann_date, :end_date, :key_hash, :data"
-        ") ON DUPLICATE KEY UPDATE "
-        "ts_code=VALUES(ts_code), symbol=VALUES(symbol), code=VALUES(code), name=VALUES(name), "
-        "exchange=VALUES(exchange), market=VALUES(market), trade_date=VALUES(trade_date), "
-        "ann_date=VALUES(ann_date), end_date=VALUES(end_date), data=VALUES(data)"
-    )
-    rows = 0
-    with engine.begin() as conn:
-        for record in records:
-            normalized = {str(key): _json_safe(value) for key, value in record.items()}
-            conn.execute(
-                insert_sql,
-                {
-                    "ts_code": _clean(normalized.get("ts_code")),
-                    "symbol": _clean(normalized.get("symbol")),
-                    "code": _clean(normalized.get("code")),
-                    "name": _clean(normalized.get("name")),
-                    "market": _clean(normalized.get("market")),
-                    "trade_date": _to_date_value(normalized.get("trade_date")),
-                    "ann_date": _to_date_value(normalized.get("ann_date")),
-                    "end_date": _to_date_value(normalized.get("end_date")),
-                    "exchange": _clean(normalized.get("exchange")),
-                    "key_hash": _stable_row_key(normalized, key_fields),
-                    "data": json.dumps(normalized, ensure_ascii=False, sort_keys=True, default=str),
-                },
-            )
-            rows += 1
-    return rows
+    if not column_specs or not key_columns:
+        raise ValueError(
+            f"Dynamic Tushare table {table_name} requires inferred column_specs and key_columns"
+        )
+    return upsert_rows(table_name, rows, column_specs=column_specs, key_columns=key_columns)
 
 
 def upsert_rows(
@@ -1050,6 +1012,10 @@ def _normalize_insert_value(record: dict, column_spec: dict):
         return _to_date_value(value)
     if normalizer == "int":
         return _int_value(value)
+    if normalizer == "float":
+        return _float_value(value)
+    if normalizer == "bool":
+        return _bool_value(value)
     if normalizer == "round2":
         return _round2(value)
     if normalizer == "json":
@@ -1116,6 +1082,39 @@ def _int_value(value):
         return int(value)
     except Exception:
         return None
+
+
+def _float_value(value):
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except Exception:
+        pass
+    try:
+        return float(value)
+    except Exception:
+        return None
+
+
+def _bool_value(value):
+    cleaned = _clean(value)
+    if cleaned is None:
+        return None
+    if isinstance(cleaned, bool):
+        return cleaned
+    if isinstance(cleaned, str):
+        normalized = cleaned.strip().lower()
+        if normalized in {"true", "1", "y", "yes"}:
+            return True
+        if normalized in {"false", "0", "n", "no"}:
+            return False
+        return None
+    try:
+        return bool(int(cleaned))
+    except Exception:
+        return bool(cleaned)
 
 
 def _json_safe(value):

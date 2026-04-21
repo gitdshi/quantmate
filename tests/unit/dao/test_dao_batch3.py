@@ -454,6 +454,52 @@ class TestTushareDao:
         assert self.mod.insert_catalog_rows("block_trade", df) == 7
         assert seen and seen[0].equals(df)
 
+    def test_insert_catalog_rows_requires_dynamic_schema_for_generic_catalog_table(self):
+        import pandas as pd
+
+        df = pd.DataFrame({
+            "ts_code": ["000001.SZ"],
+            "ann_date": ["20240105"],
+        })
+
+        with pytest.raises(ValueError, match="requires inferred column_specs and key_columns"):
+            self.mod.insert_catalog_rows("report_rc", df)
+
+    def test_insert_catalog_rows_uses_upsert_rows_for_dynamic_catalog_table(self, monkeypatch):
+        import pandas as pd
+
+        df = pd.DataFrame({
+            "ts_code": ["000001.SZ"],
+            "ann_date": ["20240105"],
+            "eps": [1.23],
+        })
+        seen: dict[str, object] = {}
+
+        def _fake(table_name, rows, *, column_specs, key_columns):
+            seen["table_name"] = table_name
+            seen["rows"] = rows
+            seen["column_specs"] = column_specs
+            seen["key_columns"] = key_columns
+            return 5
+
+        monkeypatch.setattr(self.mod, "upsert_rows", _fake)
+
+        result = self.mod.insert_catalog_rows(
+            "report_rc",
+            df,
+            column_specs=[
+                {"name": "ann_date", "source_fields": ["ann_date"], "normalizer": "date"},
+                {"name": "ts_code", "source_fields": ["ts_code"], "normalizer": "clean"},
+                {"name": "eps", "source_fields": ["eps"], "normalizer": "float"},
+            ],
+            key_columns=("ann_date", "ts_code"),
+        )
+
+        assert result == 5
+        assert seen["table_name"] == "report_rc"
+        assert seen["rows"].equals(df)
+        assert seen["key_columns"] == ("ann_date", "ts_code")
+
     # ── upsert_stock_basic ─────────────────────────────────────
     def test_upsert_stock_basic_empty(self):
         import pandas as pd

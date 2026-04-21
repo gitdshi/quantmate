@@ -71,6 +71,10 @@ class BaseIngestInterface(ABC):
         """
         return True
 
+    def should_ensure_table_before_sync(self) -> bool:
+        """Whether generic pre-sync table creation can run before fetching rows."""
+        return True
+
     def backfill_mode(self) -> str:
         """Backfill execution mode: `date` or `range`."""
         return "date"

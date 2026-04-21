@@ -644,7 +644,8 @@ def _execute_backfill_task(task: _BackfillTask) -> SyncResult:
         target_database = getattr(info, "target_database", None)
         target_table = getattr(info, "target_table", None)
         if isinstance(target_database, str) and target_database and isinstance(target_table, str) and target_table:
-            ensure_table(target_database, target_table, task.iface.get_ddl())
+            if task.iface.should_ensure_table_before_sync():
+                ensure_table(target_database, target_table, task.iface.get_ddl())
         if task.mode == "range":
             return task.iface.sync_range(task.start_date, task.end_date)
         return task.iface.sync_date(task.start_date)
@@ -849,9 +850,10 @@ def _sync_one_item(
                 target_date,
             )
 
-        # Always verify the physical table exists because catalog.table_created can drift.
+        # Static-schema interfaces still need a pre-sync ensure because catalog.table_created can drift.
         try:
-            ensure_table(item["target_database"], item["target_table"], iface.get_ddl())
+            if iface.should_ensure_table_before_sync():
+                ensure_table(item["target_database"], item["target_table"], iface.get_ddl())
         except Exception as e:
             logger.exception("Failed to create table for %s: %s", label, e)
             _write_status(target_date, source, item_key, SyncStatus.ERROR.value, 0, f"DDL failed: {e}")

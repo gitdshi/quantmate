@@ -173,6 +173,63 @@ class TestTushareBakDailyInterface:
             assert result.rows_synced == 12
 
 
+class TestTushareDynamicCatalogSchema:
+    def test_infer_dynamic_table_schema_uses_date_and_code_key(self):
+        from app.datasync.sources.tushare import ddl
+
+        schema = ddl.infer_dynamic_table_schema(
+            "report_rc",
+            pd.DataFrame(
+                {
+                    "ts_code": ["000001.SZ"],
+                    "ann_date": ["20240105"],
+                    "name": ["Ping An"],
+                    "eps": [1.23],
+                }
+            ),
+            preferred_date_column="ann_date",
+            preferred_key_fields=("ts_code",),
+        )
+
+        assert schema["key_columns"] == ("ann_date", "ts_code")
+        assert "UNIQUE KEY" in schema["ddl"]
+        assert "`ann_date` DATE NOT NULL" in schema["ddl"]
+        assert "`ts_code` VARCHAR(32) NOT NULL" in schema["ddl"]
+
+    def test_dynamic_catalog_skips_precreate_and_ensures_inferred_schema_on_sync(self):
+        from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface, TushareCatalogSpec
+
+        iface = TushareCatalogInterface(
+            TushareCatalogSpec(
+                interface_key="report_rc",
+                display_name="盈利预测数据",
+                api_name="report_rc",
+                target_table="report_rc",
+                sync_priority=315,
+            )
+        )
+        df = pd.DataFrame(
+            {
+                "ts_code": ["000001.SZ"],
+                "ann_date": ["20240105"],
+                "name": ["Ping An"],
+                "eps": [1.23],
+            }
+        )
+
+        with patch("app.datasync.service.tushare_ingest.call_pro", return_value=df), \
+             patch("app.datasync.table_manager.ensure_inferred_table") as ensure_inferred_table, \
+             patch("app.domains.extdata.dao.tushare_dao.insert_catalog_rows", return_value=1) as insert_catalog_rows:
+            result = iface.sync_date(date(2024, 1, 5))
+
+        assert iface.should_ensure_table_before_sync() is False
+        assert result.status == SyncStatus.SUCCESS
+        ensure_inferred_table.assert_called_once()
+        _, insert_kwargs = insert_catalog_rows.call_args
+        assert insert_kwargs["key_columns"] == ("ann_date", "ts_code")
+        assert insert_kwargs["column_specs"]
+
+
 class TestTushareSuspendDInterface:
     def test_sync_date_success(self):
         from app.datasync.sources.tushare.interfaces import TushareSuspendDInterface
@@ -387,6 +444,7 @@ class TestTushareCatalogInterface:
 
         df = pd.DataFrame({"ts_code": ["000001.SZ"], "trade_date": ["20240105"]})
         with patch("app.datasync.service.tushare_ingest.call_pro", return_value=df) as mock_call, \
+             patch("app.datasync.table_manager.ensure_inferred_table") as mock_ensure_table, \
              patch("app.domains.extdata.dao.tushare_dao.insert_catalog_rows", return_value=1) as mock_insert:
             result = iface.sync_date(date(2024, 1, 5))
 
@@ -397,6 +455,7 @@ class TestTushareCatalogInterface:
         assert result.status == SyncStatus.SUCCESS
         assert result.rows_synced == 1
         mock_call.assert_called_once_with("block_trade", trade_date="20240105")
+        mock_ensure_table.assert_called_once()
         mock_insert.assert_called_once()
 
     def test_runtime_unsupported_catalog_item_disables_scheduled_sync(self):
@@ -437,6 +496,7 @@ class TestTushareCatalogInterface:
 
         df = pd.DataFrame({"ts_code": ["000001.SZ"], "trade_date": ["20240105"]})
         with patch("app.datasync.service.tushare_ingest.call_pro", return_value=df) as mock_call, \
+             patch("app.datasync.table_manager.ensure_inferred_table") as mock_ensure_table, \
              patch("app.domains.extdata.dao.tushare_dao.insert_catalog_rows", return_value=1):
             result = iface.sync_date(date(2024, 1, 5))
 
@@ -446,6 +506,7 @@ class TestTushareCatalogInterface:
         assert iface.requires_nonempty_trading_day_data() is True
         assert result.status == SyncStatus.SUCCESS
         assert result.rows_synced == 1
+        mock_ensure_table.assert_called_once()
         mock_call.assert_called_once_with(api_name, trade_date="20240105")
 
     @pytest.mark.parametrize(

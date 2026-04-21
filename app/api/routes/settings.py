@@ -81,7 +81,7 @@ async def batch_update_datasource_items(
 ):
     """Batch enable/disable data source items.
 
-    When an item is enabled for the first time, its target table is created automatically.
+    Static-schema items are created immediately; sample-inferred items are created on first successful fetch.
     """
     from app.domains.market.dao.data_source_item_dao import DataSourceItemDao
 
@@ -185,7 +185,7 @@ async def update_datasource_item(
 ):
     """Enable or disable a single data source item.
 
-    When enabled, the interface's target table is created if it doesn't exist.
+    Static-schema items are created immediately; sample-inferred items are created on first successful fetch.
     """
     from app.domains.market.dao.data_source_item_dao import DataSourceItemDao
 
@@ -316,6 +316,8 @@ def _ensure_table_for_item(source: str, item_key: str) -> None:
         target_db = item.get("target_database")
         target_tbl = item.get("target_table")
         if not target_db or not target_tbl:
+            return
+        if not iface.should_ensure_table_before_sync():
             return
 
         ensure_table(target_db, target_tbl, iface.get_ddl())

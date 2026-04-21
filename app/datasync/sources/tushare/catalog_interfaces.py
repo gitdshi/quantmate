@@ -151,6 +151,9 @@ class TushareCatalogInterface(BaseIngestInterface):
     def supports_scheduled_sync(self) -> bool:
         return self._spec.interface_key not in _RUNTIME_UNSUPPORTED_INTERFACE_KEYS
 
+    def should_ensure_table_before_sync(self) -> bool:
+        return not ddl.uses_sample_inferred_schema(self.info.target_table)
+
     def supports_backfill(self) -> bool:
         if not self.supports_scheduled_sync():
             return False
@@ -221,10 +224,13 @@ class TushareCatalogInterface(BaseIngestInterface):
             df = call_pro(self._spec.api_name, **params)
             if df is None or getattr(df, "empty", True):
                 return SyncResult(SyncStatus.SUCCESS, 0)
+            inferred_schema = self._ensure_inferred_table(df)
             rows = insert_catalog_rows(
                 self.info.target_table,
                 df,
                 key_fields=self._payload_key_fields(),
+                column_specs=None if inferred_schema is None else list(inferred_schema["column_specs"]),
+                key_columns=None if inferred_schema is None else tuple(inferred_schema["key_columns"]),
             )
             return SyncResult(SyncStatus.SUCCESS, rows)
         except Exception as exc:
@@ -234,6 +240,23 @@ class TushareCatalogInterface(BaseIngestInterface):
                 exc,
                 allow_permission_partial=True,
             )
+
+    def _ensure_inferred_table(self, rows) -> dict[str, object] | None:
+        if self.should_ensure_table_before_sync():
+            return None
+        if rows is None or getattr(rows, "empty", True):
+            return None
+
+        from app.datasync.table_manager import ensure_inferred_table
+
+        schema = ddl.infer_dynamic_table_schema(
+            self.info.target_table,
+            rows,
+            preferred_date_column=self._date_param(),
+            preferred_key_fields=self._payload_key_fields(),
+        )
+        ensure_inferred_table(self.info.target_database, self.info.target_table, schema)
+        return schema
 
 
 def _normalize_permission(raw: str | None) -> str | None:

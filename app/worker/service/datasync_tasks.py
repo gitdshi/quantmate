@@ -52,7 +52,7 @@ def run_backfill_task(source: str, item_key: str, batch_size: int = 30) -> dict:
         logger.warning(msg)
         return {"status": "skipped", "reason": msg}
 
-    # Ensure target table exists
+    # Static-schema interfaces can precreate tables before sync.
     engine = get_quantmate_engine()
     with engine.connect() as conn:
         row = conn.execute(
@@ -64,7 +64,8 @@ def run_backfill_task(source: str, item_key: str, batch_size: int = 30) -> dict:
         ).fetchone()
     if row:
         try:
-            ensure_table(row[0], row[1], iface.get_ddl())
+            if iface.should_ensure_table_before_sync():
+                ensure_table(row[0], row[1], iface.get_ddl())
         except Exception as e:
             logger.exception("DDL failed for %s/%s: %s", source, item_key, e)
             return {"status": "error", "error": f"DDL failed: {e}"}
