@@ -1308,7 +1308,7 @@ class TestTushareDataSource:
         assert len(interfaces) > 0
         assert "stock_company" in keys
         assert "daily_basic" in keys
-        assert "hsgt_stk_hold" in keys
+        assert "hsgt_top10" in keys
         assert "money_flow" not in keys
 
     def test_test_connection_fail(self, monkeypatch):
