@@ -286,21 +286,24 @@ ON DUPLICATE KEY UPDATE
 DELETE dsi
 FROM `quantmate`.`data_source_items` dsi
 LEFT JOIN `_tmp_tushare_catalog_refresh` tmp
-  ON tmp.source = dsi.source AND tmp.item_key = dsi.item_key
+  ON BINARY tmp.source = BINARY dsi.source
+ AND BINARY tmp.item_key = BINARY dsi.item_key
 WHERE dsi.source = 'tushare'
   AND tmp.item_key IS NULL;
 
 DELETE ssi
 FROM `quantmate`.`sync_status_init` ssi
 LEFT JOIN `_tmp_tushare_catalog_refresh` tmp
-  ON tmp.source = ssi.source AND tmp.item_key = ssi.interface_key
+  ON BINARY tmp.source = BINARY ssi.source
+ AND BINARY tmp.item_key = BINARY ssi.interface_key
 WHERE ssi.source = 'tushare'
   AND tmp.item_key IS NULL;
 
 DELETE dss
 FROM `quantmate`.`data_sync_status` dss
 LEFT JOIN `_tmp_tushare_catalog_refresh` tmp
-  ON tmp.source = dss.source AND tmp.item_key = dss.interface_key
+  ON BINARY tmp.source = BINARY dss.source
+ AND BINARY tmp.item_key = BINARY dss.interface_key
 WHERE dss.source = 'tushare'
   AND tmp.item_key IS NULL;
 
