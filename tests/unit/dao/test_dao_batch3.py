@@ -436,6 +436,24 @@ class TestTushareDao:
         r = self.mod.upsert_block_trade(df)
         assert r >= 0
 
+    def test_insert_catalog_rows_uses_block_trade_upserter(self, monkeypatch):
+        import pandas as pd
+
+        df = pd.DataFrame({
+            "ts_code": ["000001.SZ"],
+            "trade_date": ["20240101"],
+        })
+        seen: list[pd.DataFrame] = []
+
+        def _fake(df_in):
+            seen.append(df_in)
+            return 7
+
+        monkeypatch.setitem(self.mod._CATALOG_UPSERTS, "block_trade", _fake)
+
+        assert self.mod.insert_catalog_rows("block_trade", df) == 7
+        assert seen and seen[0].equals(df)
+
     # ── upsert_stock_basic ─────────────────────────────────────
     def test_upsert_stock_basic_empty(self):
         import pandas as pd

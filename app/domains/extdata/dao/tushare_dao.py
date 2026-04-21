@@ -1278,6 +1278,7 @@ def upsert_index_basic(df: pd.DataFrame) -> int:
 
 _CATALOG_UPSERTS = {
     "new_share": upsert_new_share,
+    "block_trade": upsert_block_trade,
     "daily_basic": upsert_daily_basic,
     "stock_moneyflow": upsert_moneyflow,
     "fina_indicator": upsert_fina_indicator,
