@@ -44,6 +44,7 @@ BACKFILL_WORKERS = get_runtime_int(
 
 _FORCE_RETRY_ERROR_SIGNATURES: dict[tuple[str, str], tuple[str, ...]] = {
     ("tushare", "trade_cal"): ("unknown column", "updated_at"),
+    ("tushare", "block_trade"): ("unknown column", "symbol"),
 }
 
 # AkShare backfill can exercise py_mini_racer-backed endpoints (for example

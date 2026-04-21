@@ -295,6 +295,19 @@ class TestBackfillHelpers:
 
         assert _effective_retry_count(record) == 0
 
+    def test_reopens_known_terminal_block_trade_error(self):
+        from app.datasync.service.sync_engine import _effective_retry_count
+
+        record = (
+            date(2024, 1, 3),
+            "tushare",
+            "block_trade",
+            3,
+            "(1054, \"Unknown column 'symbol' in 'field list'\")",
+        )
+
+        assert _effective_retry_count(record) == 0
+
     def test_keeps_other_terminal_errors_closed(self):
         from app.datasync.service.sync_engine import _effective_retry_count
 
@@ -966,5 +979,35 @@ class TestBackfillRetry:
             result = backfill_retry(registry, max_workers=2)
 
         assert result["tushare/trade_cal@2024-01-03"]["status"] == "success"
+        iface.sync_date.assert_called_once_with(date(2024, 1, 3))
+        assert mock_write.call_args_list[0].kwargs["retry_count"] == 1
+
+    def test_retries_recoverable_terminal_block_trade_rows(self):
+        from app.datasync.base import SyncResult, SyncStatus
+        from app.datasync.service.sync_engine import backfill_retry
+
+        registry = MagicMock()
+        iface = MagicMock()
+        iface.backfill_mode.return_value = "date"
+        iface.sync_date.return_value = SyncResult(status=SyncStatus.SUCCESS, rows_synced=1)
+        registry.get_interface.return_value = iface
+
+        with patch(f"{_MOD}._get_enabled_backfill_keys", return_value={("tushare", "block_trade")}), \
+             patch(f"{_MOD}._get_failed_records", return_value=[
+                 (
+                     date(2024, 1, 3),
+                     "tushare",
+                     "block_trade",
+                     3,
+                     "(1054, \"Unknown column 'symbol' in 'field list'\")",
+                 ),
+             ]), \
+             patch(f"{_MOD}._write_status") as mock_write, \
+             patch("app.domains.extdata.dao.data_sync_status_dao.acquire_backfill_lock"), \
+             patch("app.domains.extdata.dao.data_sync_status_dao.release_backfill_lock"), \
+             patch("app.domains.extdata.dao.data_sync_status_dao.is_backfill_locked", return_value=False):
+            result = backfill_retry(registry, max_workers=2)
+
+        assert result["tushare/block_trade@2024-01-03"]["status"] == "success"
         iface.sync_date.assert_called_once_with(date(2024, 1, 3))
         assert mock_write.call_args_list[0].kwargs["retry_count"] == 1

@@ -404,11 +404,11 @@ class TestTushareCatalogInterface:
 
         iface = TushareCatalogInterface(
             TushareCatalogSpec(
-                interface_key="fina_indicator",
-                display_name="财务指标数据",
-                api_name="fina_indicator",
-                target_table="fina_indicator",
-                sync_priority=55,
+                interface_key="fund_portfolio",
+                display_name="公募基金持仓数据",
+                api_name="fund_portfolio",
+                target_table="fund_portfolio",
+                sync_priority=515,
             )
         )
 
@@ -418,11 +418,43 @@ class TestTushareCatalogInterface:
     @pytest.mark.parametrize(
         ("interface_key", "api_name"),
         [
-            ("company_change", "company_change"),
-            ("pledge_detail", "pledge_detail"),
-            ("top_list", "top_list"),
+            ("index_dailybasic", "index_dailybasic"),
             ("stk_factor_pro", "stk_factor_pro"),
+        ],
+    )
+    def test_trade_date_catalog_items_are_scheduler_enabled(self, interface_key, api_name):
+        from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface, TushareCatalogSpec
+
+        iface = TushareCatalogInterface(
+            TushareCatalogSpec(
+                interface_key=interface_key,
+                display_name=interface_key,
+                api_name=api_name,
+                target_table=interface_key,
+                sync_priority=999,
+            )
+        )
+
+        df = pd.DataFrame({"ts_code": ["000001.SZ"], "trade_date": ["20240105"]})
+        with patch("app.datasync.service.tushare_ingest.call_pro", return_value=df) as mock_call, \
+             patch("app.domains.extdata.dao.tushare_dao.insert_catalog_rows", return_value=1):
+            result = iface.sync_date(date(2024, 1, 5))
+
+        assert iface.supports_scheduled_sync() is True
+        assert iface.supports_backfill() is True
+        assert iface.backfill_mode() == "date"
+        assert iface.requires_nonempty_trading_day_data() is True
+        assert result.status == SyncStatus.SUCCESS
+        assert result.rows_synced == 1
+        mock_call.assert_called_once_with(api_name, trade_date="20240105")
+
+    @pytest.mark.parametrize(
+        ("interface_key", "api_name"),
+        [
+            ("pledge_detail", "pledge_detail"),
             ("fund_nav", "fund_nav"),
+            ("fund_portfolio", "fund_portfolio"),
+            ("index_weight", "index_weight"),
         ],
     )
     def test_known_generic_unsupported_catalog_items_are_scheduler_disabled(self, interface_key, api_name):
@@ -515,3 +547,4 @@ class TestTushareCatalogInterface:
         assert "hsgt_stk_hold" not in keys
         assert "moneyflow" not in keys
         assert "suspend_daily" not in keys
+        assert "stock_st" in keys
