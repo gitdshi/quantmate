@@ -146,7 +146,7 @@ CREATE TABLE IF NOT EXISTS bak_daily (
 """
 
 STOCK_MONEYFLOW_DDL = """
-CREATE TABLE IF NOT EXISTS stock_moneyflow (
+CREATE TABLE IF NOT EXISTS moneyflow (
     ts_code VARCHAR(32) NOT NULL,
     trade_date DATE NOT NULL,
     net_mf DECIMAL(20,2),
@@ -159,7 +159,7 @@ CREATE TABLE IF NOT EXISTS stock_moneyflow (
     buy_huge DECIMAL(20,2),
     sell_huge DECIMAL(20,2),
     PRIMARY KEY (ts_code, trade_date),
-    INDEX idx_stock_moneyflow_date (trade_date)
+    INDEX idx_moneyflow_trade_date (trade_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 """
 
@@ -310,7 +310,7 @@ CREATE TABLE IF NOT EXISTS cashflow (
 """
 
 STOCK_DIVIDEND_DDL = """
-CREATE TABLE IF NOT EXISTS stock_dividend (
+CREATE TABLE IF NOT EXISTS dividend (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     ts_code VARCHAR(32) NOT NULL,
     ann_date DATE,
@@ -322,7 +322,7 @@ CREATE TABLE IF NOT EXISTS stock_dividend (
     div_stock DECIMAL(20,2),
     bonus_ratio DECIMAL(10,2),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE INDEX ux_stock_dividend_ts_ann (ts_code, ann_date),
+    UNIQUE INDEX ux_dividend_ts_ann (ts_code, ann_date),
     INDEX idx_div_ts_ann (ts_code, ann_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 """
@@ -794,6 +794,7 @@ _CATALOG_DDL_MAP = {
     "new_share": NEW_SHARE_DDL,
     "stock_daily": STOCK_DAILY_DDL,
     "bak_daily": BAK_DAILY_DDL,
+    "moneyflow": STOCK_MONEYFLOW_DDL,
     "stock_moneyflow": STOCK_MONEYFLOW_DDL,
     "suspend_d": SUSPEND_D_DDL,
     "suspend": SUSPEND_HISTORY_DDL,
@@ -803,6 +804,7 @@ _CATALOG_DDL_MAP = {
     "income": INCOME_DDL,
     "balancesheet": BALANCESHEET_DDL,
     "cashflow": CASHFLOW_DDL,
+    "dividend": STOCK_DIVIDEND_DDL,
     "stock_dividend": STOCK_DIVIDEND_DDL,
     "top10_holders": TOP10_HOLDERS_DDL,
     "stock_weekly": STOCK_WEEKLY_DDL,

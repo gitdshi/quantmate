@@ -125,7 +125,7 @@ def check_tushare_adj_factor(trade_date: date) -> tuple[bool, int]:
 def check_tushare_dividend(trade_date: date) -> tuple[bool, int]:
     with engine_ts.connect() as conn:
         count = conn.execute(
-            text("SELECT COUNT(*) FROM stock_dividend WHERE ann_date = :d"),
+            text("SELECT COUNT(*) FROM dividend WHERE ann_date = :d"),
             {"d": trade_date},
         ).scalar() or 0
     return True, int(count)

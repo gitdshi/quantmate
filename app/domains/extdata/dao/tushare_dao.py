@@ -545,7 +545,7 @@ def get_max_trade_date(ts_code: str):
 
 
 def upsert_dividend_df(df: pd.DataFrame) -> int:
-    """Upsert rows from a dividend DataFrame into stock_dividend."""
+    """Upsert rows from a dividend DataFrame into dividend."""
     if df is None or df.empty:
         return 0
 
@@ -563,7 +563,7 @@ def upsert_dividend_df(df: pd.DataFrame) -> int:
             return None
 
     insert_sql = text(
-        "INSERT INTO stock_dividend (ts_code, ann_date, imp_ann_date, record_date, ex_date, pay_date, div_cash, div_stock, bonus_ratio)"
+        "INSERT INTO dividend (ts_code, ann_date, imp_ann_date, record_date, ex_date, pay_date, div_cash, div_stock, bonus_ratio)"
         " VALUES (:ts_code, :ann_date, :imp_ann_date, :record_date, :ex_date, :pay_date, :div_cash, :div_stock, :bonus_ratio)"
         " ON DUPLICATE KEY UPDATE div_cash=VALUES(div_cash), div_stock=VALUES(div_stock), bonus_ratio=VALUES(bonus_ratio)"
     )
@@ -699,7 +699,7 @@ def upsert_moneyflow(df: pd.DataFrame) -> int:
     if df is None or df.empty:
         return 0
     insert_sql = text(
-        "INSERT INTO stock_moneyflow (ts_code, trade_date, net_mf, buy_small, sell_small, buy_medium, sell_medium, buy_large, sell_large, buy_huge, sell_huge)"
+        "INSERT INTO moneyflow (ts_code, trade_date, net_mf, buy_small, sell_small, buy_medium, sell_medium, buy_large, sell_large, buy_huge, sell_huge)"
         " VALUES (:ts_code, :trade_date, :net_mf, :buy_small, :sell_small, :buy_medium, :sell_medium, :buy_large, :sell_large, :buy_huge, :sell_huge)"
         " ON DUPLICATE KEY UPDATE net_mf=VALUES(net_mf), buy_small=VALUES(buy_small), sell_small=VALUES(sell_small), buy_medium=VALUES(buy_medium), sell_medium=VALUES(sell_medium), buy_large=VALUES(buy_large), sell_large=VALUES(sell_large), buy_huge=VALUES(buy_huge), sell_huge=VALUES(sell_huge)"
     )
@@ -1280,6 +1280,7 @@ _CATALOG_UPSERTS = {
     "new_share": upsert_new_share,
     "block_trade": upsert_block_trade,
     "daily_basic": upsert_daily_basic,
+    "moneyflow": upsert_moneyflow,
     "stock_moneyflow": upsert_moneyflow,
     "fina_indicator": upsert_fina_indicator,
     "income": upsert_income,

@@ -561,7 +561,7 @@ class TestIngestMoneyflow:
             result = mod.ingest_moneyflow_by_trade_dates(["2024-01-15"], sleep_between=0.2)
         assert result == 2
         assert helper.call_args.args[0] == "moneyflow"
-        assert helper.call_args.args[1] == "stock_moneyflow"
+        assert helper.call_args.args[1] == "moneyflow"
 
 
 class TestIngestMargin:
@@ -666,4 +666,3 @@ class TestRetryFailedDaily:
              patch.object(mod, "ingest_daily"), \
              patch(f"{_MOD}.time.sleep"):
             mod.retry_failed_daily(limit=1)
-

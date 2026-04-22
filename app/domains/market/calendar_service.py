@@ -276,7 +276,7 @@ class CalendarService:
                         "SELECT COALESCE(d.ex_date, d.pay_date, d.record_date, d.ann_date) AS event_date, "
                         "d.ts_code, COALESCE(sb.name, d.ts_code) AS stock_name, sb.symbol, "
                         "d.div_cash, d.div_stock, d.bonus_ratio "
-                        "FROM stock_dividend d "
+                        "FROM dividend d "
                         "LEFT JOIN stock_basic sb ON sb.ts_code = d.ts_code "
                         "WHERE COALESCE(d.ex_date, d.pay_date, d.record_date, d.ann_date) "
                         "BETWEEN :start_date AND :end_date "

@@ -170,7 +170,7 @@ _INIT_STATUS_CONFIG = {
         'source': 'tushare',
         'item_key': 'dividend',
         'database': 'tushare',
-        'table': 'stock_dividend',
+        'table': 'dividend',
         'date_column': 'ann_date',
         'window': 'aux',
     },
@@ -194,7 +194,7 @@ _INIT_STATUS_CONFIG = {
         'source': 'tushare',
         'item_key': 'moneyflow',
         'database': 'tushare',
-        'table': 'stock_moneyflow',
+        'table': 'moneyflow',
         'date_column': 'trade_date',
         'window': 'daily',
     },
@@ -428,7 +428,7 @@ def print_summary() -> None:
         ('tushare.stock_weekly', 'SELECT COUNT(*) FROM tushare.stock_weekly'),
         ('tushare.stock_monthly', 'SELECT COUNT(*) FROM tushare.stock_monthly'),
         ('tushare.bak_daily', 'SELECT COUNT(*) FROM tushare.bak_daily'),
-        ('tushare.stock_moneyflow', 'SELECT COUNT(*) FROM tushare.stock_moneyflow'),
+        ('tushare.moneyflow', 'SELECT COUNT(*) FROM tushare.moneyflow'),
         ('tushare.suspend_d', 'SELECT COUNT(*) FROM tushare.suspend_d'),
         ('tushare.suspend', 'SELECT COUNT(*) FROM tushare.`suspend`'),
         ('tushare.adj_factor', 'SELECT COUNT(*) FROM tushare.adj_factor'),
@@ -436,7 +436,7 @@ def print_summary() -> None:
         ('tushare.income', 'SELECT COUNT(*) FROM tushare.income'),
         ('tushare.balancesheet', 'SELECT COUNT(*) FROM tushare.balancesheet'),
         ('tushare.cashflow', 'SELECT COUNT(*) FROM tushare.cashflow'),
-        ('tushare.stock_dividend', 'SELECT COUNT(*) FROM tushare.stock_dividend'),
+        ('tushare.dividend', 'SELECT COUNT(*) FROM tushare.dividend'),
         ('tushare.top10_holders', 'SELECT COUNT(*) FROM tushare.top10_holders'),
         ('akshare.index_daily', 'SELECT COUNT(*) FROM akshare.index_daily'),
         ('vnpy.dbbardata', 'SELECT COUNT(*) FROM vnpy.dbbardata'),
@@ -1057,7 +1057,7 @@ def main() -> int:
                         progress_cb=build_phase_progress_callback('dividend', source='tushare', item_key='dividend'),
                     )
                     save_progress('dividend', 'completed', cursor_date=end_date)
-                require_tushare_rows('stock_dividend', 'dividend')
+                require_tushare_rows('dividend', 'dividend')
                 finalize_init_phase_sync_status('dividend', start_date, daily_range_start, end_date)
 
             if should_run_phase(progress, 'top10_holders', args.resume):
@@ -1113,7 +1113,7 @@ def main() -> int:
                     progress_cb=build_phase_progress_callback('moneyflow', source='tushare', item_key='moneyflow'),
                 )
                 save_progress('moneyflow', 'completed', cursor_date=loaded_trade_dates[-1] if loaded_trade_dates else None)
-                require_tushare_rows('stock_moneyflow', 'moneyflow')
+                require_tushare_rows('moneyflow', 'moneyflow')
                 finalize_init_phase_sync_status('moneyflow', start_date, daily_range_start, end_date)
 
             if should_run_phase(progress, 'suspend_d', args.resume):

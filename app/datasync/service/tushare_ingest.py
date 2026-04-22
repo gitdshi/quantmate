@@ -508,7 +508,7 @@ def ingest_moneyflow_by_trade_dates(
 ):
     return _ingest_marketwide_on_dates(
         "moneyflow",
-        "stock_moneyflow",
+        "moneyflow",
         "trade_date",
         upsert_moneyflow,
         trade_dates,
@@ -599,7 +599,7 @@ def ingest_dividend_by_ann_date_range(
     start_after_date: str = None,
 ):
     s_norm, e_norm = _normalize_date_bounds(start_date, end_date)
-    existing = _fetch_existing_keys("stock_dividend", "ann_date", s_norm, e_norm)
+    existing = _fetch_existing_keys("dividend", "ann_date", s_norm, e_norm)
     total_rows = 0
     logging.info("Starting marketwide dividend ingest for %s - %s", s_norm, e_norm)
 
@@ -1406,7 +1406,7 @@ def ingest_dividend_by_date_range(
         s_norm = start_date
         e_norm = end_date
 
-    existing = _fetch_existing_keys("stock_dividend", "ann_date", s_norm, e_norm)
+    existing = _fetch_existing_keys("dividend", "ann_date", s_norm, e_norm)
 
     ts_codes = get_all_ts_codes()
     total = len(ts_codes)

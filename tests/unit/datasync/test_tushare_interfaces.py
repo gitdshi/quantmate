@@ -295,6 +295,11 @@ class TestTushareSuspendDInterface:
 
 
 class TestTushareMoneyflowInterface:
+    def test_info_targets_matching_table(self):
+        from app.datasync.sources.tushare.interfaces import TushareMoneyflowInterface
+
+        assert TushareMoneyflowInterface().info.target_table == "moneyflow"
+
     def test_requires_nonempty_trading_day_data(self):
         from app.datasync.sources.tushare.interfaces import TushareMoneyflowInterface
 
@@ -336,6 +341,11 @@ class TestTushareAdjFactorInterface:
 
 
 class TestTushareDividendInterface:
+    def test_info_targets_matching_table(self):
+        from app.datasync.sources.tushare.interfaces import TushareDividendInterface
+
+        assert TushareDividendInterface().info.target_table == "dividend"
+
     def test_backfill_mode(self):
         from app.datasync.sources.tushare.interfaces import TushareDividendInterface
         assert TushareDividendInterface().backfill_mode() == "range"

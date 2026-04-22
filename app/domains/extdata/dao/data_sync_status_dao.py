@@ -232,7 +232,7 @@ def get_moneyflow_counts(start: date, end: date) -> Dict[date, int]:
         res = conn.execute(
             text("""
             SELECT trade_date, COUNT(*) as cnt
-            FROM stock_moneyflow
+            FROM moneyflow
             WHERE trade_date BETWEEN :s AND :e
             GROUP BY trade_date
         """),
@@ -356,7 +356,7 @@ def get_dividend_counts(start: date, end: date) -> Dict[date, int]:
             text(
                 """
             SELECT ann_date, COUNT(*) as cnt
-            FROM stock_dividend
+            FROM dividend
             WHERE ann_date BETWEEN :s AND :e
             GROUP BY ann_date
         """
