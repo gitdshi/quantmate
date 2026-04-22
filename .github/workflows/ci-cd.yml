@@ -370,9 +370,24 @@ jobs:
             fi
 
             restart_nginx
-
+    
             echo "==> Verifying proxied API health"
-            curl -sf http://localhost/health >/dev/null
+            proxied_ok=0
+            for i in $(seq 1 12); do
+              if curl -sf http://localhost/health >/dev/null; then
+                proxied_ok=1
+                break
+              fi
+              echo "Proxied health retry $i/12..."
+              sleep 3
+            done
+            if [ "$proxied_ok" -ne 1 ]; then
+              echo "Proxied API did not become healthy in time"
+              docker compose -f docker-compose.staging.yml ps
+              docker logs --tail=200 quantmate_nginx || true
+              curl -i --max-time 10 http://localhost/health || true
+              exit 1
+            fi
 
             echo "==> Persisting deployed image tag into .env"
             upsert_env_key GITHUB_OWNER "$GITHUB_OWNER"
