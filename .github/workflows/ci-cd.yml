@@ -288,6 +288,11 @@ jobs:
               print_disk_diagnostics
             }
 
+            restart_nginx() {
+              echo "==> Restarting nginx to refresh upstream container IPs"
+              docker restart quantmate_nginx >/dev/null
+            }
+
             restart_services() {
               GITHUB_OWNER=$GITHUB_OWNER IMAGE_TAG=$IMAGE_TAG \
                 docker compose -f docker-compose.staging.yml up -d $IMAGE_SERVICES
@@ -363,6 +368,11 @@ jobs:
               docker compose -f docker-compose.staging.yml logs --tail=200 api
               exit 1
             fi
+
+            restart_nginx
+
+            echo "==> Verifying proxied API health"
+            curl -sf http://localhost/health >/dev/null
 
             echo "==> Persisting deployed image tag into .env"
             upsert_env_key GITHUB_OWNER "$GITHUB_OWNER"
