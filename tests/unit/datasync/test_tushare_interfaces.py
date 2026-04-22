@@ -894,3 +894,13 @@ class TestTushareDataSourceRegistration:
         assert isinstance(interfaces["index_daily"], TushareIndexDailyInterface)
         assert isinstance(interfaces["index_weekly"], TushareIndexWeeklyInterface)
         assert isinstance(interfaces["cyq_chips"], TushareCyqChipsInterface)
+
+    def test_falls_back_to_bundled_catalog_when_db_catalog_unavailable(self):
+        from app.datasync.sources.tushare.source import TushareDataSource
+
+        with patch(f"{_CATALOG_MOD}._fetch_catalog_rows", side_effect=RuntimeError("db unavailable")):
+            interfaces = {iface.info.interface_key: iface for iface in TushareDataSource().get_interfaces()}
+
+        assert "daily_basic" in interfaces
+        assert "hsgt_top10" in interfaces
+        assert "stock_daily" in interfaces

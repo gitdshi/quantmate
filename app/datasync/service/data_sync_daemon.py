@@ -187,6 +187,18 @@ class SyncStatus(str, Enum):
 # =============================================================================
 
 
+def _has_weekday_gap(start_date: date, end_date: date) -> bool:
+    if start_date > end_date:
+        return False
+
+    cur = start_date
+    while cur <= end_date:
+        if cur.weekday() < 5:
+            return True
+        cur += timedelta(days=1)
+    return False
+
+
 def get_trade_calendar(start_date: date, end_date: date) -> List[date]:
     """Get trade dates from cached calendar or fetch from AkShare.
 
@@ -197,7 +209,16 @@ def get_trade_calendar(start_date: date, end_date: date) -> List[date]:
     try:
         dates = get_cached_trade_dates(start_date, end_date)
         if dates:
-            if dates[0] <= start_date and dates[-1] >= end_date:
+            has_gap = _has_weekday_gap(start_date, dates[0] - timedelta(days=1))
+            if not has_gap:
+                for previous_date, next_date in zip(dates, dates[1:]):
+                    if _has_weekday_gap(previous_date + timedelta(days=1), next_date - timedelta(days=1)):
+                        has_gap = True
+                        break
+            if not has_gap:
+                has_gap = _has_weekday_gap(dates[-1] + timedelta(days=1), end_date)
+
+            if not has_gap:
                 logger.debug("Using cached trade calendar: %d dates", len(dates))
                 return dates
             logger.info(

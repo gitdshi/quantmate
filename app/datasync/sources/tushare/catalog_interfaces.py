@@ -41,6 +41,39 @@ WHERE source = 'tushare'
 ORDER BY sync_priority, item_key
 """
 
+_FALLBACK_CATALOG_ROWS = (
+    ("stock_basic", "股票基础列表", "stock_basic", "stock_basic", 10, "0"),
+    ("stock_daily", "A股日线行情", "daily", "stock_daily", 20, "0"),
+    ("bak_daily", "备用行情", "bak_daily", "bak_daily", 22, "0"),
+    ("suspend_d", "每日停复牌信息", "suspend_d", "suspend_d", 23, "0"),
+    ("suspend", "停复牌历史", "suspend", "suspend", 24, "0"),
+    ("moneyflow", "个股资金流向", "moneyflow", "moneyflow", 25, "0"),
+    ("stock_weekly", "周线行情", "weekly", "stock_weekly", 25, "0"),
+    ("stock_monthly", "月线行情", "monthly", "stock_monthly", 26, "0"),
+    ("adj_factor", "复权因子", "adj_factor", "adj_factor", 30, "0"),
+    ("daily_basic", "每日指标数据", "daily_basic", "daily_basic", 31, "0"),
+    ("fina_indicator", "财务指标数据", "fina_indicator", "fina_indicator", 55, "0"),
+    ("income", "利润表", "income", "income", 56, "0"),
+    ("limit_list_d", "涨跌停统计", "limit_list_d", "limit_list_d", 70, "0"),
+    ("margin_detail", "融资融券明细", "margin_detail", "margin_detail", 80, "0"),
+    ("margin", "融资融券", "margin", "margin", 81, "0"),
+    ("block_trade", "大宗交易", "block_trade", "block_trade", 90, "0"),
+    ("hsgt_top10", "沪深股通成份股", "hsgt_top10", "hsgt_top10", 100, "0"),
+    ("namechange", "股票曾用名", "namechange", "namechange", 103, "0"),
+    ("new_share", "IPO新股列表", "new_share", "new_share", 104, "0"),
+    ("stk_holdertrade", "董监高持股", "stk_holdertrade", "stk_holdertrade", 109, "0"),
+    ("balancesheet", "资产负债表", "balancesheet", "balancesheet", 201, "0"),
+    ("cashflow", "现金流量表", "cashflow", "cashflow", 203, "0"),
+    ("forecast", "业绩预告", "forecast", "forecast", 205, "0"),
+    ("express", "业绩快报", "express", "express", 206, "0"),
+    ("fina_audit", "财务审计意见", "fina_audit", "fina_audit", 208, "0"),
+    ("fina_mainbz", "主营业务构成", "fina_mainbz", "fina_mainbz", 209, "0"),
+    ("disclosure_date", "财报披露计划", "disclosure_date", "disclosure_date", 211, "0"),
+    ("index_monthly", "指数月线行情", "index_monthly", "index_monthly", 401, "0"),
+    ("index_dailybasic", "大盘指数每日指标", "index_dailybasic", "index_dailybasic", 403, "0"),
+    ("stock_st", "ST股票列表", "stock_st", "stock_st", 1001, "0"),
+)
+
 _TRADE_DATE_APIS = {
     "daily",
     "bak_daily",
@@ -366,10 +399,13 @@ def _fetch_catalog_rows() -> list[tuple]:
 
 def _load_catalog_specs() -> tuple[TushareCatalogSpec, ...]:
     try:
-        return _build_specs(_fetch_catalog_rows())
+        specs = _build_specs(_fetch_catalog_rows())
+        if specs:
+            return specs
+        logger.warning("Tushare catalog query returned no rows; using bundled fallback catalog")
     except Exception:
         logger.exception("Failed to load Tushare catalog rows from data_source_items")
-        return tuple()
+    return _build_specs(list(_FALLBACK_CATALOG_ROWS))
 
 
 def build_catalog_interfaces(existing_keys: set[str] | None = None) -> list[BaseIngestInterface]:

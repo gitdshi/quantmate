@@ -155,9 +155,9 @@ class TestGetTradeCalendar:
     def test_from_cache(self):
         from app.datasync.service.data_sync_daemon import get_trade_calendar
         with patch(f"{_MOD}.get_cached_trade_dates") as mock_cache:
-            mock_cache.return_value = [date(2024, 1, 1), date(2024, 1, 3), date(2024, 1, 4), date(2024, 1, 5)]
+            mock_cache.return_value = [date(2024, 1, 1), date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4), date(2024, 1, 5)]
             result = get_trade_calendar(date(2024, 1, 1), date(2024, 1, 5))
-        assert result == [date(2024, 1, 1), date(2024, 1, 3), date(2024, 1, 4), date(2024, 1, 5)]
+        assert result == [date(2024, 1, 1), date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4), date(2024, 1, 5)]
 
     def test_partial_cache_refreshes_from_akshare(self):
         from app.datasync.service.data_sync_daemon import get_trade_calendar

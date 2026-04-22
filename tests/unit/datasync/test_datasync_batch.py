@@ -495,9 +495,9 @@ import app.datasync.service.data_sync_daemon as _dsd
 class TestGetTradeCalendar:
     def test_from_cache(self, monkeypatch):
         monkeypatch.setattr(_dsd, "get_cached_trade_dates",
-                            lambda s, e: [date(2024, 6, 3), date(2024, 6, 4)])
+                            lambda s, e: [date(2024, 6, 3), date(2024, 6, 4), date(2024, 6, 5), date(2024, 6, 6), date(2024, 6, 7)])
         result = _dsd.get_trade_calendar(date(2024, 6, 1), date(2024, 6, 7))
-        assert len(result) == 2
+        assert result == [date(2024, 6, 3), date(2024, 6, 4), date(2024, 6, 5), date(2024, 6, 6), date(2024, 6, 7)]
 
     def test_from_akshare(self, monkeypatch):
         monkeypatch.setattr(_dsd, "get_cached_trade_dates", lambda s, e: [])
