@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from datetime import date, datetime, time
 from decimal import Decimal
+from functools import lru_cache
 import logging
 from typing import Any
 
-from sqlalchemy import MetaData, String, Table, and_, cast, func, inspect, select
+from sqlalchemy import MetaData, String, Table, and_, cast, func, inspect, select, text
 from sqlalchemy.sql.sqltypes import Boolean, Date, DateTime, Float, Integer, Numeric, Time
 
 from app.domains.market.dao.data_source_item_dao import DataSourceItemDao
@@ -44,9 +45,7 @@ class TushareBrowserService:
         category: str | None = None,
         sub_category: str | None = None,
     ) -> list[dict[str, Any]]:
-        inspector = inspect(self._engine)
         metadata_tables = self._list_metadata_tables(
-            inspector,
             keyword=keyword,
             category=category,
             sub_category=sub_category,
@@ -54,11 +53,11 @@ class TushareBrowserService:
         if metadata_tables is not None:
             return metadata_tables
 
+        inspector = inspect(self._engine)
         return self._list_physical_tables(inspector, keyword=keyword)
 
     def _list_metadata_tables(
         self,
-        inspector: Any,
         *,
         keyword: str | None = None,
         category: str | None = None,
@@ -75,7 +74,6 @@ class TushareBrowserService:
         keyword_lower = keyword.strip().lower() if keyword else None
         sub_category_lower = sub_category.strip().lower() if sub_category else None
         target_databases = self._resolve_target_databases()
-        available_tables = set(inspector.get_table_names())
         items: list[dict[str, Any]] = []
         seen: set[tuple[str, str]] = set()
 
@@ -84,7 +82,7 @@ class TushareBrowserService:
             target_table = str(row.get("target_table") or "").strip()
             if not target_database or target_database.lower() not in target_databases:
                 continue
-            if not target_table or target_table not in available_tables:
+            if not target_table or not bool(row.get("table_created")):
                 continue
             if sub_category_lower and str(row.get("sub_category") or "").strip().lower() != sub_category_lower:
                 continue
@@ -98,8 +96,6 @@ class TushareBrowserService:
                 continue
             seen.add(dedupe_key)
 
-            columns = inspector.get_columns(target_table)
-            primary_keys = inspector.get_pk_constraint(target_table).get("constrained_columns") or []
             items.append(
                 {
                     "name": target_table,
@@ -110,8 +106,8 @@ class TushareBrowserService:
                     "item_name": row.get("item_name") or row.get("display_name"),
                     "category": row.get("category"),
                     "sub_category": row.get("sub_category"),
-                    "column_count": len(columns),
-                    "primary_keys": primary_keys,
+                    "column_count": 0,
+                    "primary_keys": [],
                 }
             )
 
@@ -195,7 +191,7 @@ class TushareBrowserService:
 
         inspector = inspect(self._engine)
         resolved_table_name = self._validate_table_name(table_name, inspector)
-        table = Table(resolved_table_name, MetaData(), autoload_with=self._engine)
+        table = self._load_table(resolved_table_name)
         conditions = [self._compile_filter(table, filter_item) for filter_item in safe_filters]
 
         order_column, resolved_sort_dir = self._resolve_sort(table, sort_by, sort_dir)
@@ -211,7 +207,12 @@ class TushareBrowserService:
         query = query.order_by(order_expr).limit(page_size).offset((page - 1) * page_size)
 
         with self._engine.connect() as conn:
-            total = int(conn.execute(total_query).scalar() or 0)
+            total = self._resolve_total_count(
+                conn,
+                resolved_table_name,
+                total_query,
+                has_filters=bool(conditions),
+            )
             rows = conn.execute(query).mappings().all()
 
         total_pages = max(1, (total + page_size - 1) // page_size)
@@ -227,6 +228,51 @@ class TushareBrowserService:
                 "sort_dir": resolved_sort_dir,
             },
         }
+
+    @lru_cache(maxsize=256)
+    def _load_table(self, table_name: str) -> Table:
+        return Table(table_name, MetaData(), autoload_with=self._engine)
+
+    def _resolve_total_count(
+        self,
+        conn: Any,
+        table_name: str,
+        total_query: Any,
+        *,
+        has_filters: bool,
+    ) -> int:
+        if not has_filters:
+            estimated = self._estimate_table_rows(conn, table_name)
+            if estimated is not None and estimated > 0:
+                return estimated
+        return int(conn.execute(total_query).scalar() or 0)
+
+    def _estimate_table_rows(self, conn: Any, table_name: str) -> int | None:
+        dialect_name = str(getattr(self._engine.dialect, "name", "") or "").lower()
+        if dialect_name not in {"mysql", "mariadb"}:
+            return None
+        row = conn.execute(
+            text(
+                """
+                SELECT TABLE_ROWS
+                FROM information_schema.TABLES
+                WHERE TABLE_SCHEMA = :schema_name AND TABLE_NAME = :table_name
+                """
+            ),
+            {
+                "schema_name": self._default_target_database(),
+                "table_name": table_name,
+            },
+        ).fetchone()
+        if row is None:
+            return None
+        value = row[0]
+        if value is None:
+            return None
+        try:
+            return max(int(value), 0)
+        except (TypeError, ValueError):
+            return None
 
     def _validate_table_name(self, table_name: str, inspector: Any) -> str:
         available_tables = set(inspector.get_table_names())
