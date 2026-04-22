@@ -245,6 +245,32 @@ jobs:
               mv "$INCOMING_EXAMPLE_FILE" "$EXAMPLE_FILE"
             }
 
+            upsert_env_key() {
+              key="$1"
+              value="$2"
+              if grep -q "^${key}=" "$ENV_FILE"; then
+                sed -i "s|^${key}=.*|${key}=${value}|" "$ENV_FILE"
+              else
+                printf "\n%s=%s\n" "$key" "$value" >> "$ENV_FILE"
+              fi
+            }
+
+            ensure_env_key() {
+              key="$1"
+              value="$2"
+              if ! grep -q "^${key}=" "$ENV_FILE"; then
+                printf "\n%s=%s\n" "$key" "$value" >> "$ENV_FILE"
+              fi
+            }
+
+            require_env_key() {
+              key="$1"
+              if ! grep -q "^${key}=.\+" "$ENV_FILE"; then
+                echo "Required key $key is missing or empty in $ENV_FILE"
+                exit 1
+              fi
+            }
+
             print_disk_diagnostics() {
               echo "==> Filesystem usage"
               df -h || true
@@ -278,6 +304,8 @@ jobs:
             }
 
             rebuild_env_from_example_if_needed
+            ensure_env_key GITHUB_OWNER "$GITHUB_OWNER"
+            require_env_key PORTAL_IMAGE_TAG
             print_disk_diagnostics
 
             echo "==> Pulling image tag: $IMAGE_TAG"
@@ -335,6 +363,10 @@ jobs:
               docker compose -f docker-compose.staging.yml logs --tail=200 api
               exit 1
             fi
+
+            echo "==> Persisting deployed image tag into .env"
+            upsert_env_key GITHUB_OWNER "$GITHUB_OWNER"
+            upsert_env_key IMAGE_TAG "$IMAGE_TAG"
 
             echo "Staging deploy successful: $IMAGE_TAG"
 

@@ -6,7 +6,7 @@ version: '3.8'
 services:
   # QuantMate API Service (Staging 配置)
   api:
-    image: ghcr.io/${GITHUB_OWNER:-gitdshi}/quantmate-api:${IMAGE_TAG:-latest}
+    image: ghcr.io/${GITHUB_OWNER:-gitdshi}/quantmate-api:${IMAGE_TAG:?IMAGE_TAG must be set in .env or environment}
     depends_on:
       redis:
         condition: service_healthy
@@ -55,7 +55,7 @@ services:
 
   # Background Worker Service
   worker:
-    image: ghcr.io/${GITHUB_OWNER:-gitdshi}/quantmate-api:${IMAGE_TAG:-latest}
+    image: ghcr.io/${GITHUB_OWNER:-gitdshi}/quantmate-api:${IMAGE_TAG:?IMAGE_TAG must be set in .env or environment}
     depends_on:
       redis:
         condition: service_healthy
@@ -85,7 +85,7 @@ services:
 
   # Data sync daemon (runs scheduled ingest/backfill)
   datasync:
-    image: ghcr.io/${GITHUB_OWNER:-gitdshi}/quantmate-api:${IMAGE_TAG:-latest}
+    image: ghcr.io/${GITHUB_OWNER:-gitdshi}/quantmate-api:${IMAGE_TAG:?IMAGE_TAG must be set in .env or environment}
     depends_on:
       redis:
         condition: service_healthy
@@ -110,7 +110,7 @@ services:
 
   # Dedicated backfill loop for retryable sync_status work
   datasync-backfill:
-    image: ghcr.io/${GITHUB_OWNER:-gitdshi}/quantmate-api:${IMAGE_TAG:-latest}
+    image: ghcr.io/${GITHUB_OWNER:-gitdshi}/quantmate-api:${IMAGE_TAG:?IMAGE_TAG must be set in .env or environment}
     depends_on:
       redis:
         condition: service_healthy
@@ -181,7 +181,7 @@ services:
 
   # Frontend
   portal:
-    image: ghcr.io/${GITHUB_OWNER:-gitdshi}/quantmate-portal:${IMAGE_TAG:-latest}
+    image: ghcr.io/${GITHUB_OWNER:-gitdshi}/quantmate-portal:${PORTAL_IMAGE_TAG:?PORTAL_IMAGE_TAG must be set in .env or environment}
     container_name: quantmate_portal
     restart: unless-stopped
     ports:
