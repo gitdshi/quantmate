@@ -148,6 +148,8 @@ jobs:
           platforms: linux/arm64
           build-args: |
             IMAGE_BUILD_TIME=${{ steps.build_meta.outputs.image_build_time }}
+            PIP_INDEX_URL=
+            PIP_TRUSTED_HOST=
           tags: |
             ${{ env.IMAGE }}:latest
             ${{ env.IMAGE }}:sha-${{ github.sha }}

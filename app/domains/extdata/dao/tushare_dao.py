@@ -986,17 +986,18 @@ def upsert_rows(
         f"VALUES ({', '.join(f':{name}' for name in column_names)}){update_clause}"
     )
 
-    rows = 0
+    params_list = [
+        {
+            entry["name"]: _normalize_insert_value(record, entry)
+            for entry in column_specs
+            if str(entry.get("name") or "").strip()
+        }
+        for record in records
+    ]
+
     with engine.begin() as conn:
-        for record in records:
-            params = {
-                entry["name"]: _normalize_insert_value(record, entry)
-                for entry in column_specs
-                if str(entry.get("name") or "").strip()
-            }
-            conn.execute(insert_sql, params)
-            rows += 1
-    return rows
+        conn.execute(insert_sql, params_list)
+    return len(params_list)
 
 
 def _normalize_insert_value(record: dict, column_spec: dict):

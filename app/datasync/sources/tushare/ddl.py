@@ -431,28 +431,30 @@ CREATE TABLE IF NOT EXISTS index_basic (
 """
 
 
-_DATE_COLUMN_NAMES = frozenset(
-    {
-        "ann_date",
-        "cal_date",
-        "date",
-        "delist_date",
-        "end_date",
-        "ex_date",
-        "f_ann_date",
-        "imp_ann_date",
-        "ipo_date",
-        "issue_date",
-        "list_date",
-        "pay_date",
-        "pretrade_date",
-        "record_date",
-        "resume_date",
-        "start_date",
-        "suspend_date",
-        "trade_date",
-    }
+_DATE_COLUMN_PRIORITY = (
+    "trade_date",
+    "ann_date",
+    "end_date",
+    "report_date",
+    "date",
+    "cal_date",
+    "record_date",
+    "start_date",
+    "end_date",
+    "ex_date",
+    "pay_date",
+    "issue_date",
+    "ipo_date",
+    "list_date",
+    "delist_date",
+    "f_ann_date",
+    "imp_ann_date",
+    "pretrade_date",
+    "resume_date",
+    "suspend_date",
 )
+
+_DATE_COLUMN_NAMES = frozenset(_DATE_COLUMN_PRIORITY)
 
 _CODE_COLUMN_PRIORITY = (
     "ts_code",
@@ -655,7 +657,7 @@ def _resolve_date_column(
     if preferred_date_column and preferred_date_column in by_source:
         return by_source[preferred_date_column]
 
-    for candidate in _DATE_COLUMN_NAMES:
+    for candidate in _DATE_COLUMN_PRIORITY:
         for spec in column_specs:
             if spec["name"] == candidate:
                 return str(spec["name"])

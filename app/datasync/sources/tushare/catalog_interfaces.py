@@ -81,6 +81,12 @@ _RANGE_APIS = {
     "ipo",
 }
 
+_KEY_DATE_OVERRIDES = {
+    "namechange": "end_date",
+    "repurchase": "end_date",
+    "report_rc": "report_date",
+}
+
 _NONEMPTY_TRADING_DAY_APIS = {
     "hsgt_top10",
     "hsgt_stk_hold",
@@ -189,6 +195,9 @@ class TushareCatalogInterface(BaseIngestInterface):
             return "end_date"
         return None
 
+    def _schema_date_column(self) -> str | None:
+        return _KEY_DATE_OVERRIDES.get(self._spec.api_name) or self._date_param()
+
     def _range_params(self) -> tuple[str, str] | None:
         if self._spec.api_name in _RANGE_APIS:
             return ("start_date", "end_date")
@@ -209,7 +218,7 @@ class TushareCatalogInterface(BaseIngestInterface):
         return params
 
     def _payload_key_fields(self) -> tuple[str, ...]:
-        date_param = self._date_param()
+        date_param = self._schema_date_column()
         fields = ["ts_code"]
         if date_param is not None:
             fields.append(date_param)
@@ -252,7 +261,7 @@ class TushareCatalogInterface(BaseIngestInterface):
         schema = ddl.infer_dynamic_table_schema(
             self.info.target_table,
             rows,
-            preferred_date_column=self._date_param(),
+            preferred_date_column=self._schema_date_column(),
             preferred_key_fields=self._payload_key_fields(),
         )
         ensure_inferred_table(self.info.target_database, self.info.target_table, schema)

@@ -6,6 +6,8 @@ FROM python:3.11
 WORKDIR /app
 
 ARG IMAGE_BUILD_TIME=unknown
+ARG PIP_INDEX_URL=http://pypi.tuna.tsinghua.edu.cn/simple
+ARG PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn
 
 # Install system dependencies including curl for healthcheck
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -25,10 +27,19 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     else \
       cp requirements.runtime.txt requirements.docker.txt; \
     fi \
-    && PIP_DISABLE_PIP_VERSION_CHECK=1 pip install \
-      --index-url http://pypi.tuna.tsinghua.edu.cn/simple \
-      --trusted-host pypi.tuna.tsinghua.edu.cn \
-      -r requirements.docker.txt
+    && if [ -n "$PIP_INDEX_URL" ] && [ -n "$PIP_TRUSTED_HOST" ]; then \
+      PIP_DISABLE_PIP_VERSION_CHECK=1 pip install \
+        --index-url "$PIP_INDEX_URL" \
+        --trusted-host "$PIP_TRUSTED_HOST" \
+        -r requirements.docker.txt; \
+    elif [ -n "$PIP_INDEX_URL" ]; then \
+      PIP_DISABLE_PIP_VERSION_CHECK=1 pip install \
+        --index-url "$PIP_INDEX_URL" \
+        -r requirements.docker.txt; \
+    else \
+      PIP_DISABLE_PIP_VERSION_CHECK=1 pip install \
+        -r requirements.docker.txt; \
+    fi
 
 # Copy application code
 COPY app/ ./app/
@@ -39,6 +50,9 @@ COPY scripts/ ./scripts/
 # Copy SQL artifacts used by runtime bootstrap and migrations
 COPY mysql/migrations/ ./mysql/migrations/
 COPY mysql/init/ ./mysql/init/
+
+# Keep the project root importable even when docker exec runs outside /app.
+ENV PYTHONPATH=/app
 
 # Persist image build metadata for runtime env injection
 RUN mkdir -p /opt/quantmate-build \

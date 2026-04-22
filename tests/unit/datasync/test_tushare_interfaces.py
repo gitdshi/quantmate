@@ -196,6 +196,61 @@ class TestTushareDynamicCatalogSchema:
         assert "`ann_date` DATE NOT NULL" in schema["ddl"]
         assert "`ts_code` VARCHAR(32) NOT NULL" in schema["ddl"]
 
+    def test_infer_dynamic_table_schema_uses_deterministic_date_priority_without_preference(self):
+        from app.datasync.sources.tushare import ddl
+
+        schema = ddl.infer_dynamic_table_schema(
+            "example_dynamic",
+            pd.DataFrame(
+                {
+                    "ts_code": ["000001.SZ"],
+                    "ann_date": ["20240105"],
+                    "end_date": ["20231231"],
+                    "value": [1],
+                }
+            ),
+        )
+
+        assert schema["key_columns"] == ("ann_date", "ts_code")
+
+    @pytest.mark.parametrize(
+        ("api_name", "table_name"),
+        [
+            ("namechange", "namechange"),
+            ("repurchase", "repurchase"),
+        ],
+    )
+    def test_catalog_schema_overrides_key_date_column(self, api_name: str, table_name: str):
+        from app.datasync.sources.tushare import ddl
+        from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface, TushareCatalogSpec
+
+        iface = TushareCatalogInterface(
+            TushareCatalogSpec(
+                interface_key=api_name,
+                display_name=api_name,
+                api_name=api_name,
+                target_table=table_name,
+                sync_priority=100,
+            )
+        )
+
+        schema = ddl.infer_dynamic_table_schema(
+            table_name,
+            pd.DataFrame(
+                {
+                    "ts_code": ["000001.SZ"],
+                    "ann_date": ["20240105"],
+                    "end_date": ["20240131"],
+                    "value": [1],
+                }
+            ),
+            preferred_date_column=iface._schema_date_column(),
+            preferred_key_fields=iface._payload_key_fields(),
+        )
+
+        assert iface._schema_date_column() == "end_date"
+        assert schema["key_columns"] == ("end_date", "ts_code")
+
     def test_dynamic_catalog_skips_precreate_and_ensures_inferred_schema_on_sync(self):
         from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface, TushareCatalogSpec
 
