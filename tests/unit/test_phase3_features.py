@@ -85,25 +85,6 @@ class TestDataSourceToggle:
         assert resp.status_code == 200
         assert resp.json()["updated"] == 2
 
-    def test_rebuild_sync_status(self, client):
-        with patch(
-            "app.api.routes.settings._rebuild_source_sync_status",
-            return_value={
-                "source": "tushare",
-                "pending_records": 12,
-                "items_reconciled": 2,
-                "skipped_unsupported": [],
-                "item_results": [],
-                "backfill_jobs": [{"source": "tushare", "item_key": "stock_daily", "job_id": "job-1"}],
-            },
-        ) as rebuild_mock:
-            resp = client.post("/settings/datasource-items/tushare/rebuild-sync-status")
-
-        assert resp.status_code == 200
-        assert resp.json()["source"] == "tushare"
-        assert resp.json()["pending_records"] == 12
-        rebuild_mock.assert_called_once_with("tushare")
-
     def test_trigger_sync_init_skips_enqueue_when_no_pending_rows(self):
         from app.api.routes.settings import _trigger_sync_init
 

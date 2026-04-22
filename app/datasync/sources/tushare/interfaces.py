@@ -24,6 +24,258 @@ logger = logging.getLogger(__name__)
 INDEX_CODES = ["000001.SH", "399001.SZ", "399006.SZ", "000300.SH", "000905.SH"]
 
 
+def _load_distinct_table_values(table_name: str, column_names: tuple[str, ...]) -> list[str]:
+    engine = get_tushare_engine()
+    for column_name in column_names:
+        try:
+            with engine.connect() as conn:
+                rows = conn.execute(
+                    text(
+                        f"SELECT DISTINCT `{column_name}` FROM `{table_name}` "
+                        f"WHERE `{column_name}` IS NOT NULL AND `{column_name}` <> '' "
+                        f"ORDER BY `{column_name}`"
+                    )
+                ).fetchall()
+        except Exception:
+            continue
+
+        values = [str(row[0]).strip() for row in rows if str(row[0] or "").strip()]
+        if values:
+            return values
+    return []
+
+
+def _get_fund_codes() -> list[str]:
+    cached_codes = _load_distinct_table_values("fund_basic", ("ts_code", "fund_code"))
+    if cached_codes:
+        return cached_codes
+
+    from app.datasync.service.tushare_ingest import call_pro
+
+    df = call_pro("fund_basic")
+    if df is None or getattr(df, "empty", True):
+        return []
+
+    for column_name in ("ts_code", "fund_code"):
+        if column_name in df.columns:
+            return sorted({str(value).strip() for value in df[column_name].tolist() if str(value or "").strip()})
+    return []
+
+
+def _get_index_codes() -> list[str]:
+    cached_codes = _load_distinct_table_values("index_basic", ("index_code", "ts_code"))
+    if cached_codes:
+        return cached_codes
+    return list(INDEX_CODES)
+
+
+def _resolve_explicit_key_columns(
+    column_specs: list[dict[str, object]],
+    preferred_key_fields: tuple[str, ...] | list[str] | None = None,
+) -> tuple[str, ...]:
+    names = {str(spec["name"]) for spec in column_specs}
+    by_source = {
+        str(spec["source_fields"][0]): str(spec["name"])
+        for spec in column_specs
+        if spec.get("source_fields")
+    }
+
+    resolved: list[str] = []
+    for candidate in preferred_key_fields or ():
+        if candidate in by_source:
+            resolved.append(by_source[candidate])
+            continue
+        if candidate in names:
+            resolved.append(candidate)
+    return tuple(dict.fromkeys(resolved))
+
+
+def _infer_catalog_schema(
+    iface: TushareCatalogInterface,
+    rows,
+    *,
+    preferred_date_column: str | None = None,
+    preferred_key_fields: tuple[str, ...] | list[str] | None = None,
+) -> dict[str, object]:
+    schema = ddl.infer_dynamic_table_schema(
+        iface.info.target_table,
+        rows,
+        preferred_date_column=preferred_date_column,
+        preferred_key_fields=preferred_key_fields,
+    )
+
+    explicit_key_columns = _resolve_explicit_key_columns(schema["column_specs"], preferred_key_fields)
+    if explicit_key_columns:
+        schema["key_columns"] = explicit_key_columns
+        schema["ddl"] = ddl.build_dynamic_table_ddl(
+            iface.info.target_table,
+            schema["column_specs"],
+            explicit_key_columns,
+        )
+    return schema
+
+
+def _insert_catalog_dataframe(
+    iface: TushareCatalogInterface,
+    df: pd.DataFrame,
+    inferred_schema: dict[str, object] | None = None,
+) -> tuple[dict[str, object] | None, int]:
+    from app.domains.extdata.dao.tushare_dao import insert_catalog_rows
+
+    if df is None or getattr(df, "empty", True):
+        return inferred_schema, 0
+
+    if inferred_schema is None:
+        inferred_schema = iface._ensure_inferred_table(df)
+
+    rows = insert_catalog_rows(
+        iface.info.target_table,
+        df,
+        key_fields=iface._payload_key_fields(),
+        column_specs=None if inferred_schema is None else list(inferred_schema["column_specs"]),
+        key_columns=None if inferred_schema is None else tuple(inferred_schema["key_columns"]),
+    )
+    return inferred_schema, rows
+
+
+def _build_entity_sync_details(
+    entities: list[str],
+    processed_count: int,
+    failed_entities: list[str],
+    *,
+    quota_exceeded: bool = False,
+    retry_after: float | None = None,
+    permission_denied: bool = False,
+) -> dict[str, object]:
+    details: dict[str, object] = {
+        "entity_count": len(entities),
+        "processed_count": max(processed_count, 0),
+    }
+    if failed_entities:
+        details["failed_entities"] = list(failed_entities[:20])
+        details["failure_count"] = len(failed_entities)
+    if quota_exceeded:
+        details["quota_exceeded"] = True
+    if retry_after is not None:
+        details["quota_retry_after"] = str(retry_after)
+    if permission_denied:
+        details["permission_denied"] = True
+    return details
+
+
+def _sync_catalog_once(
+    iface: TushareCatalogInterface,
+    *,
+    params: dict[str, object] | None = None,
+) -> SyncResult:
+    from app.datasync.service.tushare_ingest import call_pro
+
+    request_params = dict(params or {})
+    try:
+        df = call_pro(iface.info.interface_key, **request_params)
+        _, rows = _insert_catalog_dataframe(iface, df)
+        return SyncResult(SyncStatus.SUCCESS, rows)
+    except Exception as exc:
+        return handle_tushare_sync_exception(
+            logger,
+            f"{iface.info.interface_key} sync with {request_params}",
+            exc,
+            allow_permission_partial=True,
+        )
+
+
+def _sync_catalog_by_entities(
+    iface: TushareCatalogInterface,
+    entities: list[str],
+    params_builder,
+) -> SyncResult:
+    from app.datasync.service.tushare_ingest import TushareQuotaExceededError, call_pro
+
+    ordered_entities = [entity for entity in entities if str(entity or "").strip()]
+    if not ordered_entities:
+        return SyncResult(SyncStatus.SUCCESS, 0, details={"entity_count": 0, "processed_count": 0})
+
+    inferred_schema: dict[str, object] | None = None
+    total_rows = 0
+    processed_count = 0
+    failed_entities: list[str] = []
+
+    for entity in ordered_entities:
+        params = params_builder(entity)
+        try:
+            df = call_pro(iface.info.interface_key, **params)
+            processed_count += 1
+            inferred_schema, rows = _insert_catalog_dataframe(iface, df, inferred_schema)
+            total_rows += rows
+        except TushareQuotaExceededError as exc:
+            return SyncResult(
+                SyncStatus.PENDING,
+                total_rows,
+                str(exc),
+                details=_build_entity_sync_details(
+                    ordered_entities,
+                    processed_count,
+                    failed_entities,
+                    quota_exceeded=True,
+                    retry_after=getattr(exc, "retry_after", None),
+                ),
+            )
+        except Exception as exc:
+            if is_permission_error(str(exc)):
+                if total_rows == 0:
+                    return handle_tushare_sync_exception(
+                        logger,
+                        f"{iface.info.interface_key} sync via entity loop",
+                        exc,
+                        allow_permission_partial=True,
+                    )
+                return SyncResult(
+                    SyncStatus.PARTIAL,
+                    total_rows,
+                    "Permission denied",
+                    details=_build_entity_sync_details(
+                        ordered_entities,
+                        processed_count,
+                        failed_entities,
+                        permission_denied=True,
+                    ),
+                )
+            failed_entities.append(str(entity))
+            logger.warning("%s sync failed for %s: %s", iface.info.interface_key, entity, exc)
+
+    details = _build_entity_sync_details(ordered_entities, processed_count, failed_entities)
+    if failed_entities and total_rows == 0:
+        return SyncResult(
+            SyncStatus.ERROR,
+            0,
+            f"Failed entities: {', '.join(failed_entities[:5])}",
+            details=details,
+        )
+    if failed_entities:
+        return SyncResult(
+            SyncStatus.PARTIAL,
+            total_rows,
+            f"Failed entities: {', '.join(failed_entities[:5])}",
+            details=details,
+        )
+    return SyncResult(SyncStatus.SUCCESS, total_rows, details=details)
+
+
+def _get_table_rows_by_date(table_name: str, date_column: str, start: date, end: date) -> dict[date, int]:
+    engine = get_tushare_engine()
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                f"SELECT `{date_column}`, COUNT(*) "
+                f"FROM `{table_name}` "
+                f"WHERE `{date_column}` BETWEEN :start_date AND :end_date "
+                f"GROUP BY `{date_column}`"
+            ),
+            {"start_date": start, "end_date": end},
+        ).fetchall()
+    return {row[0]: int(row[1]) for row in rows}
+
+
 def _normalize_trade_cal_rows(df: pd.DataFrame) -> list[dict[str, object]]:
     if df is None or df.empty:
         return []
@@ -525,7 +777,34 @@ class TushareTop10HoldersInterface(BaseIngestInterface):
         return get_top10_holders_counts(start, end)
 
 
-class TushareCyqChipsInterface(TushareCatalogInterface):
+class _ExplicitKeyCatalogInterface(TushareCatalogInterface):
+    def supports_scheduled_sync(self) -> bool:
+        return True
+
+    def _ensure_inferred_table(self, rows) -> dict[str, object] | None:
+        if self.should_ensure_table_before_sync():
+            return None
+        if rows is None or getattr(rows, "empty", True):
+            return None
+
+        from app.datasync.table_manager import ensure_inferred_table
+
+        schema = _infer_catalog_schema(
+            self,
+            rows,
+            preferred_date_column=self._schema_date_column(),
+            preferred_key_fields=self._payload_key_fields(),
+        )
+        ensure_inferred_table(self.info.target_database, self.info.target_table, schema)
+        return schema
+
+
+class _LatestOnlyCatalogInterface(_ExplicitKeyCatalogInterface):
+    def supports_backfill(self) -> bool:
+        return False
+
+
+class TushareCyqChipsInterface(_ExplicitKeyCatalogInterface):
     def __init__(self):
         super().__init__(
             TushareCatalogSpec(
@@ -664,6 +943,244 @@ class TushareCyqChipsInterface(TushareCatalogInterface):
         if permission_denied:
             details["permission_denied"] = True
         return details
+
+
+class TushareBoxOfficeMonthlyInterface(_LatestOnlyCatalogInterface):
+    def __init__(self):
+        super().__init__(
+            TushareCatalogSpec(
+                interface_key="bo_monthly",
+                display_name="电影月度票房",
+                api_name="bo_monthly",
+                target_table="bo_monthly",
+                sync_priority=820,
+            )
+        )
+
+    def _payload_key_fields(self) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(("date", "month", "movie_name", "name", "rank", *super()._payload_key_fields())))
+
+    def sync_date(self, trade_date: date) -> SyncResult:
+        return _sync_catalog_once(self)
+
+
+class TushareBoxOfficeWeeklyInterface(_LatestOnlyCatalogInterface):
+    def __init__(self):
+        super().__init__(
+            TushareCatalogSpec(
+                interface_key="bo_weekly",
+                display_name="电影周票房",
+                api_name="bo_weekly",
+                target_table="bo_weekly",
+                sync_priority=821,
+            )
+        )
+
+    def _payload_key_fields(self) -> tuple[str, ...]:
+        return tuple(
+            dict.fromkeys(("date", "week", "week_date", "movie_name", "name", "rank", *super()._payload_key_fields()))
+        )
+
+    def sync_date(self, trade_date: date) -> SyncResult:
+        return _sync_catalog_once(self)
+
+
+class TushareFundDivInterface(_LatestOnlyCatalogInterface):
+    def __init__(self):
+        super().__init__(
+            TushareCatalogSpec(
+                interface_key="fund_div",
+                display_name="公募基金分红",
+                api_name="fund_div",
+                target_table="fund_div",
+                sync_priority=514,
+                requires_permission="0",
+            )
+        )
+
+    def _payload_key_fields(self) -> tuple[str, ...]:
+        return tuple(
+            dict.fromkeys(
+                (
+                    "ts_code",
+                    "fund_code",
+                    "ann_date",
+                    "record_date",
+                    "ex_date",
+                    "pay_date",
+                    "div_proc",
+                    *super()._payload_key_fields(),
+                )
+            )
+        )
+
+    def sync_date(self, trade_date: date) -> SyncResult:
+        try:
+            fund_codes = _get_fund_codes()
+        except Exception as exc:
+            return handle_tushare_sync_exception(logger, "fund_div code load", exc)
+        return _sync_catalog_by_entities(self, fund_codes, lambda fund_code: {"ts_code": fund_code})
+
+
+class TushareFundNavInterface(_LatestOnlyCatalogInterface):
+    def __init__(self):
+        super().__init__(
+            TushareCatalogSpec(
+                interface_key="fund_nav",
+                display_name="公募基金净值",
+                api_name="fund_nav",
+                target_table="fund_nav",
+                sync_priority=512,
+                requires_permission="0",
+            )
+        )
+
+    def _payload_key_fields(self) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(("ts_code", "fund_code", "end_date", "ann_date", *super()._payload_key_fields())))
+
+    def _schema_date_column(self) -> str | None:
+        return "end_date"
+
+    def sync_date(self, trade_date: date) -> SyncResult:
+        try:
+            fund_codes = _get_fund_codes()
+        except Exception as exc:
+            return handle_tushare_sync_exception(logger, "fund_nav code load", exc)
+        return _sync_catalog_by_entities(self, fund_codes, lambda fund_code: {"ts_code": fund_code})
+
+
+class TushareFundPortfolioInterface(_LatestOnlyCatalogInterface):
+    def __init__(self):
+        super().__init__(
+            TushareCatalogSpec(
+                interface_key="fund_portfolio",
+                display_name="公募基金持仓",
+                api_name="fund_portfolio",
+                target_table="fund_portfolio",
+                sync_priority=515,
+                requires_permission="0",
+            )
+        )
+
+    def _payload_key_fields(self) -> tuple[str, ...]:
+        return tuple(
+            dict.fromkeys(
+                (
+                    "ts_code",
+                    "fund_code",
+                    "end_date",
+                    "ann_date",
+                    "symbol",
+                    "stock_code",
+                    "con_code",
+                    *super()._payload_key_fields(),
+                )
+            )
+        )
+
+    def _schema_date_column(self) -> str | None:
+        return "end_date"
+
+    def sync_date(self, trade_date: date) -> SyncResult:
+        try:
+            fund_codes = _get_fund_codes()
+        except Exception as exc:
+            return handle_tushare_sync_exception(logger, "fund_portfolio code load", exc)
+        return _sync_catalog_by_entities(self, fund_codes, lambda fund_code: {"ts_code": fund_code})
+
+
+class TushareIndexWeightInterface(_ExplicitKeyCatalogInterface):
+    def __init__(self):
+        super().__init__(
+            TushareCatalogSpec(
+                interface_key="index_weight",
+                display_name="指数成分和权重",
+                api_name="index_weight",
+                target_table="index_weight",
+                sync_priority=402,
+                requires_permission="0",
+            )
+        )
+
+    def _schema_date_column(self) -> str | None:
+        return "trade_date"
+
+    def _payload_key_fields(self) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(("index_code", "trade_date", "con_code", *super()._payload_key_fields())))
+
+    def supports_backfill(self) -> bool:
+        return True
+
+    def backfill_mode(self) -> str:
+        return "range"
+
+    def sync_date(self, trade_date: date) -> SyncResult:
+        return self.sync_range(trade_date, trade_date)
+
+    def sync_range(self, start: date, end: date) -> SyncResult:
+        try:
+            index_codes = _get_index_codes()
+        except Exception as exc:
+            return handle_tushare_sync_exception(logger, "index_weight code load", exc)
+        return _sync_catalog_by_entities(
+            self,
+            index_codes,
+            lambda index_code: {
+                "index_code": index_code,
+                "start_date": start.strftime("%Y%m%d"),
+                "end_date": end.strftime("%Y%m%d"),
+            },
+        )
+
+    def get_backfill_rows_by_date(self, start: date, end: date) -> dict[date, int]:
+        try:
+            return _get_table_rows_by_date(self.info.target_table, "trade_date", start, end)
+        except Exception:
+            logger.exception("Failed to count index_weight rows by trade_date for %s -> %s", start, end)
+            return {}
+
+
+class TusharePledgeDetailInterface(_LatestOnlyCatalogInterface):
+    def __init__(self):
+        super().__init__(
+            TushareCatalogSpec(
+                interface_key="pledge_detail",
+                display_name="股权质押明细",
+                api_name="pledge_detail",
+                target_table="pledge_detail",
+                sync_priority=302,
+                requires_permission="0",
+            )
+        )
+
+    def _payload_key_fields(self) -> tuple[str, ...]:
+        return tuple(
+            dict.fromkeys(
+                (
+                    "ts_code",
+                    "ann_date",
+                    "holder_name",
+                    "start_date",
+                    "end_date",
+                    "release_date",
+                    *super()._payload_key_fields(),
+                )
+            )
+        )
+
+    def _schema_date_column(self) -> str | None:
+        return "ann_date"
+
+    def sync_date(self, trade_date: date) -> SyncResult:
+        try:
+            ts_codes = _load_distinct_table_values("stock_basic", ("ts_code",))
+            if not ts_codes:
+                from app.datasync.service.tushare_ingest import get_all_ts_codes
+
+                ts_codes = get_all_ts_codes()
+        except Exception as exc:
+            return handle_tushare_sync_exception(logger, "pledge_detail symbol load", exc)
+        return _sync_catalog_by_entities(self, ts_codes, lambda ts_code: {"ts_code": ts_code})
 
 
 class TushareStockWeeklyInterface(BaseIngestInterface):

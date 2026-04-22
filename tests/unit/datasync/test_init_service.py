@@ -178,7 +178,8 @@ class TestReconcileBounds:
                  "app.datasync.service.sync_init_service._get_source_initialized_bounds",
                  return_value=(date(2024, 1, 1), date(2024, 1, 31)),
              ), \
-             patch("app.datasync.service.sync_init_service.initialize_sync_status", return_value=23) as init_mock:
+             patch("app.datasync.service.sync_init_service.initialize_sync_status", return_value=23) as init_mock, \
+             patch("app.datasync.service.sync_init_service._reconcile_missing_pending_rows", return_value=0):
             result = reconcile_enabled_sync_status(registry, source="tushare", item_key="daily")
 
         init_mock.assert_called_once_with(

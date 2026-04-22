@@ -150,3 +150,28 @@ class TestIsItemSyncSupported:
             "auto_sync_supported": False,
             "sync_supported": False,
         }
+
+    def test_pledge_detail_uses_custom_sync_support(self):
+        from app.datasync.capabilities import get_item_support_state
+        from app.datasync.sources.tushare.interfaces import TusharePledgeDetailInterface
+
+        registry = MagicMock()
+        registry.get_interface.return_value = TusharePledgeDetailInterface()
+
+        state = get_item_support_state(
+            registry,
+            {
+                "source": "tushare",
+                "item_key": "pledge_detail",
+                "api_name": "pledge_detail",
+                "permission_points": 0,
+                "requires_permission": "0",
+            },
+            source_configs={"tushare": {"config_json": {"token_points": 2000}}},
+        )
+
+        assert state == {
+            "capability_supported": True,
+            "auto_sync_supported": True,
+            "sync_supported": True,
+        }

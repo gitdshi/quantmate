@@ -169,6 +169,34 @@ class TestInitializeSyncStatus:
 
 
 class TestReconcileEnabledSyncStatus:
+    def test_reconcile_sync_status_item_repairs_missing_trade_days_inside_bounds(self):
+        from app.datasync.service.sync_init_service import reconcile_sync_status_item
+
+        registry = MagicMock()
+        iface = MagicMock()
+        iface.supports_backfill.return_value = True
+        registry.get_interface.return_value = iface
+
+        with patch(
+            f"{_INIT_MOD}._resolve_reconcile_bounds",
+            return_value=(date(2024, 1, 2), date(2024, 1, 4), False),
+        ), \
+            patch(f"{_INIT_MOD}.initialize_sync_status", return_value=0), \
+            patch(
+                f"{_INIT_MOD}._get_existing_sync_dates",
+                return_value={date(2024, 1, 2), date(2024, 1, 4)},
+            ), \
+            patch(
+                f"{_ENGINE_MOD}.get_trade_calendar",
+                return_value=[date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)],
+            ), \
+            patch(f"{_INIT_MOD}._insert_pending_rows", return_value=1) as mock_insert:
+            result = reconcile_sync_status_item(registry, "tushare", "stock_daily")
+
+        assert result is not None
+        assert result["pending_records"] == 1
+        mock_insert.assert_called_once_with("tushare", "stock_daily", [date(2024, 1, 3)])
+
     def test_non_historical_interface_only_initializes_target_day(self):
         from app.datasync.service.sync_init_service import reconcile_enabled_sync_status
 
@@ -180,7 +208,8 @@ class TestReconcileEnabledSyncStatus:
 
         with patch(f"{_INIT_MOD}.ensure_sync_status_init_table"), \
              patch(f"{_INIT_MOD}.get_quantmate_engine", return_value=engine), \
-             patch(f"{_INIT_MOD}.initialize_sync_status", return_value=1) as mock_init:
+             patch(f"{_INIT_MOD}.initialize_sync_status", return_value=1) as mock_init, \
+             patch(f"{_INIT_MOD}._reconcile_missing_pending_rows", return_value=0):
             result = reconcile_enabled_sync_status(
                 registry,
                 start_date=date(2024, 1, 1),
@@ -742,6 +771,40 @@ class TestSettingsRoutes:
             result = await list_permission_levels(source="tushare", current_user=MagicMock())
 
         assert result == {"data": [120, 2000]}
+
+    @pytest.mark.anyio
+    async def test_list_datasource_sync_coverage_delegates_to_dashboard_service(self):
+        from app.api.routes.settings import list_datasource_sync_coverage
+
+        payload = {"items": [], "summary": {"items": 0}}
+        mock_service = MagicMock()
+        mock_service.get_interface_coverage.return_value = payload
+
+        with patch("app.domains.extdata.service.DataSyncDashboardService", return_value=mock_service):
+            result = await list_datasource_sync_coverage(source="tushare", current_user=MagicMock())
+
+        assert result == payload
+        mock_service.get_interface_coverage.assert_called_once_with(source="tushare")
+
+    @pytest.mark.anyio
+    async def test_repair_datasource_sync_coverage_passes_selected_items(self):
+        from app.api.routes.settings import SyncCoverageRepairRequest, SyncCoverageRepairItem, repair_datasource_sync_coverage
+
+        body = SyncCoverageRepairRequest(
+            items=[SyncCoverageRepairItem(source="tushare", item_key="stock_daily")],
+            only_missing=False,
+        )
+
+        expected = {"items_reconciled": 1, "pending_records": 2}
+        with patch(f"{_ROUTES_MOD}._repair_sync_status_items", return_value=expected) as mock_repair:
+            result = await repair_datasource_sync_coverage(body=body, current_user=MagicMock())
+
+        assert result == expected
+        mock_repair.assert_called_once_with(
+            source=None,
+            items=[("tushare", "stock_daily")],
+            only_missing=False,
+        )
 
     def test_get_sync_support_map_uses_tushare_token_points(self):
         from app.api.routes.settings import _get_sync_support_map

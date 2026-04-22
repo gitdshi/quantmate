@@ -8,6 +8,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from app.api.dependencies.permissions import require_permission
 from app.api.services.auth_service import get_current_user
@@ -36,6 +37,17 @@ class DataSourceBatchByPermission(BaseModel):
 class DataSourceConfigUpdate(BaseModel):
     enabled: Optional[bool] = None
     config_json: Optional[dict] = None
+
+
+class SyncCoverageRepairItem(BaseModel):
+    source: str
+    item_key: str
+
+
+class SyncCoverageRepairRequest(BaseModel):
+    source: Optional[str] = None
+    items: list[SyncCoverageRepairItem] = Field(default_factory=list)
+    only_missing: bool = True
 
 
 # ---------------------------------------------------------------------------
@@ -218,13 +230,30 @@ async def update_datasource_item(
     return result
 
 
-@router.post("/datasource-items/{source}/rebuild-sync-status", dependencies=[require_permission("system", "manage")])
-async def rebuild_datasource_sync_status(
-    source: str,
+@router.get("/datasource-items/sync-coverage", dependencies=[require_permission("system", "read")])
+async def list_datasource_sync_coverage(
+    source: Optional[str] = Query(None, description="Optional source filter"),
     current_user: TokenData = Depends(get_current_user),
 ):
-    """Rebuild pending sync status rows for all currently enabled items in a source."""
-    return _rebuild_source_sync_status(source)
+    """Return per-interface sync coverage and status counts for enabled items."""
+    from app.domains.extdata.service import DataSyncDashboardService
+
+    service = DataSyncDashboardService()
+    return await run_in_threadpool(lambda: service.get_interface_coverage(source=source))
+
+
+@router.post("/datasource-items/sync-coverage/repair", dependencies=[require_permission("system", "manage")])
+async def repair_datasource_sync_coverage(
+    body: SyncCoverageRepairRequest,
+    current_user: TokenData = Depends(get_current_user),
+):
+    """Repair missing data_sync_status rows for selected or missing interfaces."""
+    selected_items = [(item.source, item.item_key) for item in body.items]
+    return _repair_sync_status_items(
+        source=body.source,
+        items=selected_items or None,
+        only_missing=body.only_missing,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -352,7 +381,7 @@ def _trigger_sync_init(source: str, item_key: str) -> Optional[str]:
 def _reconcile_source_sync(source: str) -> None:
     """Best-effort reconciliation when a whole source is enabled again."""
     try:
-        _rebuild_source_sync_status(source)
+        _repair_sync_status_items(source=source)
     except Exception:
         logger.warning("Source sync reconciliation for %s failed (non-fatal)", source, exc_info=True)
 
@@ -375,12 +404,59 @@ def _enqueue_backfill_task(source: str, item_key: str) -> Optional[str]:
     return job.id
 
 
-def _rebuild_source_sync_status(source: str) -> dict[str, object]:
+def _repair_sync_status_items(
+    source: Optional[str] = None,
+    items: Optional[list[tuple[str, str]]] = None,
+    *,
+    only_missing: bool = False,
+) -> dict[str, object]:
     from app.datasync.registry import build_default_registry
-    from app.datasync.service.sync_init_service import reconcile_enabled_sync_status
+    from app.datasync.service.sync_init_service import reconcile_enabled_sync_status, reconcile_sync_status_item
+    from app.domains.extdata.service import DataSyncDashboardService, clear_datasync_dashboard_cache
 
     registry = build_default_registry()
-    result = reconcile_enabled_sync_status(registry, source=source)
+    selected_items: list[tuple[str, str]] | None = None
+
+    if items:
+        deduped: list[tuple[str, str]] = []
+        seen: set[tuple[str, str]] = set()
+        for item_source, item_key in items:
+            pair = (item_source, item_key)
+            if not item_source or not item_key or pair in seen:
+                continue
+            if source is not None and item_source != source:
+                continue
+            seen.add(pair)
+            deduped.append(pair)
+        selected_items = deduped
+    elif only_missing:
+        coverage = DataSyncDashboardService().get_interface_coverage(source=source)
+        selected_items = [
+            (str(item["source"]), str(item["item_key"]))
+            for item in coverage.get("items", [])
+            if int(item.get("missing_sync_dates", 0) or 0) > 0
+        ]
+
+    if selected_items is None:
+        result = reconcile_enabled_sync_status(registry, source=source)
+    else:
+        pending_records = 0
+        item_results: list[dict[str, object]] = []
+        skipped_unsupported: list[dict[str, str]] = []
+        for item_source, item_key in selected_items:
+            item_result = reconcile_sync_status_item(registry, item_source, item_key)
+            if item_result is None:
+                skipped_unsupported.append({"source": item_source, "item_key": item_key})
+                continue
+            pending_records += int(item_result.get("pending_records", 0) or 0)
+            item_results.append(item_result)
+
+        result = {
+            "pending_records": pending_records,
+            "items_reconciled": len(item_results),
+            "item_results": item_results,
+            "skipped_unsupported": skipped_unsupported,
+        }
 
     backfill_jobs: list[dict[str, str]] = []
     for item in result.get("item_results", []):
@@ -398,8 +474,10 @@ def _rebuild_source_sync_status(source: str) -> dict[str, object]:
                 }
             )
 
+    clear_datasync_dashboard_cache()
     return {
         "source": source,
+        "items_requested": len(selected_items) if selected_items is not None else None,
         "pending_records": result.get("pending_records", 0),
         "items_reconciled": result.get("items_reconciled", 0),
         "skipped_unsupported": result.get("skipped_unsupported", []),

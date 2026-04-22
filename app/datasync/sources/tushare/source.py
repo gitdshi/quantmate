@@ -31,23 +31,37 @@ class TushareDataSource(BaseDataSource):
 
         from app.datasync.sources.tushare.catalog_interfaces import build_catalog_interfaces
         from app.datasync.sources.tushare.interfaces import (
+            TushareBoxOfficeMonthlyInterface,
+            TushareBoxOfficeWeeklyInterface,
             TushareTradeCalInterface,
             TushareCyqChipsInterface,
             TushareStockCompanyInterface,
             TushareDividendInterface,
+            TushareFundDivInterface,
+            TushareFundNavInterface,
+            TushareFundPortfolioInterface,
             TushareTop10HoldersInterface,
             TushareIndexDailyInterface,
             TushareIndexWeeklyInterface,
+            TushareIndexWeightInterface,
+            TusharePledgeDetailInterface,
         )
 
         interfaces: list[BaseIngestInterface] = [
+            TushareBoxOfficeMonthlyInterface(),
+            TushareBoxOfficeWeeklyInterface(),
             TushareTradeCalInterface(),
             TushareCyqChipsInterface(),
             TushareStockCompanyInterface(),
             TushareDividendInterface(),
+            TushareFundDivInterface(),
+            TushareFundNavInterface(),
+            TushareFundPortfolioInterface(),
             TushareTop10HoldersInterface(),
             TushareIndexDailyInterface(),
             TushareIndexWeeklyInterface(),
+            TushareIndexWeightInterface(),
+            TusharePledgeDetailInterface(),
         ]
 
         existing_keys = {iface.info.interface_key for iface in interfaces}

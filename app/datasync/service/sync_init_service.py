@@ -191,6 +191,49 @@ def _insert_pending_rows(source: str, item_key: str, trade_days: list[date]) -> 
     return inserted
 
 
+def _get_existing_sync_dates(source: str, item_key: str, start_date: date, end_date: date) -> set[date]:
+    engine = get_quantmate_engine()
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT sync_date FROM data_sync_status "
+                "WHERE source = :s AND interface_key = :k "
+                "AND sync_date BETWEEN :f AND :t"
+            ),
+            {"s": source, "k": item_key, "f": start_date, "t": end_date},
+        ).fetchall()
+    return {row[0] for row in rows if isinstance(row[0], date)}
+
+
+def _reconcile_missing_pending_rows(
+    source: str,
+    item_key: str,
+    start_date: date,
+    end_date: date,
+    *,
+    use_trade_calendar: bool,
+) -> int:
+    if start_date > end_date:
+        return 0
+
+    from app.datasync.service.sync_engine import get_trade_calendar
+
+    expected_dates = (
+        get_trade_calendar(start_date, end_date)
+        if use_trade_calendar
+        else _build_calendar_dates(start_date, end_date)
+    )
+    if not expected_dates:
+        return 0
+
+    existing_dates = _get_existing_sync_dates(source, item_key, start_date, end_date)
+    missing_dates = [sync_date for sync_date in expected_dates if sync_date not in existing_dates]
+    if not missing_dates:
+        return 0
+
+    return _insert_pending_rows(source, item_key, missing_dates)
+
+
 def _build_calendar_dates(start_date: date, end_date: date) -> list[date]:
     if start_date > end_date:
         return []
@@ -291,6 +334,13 @@ def reconcile_sync_status_item(
         start_date=item_start_date,
         end_date=item_end_date,
         reconcile_missing=True,
+        use_trade_calendar=use_trade_calendar,
+    )
+    pending_records += _reconcile_missing_pending_rows(
+        source,
+        item_key,
+        item_start_date,
+        item_end_date,
         use_trade_calendar=use_trade_calendar,
     )
 
