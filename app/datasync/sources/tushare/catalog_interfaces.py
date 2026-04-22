@@ -1,9 +1,4 @@
-"""Static catalog-backed Tushare interfaces.
-
-This module keeps interface registration code-defined rather than profile-driven.
-Missing catalog items are registered through static specs and share a generic
-sync implementation backed by code-owned DDL and DAO insert helpers.
-"""
+"""Database-backed catalog Tushare interfaces."""
 
 from __future__ import annotations
 
@@ -11,20 +6,51 @@ from dataclasses import dataclass
 from datetime import date
 import logging
 
+from sqlalchemy import text
+
 from app.datasync.base import BaseIngestInterface, InterfaceInfo, SyncResult, SyncStatus
-from app.datasync.sources.tushare.catalog_manifest import CATALOG_ROWS
 from app.datasync.sources.tushare import ddl
 from app.datasync.sources.tushare.sync_error_handling import handle_tushare_sync_exception
+from app.infrastructure.db.connections import get_quantmate_engine
 
 logger = logging.getLogger(__name__)
 
+_TUSHARE_CATALOG_SQL = """
+SELECT
+    item_key,
+    item_name,
+    COALESCE(NULLIF(TRIM(api_name), ''), item_key) AS api_name,
+    COALESCE(NULLIF(TRIM(target_table), ''), item_key) AS target_table,
+    sync_priority,
+    requires_permission
+FROM data_source_items
+WHERE source = 'tushare'
+ORDER BY sync_priority, item_key
+"""
+
+_TUSHARE_CATALOG_LEGACY_SQL = """
+SELECT
+    item_key,
+    item_name,
+    item_key AS api_name,
+    item_key AS target_table,
+    sync_priority,
+    requires_permission
+FROM data_source_items
+WHERE source = 'tushare'
+ORDER BY sync_priority, item_key
+"""
+
 _TRADE_DATE_APIS = {
+    "daily",
+    "bak_daily",
     "hsgt_top10",
     "hsgt_stk_hold",
     "hsgt_cash_flow",
     "daily_basic",
     "index_dailybasic",
     "moneyflow",
+    "adj_factor",
     "margin_detail",
     "margin",
     "limit_list",
@@ -47,6 +73,8 @@ _TRADE_DATE_APIS = {
     "cb_daily",
     "fx_daily",
     "hk_daily",
+    "weekly",
+    "monthly",
     "stk_factor_pro",
     "us_daily",
     "industry_daily",
@@ -87,11 +115,23 @@ _KEY_DATE_OVERRIDES = {
     "report_rc": "report_date",
 }
 
+_REQUEST_DATE_OVERRIDES = {
+    "suspend": "suspend_date",
+}
+
+_DEFAULT_API_PARAMS = {
+    "stock_basic": {"list_status": "L"},
+}
+
 _NONEMPTY_TRADING_DAY_APIS = {
+    "daily",
+    "bak_daily",
     "hsgt_top10",
     "hsgt_stk_hold",
     "hsgt_cash_flow",
     "daily_basic",
+    "moneyflow",
+    "adj_factor",
     "index_dailybasic",
     "margin_detail",
     "limit_list",
@@ -114,7 +154,6 @@ _NONEMPTY_TRADING_DAY_APIS = {
 _RUNTIME_UNSUPPORTED_INTERFACE_KEYS = {
     "bo_monthly",
     "bo_weekly",
-    "cyq_chips",
     "fund_div",
     "fund_nav",
     "fund_portfolio",
@@ -187,6 +226,9 @@ class TushareCatalogInterface(BaseIngestInterface):
 
     def _date_param(self) -> str | None:
         api_name = self._spec.api_name
+        override = _REQUEST_DATE_OVERRIDES.get(api_name)
+        if override is not None:
+            return override
         if api_name in _TRADE_DATE_APIS:
             return "trade_date"
         if api_name in _ANN_DATE_APIS:
@@ -204,7 +246,7 @@ class TushareCatalogInterface(BaseIngestInterface):
         return None
 
     def _build_params(self, start: date, end: date) -> dict[str, object]:
-        params: dict[str, object] = {}
+        params: dict[str, object] = dict(_DEFAULT_API_PARAMS.get(self._spec.api_name, {}))
         range_params = self._range_params()
         if range_params is not None:
             start_param, end_param = range_params
@@ -280,7 +322,11 @@ def _normalize_permission(raw: str | None) -> str | None:
     return "0"
 
 
-def _build_specs() -> tuple[TushareCatalogSpec, ...]:
+def _is_unknown_data_source_items_column_error(exc: Exception) -> bool:
+    return "unknown column" in str(exc or "").lower()
+
+
+def _build_specs(rows: list[tuple]) -> tuple[TushareCatalogSpec, ...]:
     return tuple(
         TushareCatalogSpec(
             interface_key=item_key,
@@ -290,12 +336,52 @@ def _build_specs() -> tuple[TushareCatalogSpec, ...]:
             sync_priority=sync_priority,
             requires_permission=_normalize_permission(requires_permission),
         )
-        for item_key, display_name, api_name, target_table, sync_priority, requires_permission in CATALOG_ROWS
+        for item_key, display_name, api_name, target_table, sync_priority, requires_permission in rows
+        if str(item_key or "").strip()
     )
+
+
+def _fetch_catalog_rows() -> list[tuple]:
+    engine = get_quantmate_engine()
+    with engine.connect() as conn:
+        try:
+            result = conn.execute(text(_TUSHARE_CATALOG_SQL)).fetchall()
+        except Exception as exc:
+            if not _is_unknown_data_source_items_column_error(exc):
+                raise
+            logger.warning("Falling back to legacy Tushare catalog query: %s", exc)
+            result = conn.execute(text(_TUSHARE_CATALOG_LEGACY_SQL)).fetchall()
+    return [
+        (
+            row[0],
+            row[1],
+            row[2],
+            row[3],
+            int(row[4] or 100),
+            row[5],
+        )
+        for row in result
+    ]
+
+
+def _load_catalog_specs() -> tuple[TushareCatalogSpec, ...]:
+    try:
+        return _build_specs(_fetch_catalog_rows())
+    except Exception:
+        logger.exception("Failed to load Tushare catalog rows from data_source_items")
+        return tuple()
 
 
 def build_catalog_interfaces(existing_keys: set[str] | None = None) -> list[BaseIngestInterface]:
     seen = existing_keys or set()
-    return [TushareCatalogInterface(spec) for spec in TUSHARE_CATALOG_SPECS if spec.interface_key not in seen]
+    interfaces: list[BaseIngestInterface] = []
+    for spec in _load_catalog_specs():
+        if spec.interface_key in seen:
+            continue
+        if spec.interface_key == "cyq_chips":
+            from app.datasync.sources.tushare.interfaces import TushareCyqChipsInterface
 
-TUSHARE_CATALOG_SPECS = _build_specs()
+            interfaces.append(TushareCyqChipsInterface())
+            continue
+        interfaces.append(TushareCatalogInterface(spec))
+    return interfaces

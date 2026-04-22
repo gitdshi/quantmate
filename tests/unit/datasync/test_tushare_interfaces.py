@@ -14,6 +14,20 @@ _INGEST = "app.datasync.service.tushare_ingest"
 _STATUS_DAO = "app.domains.extdata.dao.data_sync_status_dao"
 _TS_DAO = "app.domains.extdata.dao.tushare_dao"
 _MOD = "app.datasync.sources.tushare.interfaces"
+_CATALOG_MOD = "app.datasync.sources.tushare.catalog_interfaces"
+
+
+def _catalog_spec(interface_key: str, api_name: str | None = None, *, sync_priority: int = 100):
+    from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogSpec
+
+    return TushareCatalogSpec(
+        interface_key=interface_key,
+        display_name=interface_key,
+        api_name=api_name or interface_key,
+        target_table=interface_key,
+        sync_priority=sync_priority,
+        requires_permission="0",
+    )
 
 
 class TestIndexCodes:
@@ -664,13 +678,219 @@ class TestTushareCatalogInterface:
         assert result.status == SyncStatus.PENDING
         assert result.details["quota_exceeded"] is True
 
+    def test_static_catalog_stock_basic_uses_default_params(self):
+        from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface, TushareCatalogSpec
+
+        iface = TushareCatalogInterface(
+            TushareCatalogSpec(
+                interface_key="stock_basic",
+                display_name="股票基础列表",
+                api_name="stock_basic",
+                target_table="stock_basic",
+                sync_priority=10,
+            )
+        )
+
+        df = pd.DataFrame({"ts_code": ["000001.SZ"], "symbol": ["000001"], "name": ["平安银行"]})
+        with patch("app.datasync.service.tushare_ingest.call_pro", return_value=df) as mock_call, \
+             patch("app.domains.extdata.dao.tushare_dao.insert_catalog_rows", return_value=1) as mock_insert:
+            result = iface.sync_date(date(2024, 1, 5))
+
+        assert result.status == SyncStatus.SUCCESS
+        assert result.rows_synced == 1
+        mock_call.assert_called_once_with("stock_basic", list_status="L")
+        assert mock_insert.call_args.kwargs["column_specs"] is None
+        assert mock_insert.call_args.kwargs["key_columns"] is None
+
+    def test_static_catalog_suspend_uses_suspend_date_param(self):
+        from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface, TushareCatalogSpec
+
+        iface = TushareCatalogInterface(
+            TushareCatalogSpec(
+                interface_key="suspend",
+                display_name="停复牌历史",
+                api_name="suspend",
+                target_table="suspend",
+                sync_priority=24,
+            )
+        )
+
+        df = pd.DataFrame({"ts_code": ["000001.SZ"], "suspend_date": ["20240105"], "resume_date": ["20240108"]})
+        with patch("app.datasync.service.tushare_ingest.call_pro", return_value=df) as mock_call, \
+             patch("app.domains.extdata.dao.tushare_dao.insert_catalog_rows", return_value=1):
+            result = iface.sync_date(date(2024, 1, 5))
+
+        assert result.status == SyncStatus.SUCCESS
+        assert result.rows_synced == 1
+        mock_call.assert_called_once_with("suspend", suspend_date="20240105")
+
+    def test_cyq_chips_sync_loops_symbols_with_price_key(self):
+        from app.datasync.sources.tushare.interfaces import TushareCyqChipsInterface
+
+        iface = TushareCyqChipsInterface()
+        df = pd.DataFrame(
+            {
+                "ts_code": ["000001.SZ", "000001.SZ"],
+                "trade_date": ["20240105", "20240105"],
+                "price": [10.01, 10.02],
+                "percent": [0.12, 0.18],
+            }
+        )
+        inferred_schema = {
+            "column_specs": [
+                {"name": "ts_code", "normalizer": "clean"},
+                {"name": "trade_date", "normalizer": "date"},
+                {"name": "price", "normalizer": "float"},
+                {"name": "percent", "normalizer": "float"},
+            ],
+            "key_columns": ("ts_code", "trade_date", "price"),
+        }
+
+        with patch(f"{_INGEST}.get_all_ts_codes", return_value=["000001.SZ", "000002.SZ"]), \
+             patch(f"{_INGEST}.call_pro", side_effect=[df, pd.DataFrame()]) as mock_call, \
+             patch("app.datasync.sources.tushare.catalog_interfaces.ddl.infer_dynamic_table_schema", return_value=inferred_schema) as mock_infer, \
+             patch("app.datasync.table_manager.ensure_inferred_table") as mock_ensure_table, \
+             patch(f"{_TS_DAO}.insert_catalog_rows", return_value=2) as mock_insert:
+            result = iface.sync_date(date(2024, 1, 5))
+
+        assert iface.supports_scheduled_sync() is True
+        assert iface.supports_backfill() is True
+        assert iface.backfill_mode() == "date"
+        assert iface.requires_nonempty_trading_day_data() is True
+        assert result.status == SyncStatus.SUCCESS
+        assert result.rows_synced == 2
+        mock_call.assert_any_call("cyq_chips", ts_code="000001.SZ", trade_date="20240105")
+        mock_call.assert_any_call("cyq_chips", ts_code="000002.SZ", trade_date="20240105")
+        mock_infer.assert_called_once()
+        assert mock_infer.call_args.kwargs["preferred_key_fields"][:3] == ("ts_code", "trade_date", "price")
+        mock_ensure_table.assert_called_once()
+        assert mock_insert.call_args.kwargs["key_columns"] == ("ts_code", "trade_date", "price")
+
+    def test_cyq_chips_quota_pause_preserves_partial_rows(self):
+        from app.datasync.service.tushare_ingest import TushareQuotaExceededError
+        from app.datasync.sources.tushare.interfaces import TushareCyqChipsInterface
+
+        iface = TushareCyqChipsInterface()
+        df = pd.DataFrame(
+            {
+                "ts_code": ["000001.SZ"],
+                "trade_date": ["20240105"],
+                "price": [10.01],
+                "percent": [0.12],
+            }
+        )
+        inferred_schema = {
+            "column_specs": [
+                {"name": "ts_code", "normalizer": "clean"},
+                {"name": "trade_date", "normalizer": "date"},
+                {"name": "price", "normalizer": "float"},
+                {"name": "percent", "normalizer": "float"},
+            ],
+            "key_columns": ("ts_code", "trade_date", "price"),
+        }
+
+        with patch(f"{_INGEST}.get_all_ts_codes", return_value=["000001.SZ", "000002.SZ"]), \
+             patch(
+                 f"{_INGEST}.call_pro",
+                 side_effect=[df, TushareQuotaExceededError("cyq_chips", "daily quota", scope="day")],
+             ), \
+             patch("app.datasync.sources.tushare.catalog_interfaces.ddl.infer_dynamic_table_schema", return_value=inferred_schema), \
+             patch("app.datasync.table_manager.ensure_inferred_table"), \
+             patch(f"{_TS_DAO}.insert_catalog_rows", return_value=1):
+            result = iface.sync_date(date(2024, 1, 5))
+
+        assert result.status == SyncStatus.PENDING
+        assert result.rows_synced == 1
+        assert result.details["quota_exceeded"] is True
+        assert result.details["processed_count"] == 1
+
+    def test_build_catalog_interfaces_uses_cyq_chips_special_handler(self):
+        from app.datasync.sources.tushare.catalog_interfaces import build_catalog_interfaces
+        from app.datasync.sources.tushare.interfaces import TushareCyqChipsInterface
+
+        with patch(f"{_CATALOG_MOD}._load_catalog_specs", return_value=(_catalog_spec("cyq_chips"),)):
+            interfaces = build_catalog_interfaces(set())
+        iface = next(item for item in interfaces if item.info.interface_key == "cyq_chips")
+
+        assert isinstance(iface, TushareCyqChipsInterface)
+        assert iface.supports_scheduled_sync() is True
+        assert iface.supports_backfill() is True
+        assert iface.backfill_mode() == "date"
+
     def test_build_catalog_interfaces_skips_existing_keys(self):
         from app.datasync.sources.tushare.catalog_interfaces import build_catalog_interfaces
 
-        interfaces = build_catalog_interfaces({"hsgt_stk_hold", "moneyflow"})
+        specs = (
+            _catalog_spec("hsgt_stk_hold"),
+            _catalog_spec("moneyflow"),
+            _catalog_spec("stock_st"),
+        )
+        with patch(f"{_CATALOG_MOD}._load_catalog_specs", return_value=specs):
+            interfaces = build_catalog_interfaces({"hsgt_stk_hold", "moneyflow"})
         keys = {iface.info.interface_key for iface in interfaces}
 
         assert "hsgt_stk_hold" not in keys
         assert "moneyflow" not in keys
         assert "suspend_daily" not in keys
         assert "stock_st" in keys
+
+
+class TestTushareDataSourceRegistration:
+    def test_simple_builtin_interfaces_now_use_catalog_syncer(self):
+        from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface
+        from app.datasync.sources.tushare.source import TushareDataSource
+
+        specs = (
+            _catalog_spec("stock_basic"),
+            _catalog_spec("stock_daily", "daily"),
+            _catalog_spec("bak_daily"),
+            _catalog_spec("moneyflow"),
+            _catalog_spec("suspend_d"),
+            _catalog_spec("suspend"),
+            _catalog_spec("adj_factor"),
+            _catalog_spec("stock_weekly", "weekly"),
+            _catalog_spec("stock_monthly", "monthly"),
+        )
+        with patch(f"{_CATALOG_MOD}._load_catalog_specs", return_value=specs):
+            interfaces = {iface.info.interface_key: iface for iface in TushareDataSource().get_interfaces()}
+
+        for key in (
+            "stock_basic",
+            "stock_daily",
+            "bak_daily",
+            "moneyflow",
+            "suspend_d",
+            "suspend",
+            "adj_factor",
+            "stock_weekly",
+            "stock_monthly",
+        ):
+            assert isinstance(interfaces[key], TushareCatalogInterface)
+
+        assert interfaces["stock_daily"].requires_nonempty_trading_day_data() is True
+        assert interfaces["bak_daily"].requires_nonempty_trading_day_data() is True
+        assert interfaces["moneyflow"].requires_nonempty_trading_day_data() is True
+        assert interfaces["adj_factor"].requires_nonempty_trading_day_data() is True
+
+    def test_complex_interfaces_keep_custom_syncers(self):
+        from app.datasync.sources.tushare.interfaces import (
+            TushareCyqChipsInterface,
+            TushareDividendInterface,
+            TushareIndexDailyInterface,
+            TushareIndexWeeklyInterface,
+            TushareStockCompanyInterface,
+            TushareTop10HoldersInterface,
+            TushareTradeCalInterface,
+        )
+        from app.datasync.sources.tushare.source import TushareDataSource
+
+        with patch(f"{_CATALOG_MOD}._load_catalog_specs", return_value=tuple()):
+            interfaces = {iface.info.interface_key: iface for iface in TushareDataSource().get_interfaces()}
+
+        assert isinstance(interfaces["trade_cal"], TushareTradeCalInterface)
+        assert isinstance(interfaces["stock_company"], TushareStockCompanyInterface)
+        assert isinstance(interfaces["dividend"], TushareDividendInterface)
+        assert isinstance(interfaces["top10_holders"], TushareTop10HoldersInterface)
+        assert isinstance(interfaces["index_daily"], TushareIndexDailyInterface)
+        assert isinstance(interfaces["index_weekly"], TushareIndexWeeklyInterface)
+        assert isinstance(interfaces["cyq_chips"], TushareCyqChipsInterface)

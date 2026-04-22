@@ -197,8 +197,16 @@ def get_trade_calendar(start_date: date, end_date: date) -> List[date]:
     try:
         dates = get_cached_trade_dates(start_date, end_date)
         if dates:
-            logger.debug("Using cached trade calendar: %d dates", len(dates))
-            return dates
+            if dates[0] <= start_date and dates[-1] >= end_date:
+                logger.debug("Using cached trade calendar: %d dates", len(dates))
+                return dates
+            logger.info(
+                "Cached trade calendar incomplete for %s -> %s (cached %s -> %s), refreshing",
+                start_date,
+                end_date,
+                dates[0],
+                dates[-1],
+            )
     except Exception as e:
         logger.debug("trade_cal table not available or empty: %s", e)
 

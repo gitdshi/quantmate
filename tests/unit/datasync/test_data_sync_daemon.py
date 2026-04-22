@@ -7,6 +7,7 @@ from datetime import date, timedelta
 from unittest.mock import DEFAULT, MagicMock, patch
 import sys
 
+import pandas as pd
 import pytest
 
 _MOD = "app.datasync.service.data_sync_daemon"
@@ -154,9 +155,31 @@ class TestGetTradeCalendar:
     def test_from_cache(self):
         from app.datasync.service.data_sync_daemon import get_trade_calendar
         with patch(f"{_MOD}.get_cached_trade_dates") as mock_cache:
-            mock_cache.return_value = [date(2024, 1, 3), date(2024, 1, 4)]
+            mock_cache.return_value = [date(2024, 1, 1), date(2024, 1, 3), date(2024, 1, 4), date(2024, 1, 5)]
             result = get_trade_calendar(date(2024, 1, 1), date(2024, 1, 5))
-        assert len(result) == 2
+        assert result == [date(2024, 1, 1), date(2024, 1, 3), date(2024, 1, 4), date(2024, 1, 5)]
+
+    def test_partial_cache_refreshes_from_akshare(self):
+        from app.datasync.service.data_sync_daemon import get_trade_calendar
+
+        df = pd.DataFrame(
+            {
+                "trade_date": pd.to_datetime(
+                    ["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"]
+                )
+            }
+        )
+
+        with patch(f"{_MOD}.get_cached_trade_dates", return_value=[date(2024, 1, 5)]), \
+             patch(f"{_MOD}.AKSHARE_AVAILABLE", True), \
+             patch(f"{_MOD}.ak") as mock_ak, \
+             patch(f"{_MOD}.upsert_trade_dates") as mock_upsert:
+            mock_ak.tool_trade_date_hist_sina.return_value = df
+            result = get_trade_calendar(date(2024, 1, 2), date(2024, 1, 5))
+
+        assert result == [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4), date(2024, 1, 5)]
+        mock_ak.tool_trade_date_hist_sina.assert_called_once()
+        mock_upsert.assert_called_once()
 
     def test_empty_cache_weekday_fallback(self):
         from app.datasync.service.data_sync_daemon import get_trade_calendar

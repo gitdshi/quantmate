@@ -239,6 +239,11 @@ def upsert_suspend_d(df: pd.DataFrame) -> int:
 def upsert_suspend(df: pd.DataFrame) -> int:
     if df is None or df.empty:
         return 0
+    normalized = df.copy()
+    if "resume_date" in normalized.columns:
+        normalized["resume_date"] = normalized["resume_date"].replace({"19000101": None, "1900-01-01": None})
+    if "ts_code" in normalized.columns and "suspend_date" in normalized.columns:
+        normalized = normalized.drop_duplicates(subset=["ts_code", "suspend_date"], keep="first")
     insert_sql = text(
         "INSERT INTO `suspend` (ts_code, suspend_date, resume_date, suspend_reason) "
         "VALUES (:ts_code, :suspend_date, :resume_date, :suspend_reason) "
@@ -246,7 +251,7 @@ def upsert_suspend(df: pd.DataFrame) -> int:
     )
     rows = 0
     with engine.begin() as conn:
-        for r in df.to_dict(orient="records"):
+        for r in normalized.to_dict(orient="records"):
             conn.execute(
                 insert_sql,
                 {
@@ -1277,7 +1282,13 @@ def upsert_index_basic(df: pd.DataFrame) -> int:
 
 
 _CATALOG_UPSERTS = {
+    "stock_basic": upsert_stock_basic,
+    "stock_daily": upsert_daily,
+    "bak_daily": upsert_bak_daily,
     "new_share": upsert_new_share,
+    "suspend_d": upsert_suspend_d,
+    "suspend": upsert_suspend,
+    "adj_factor": upsert_adj_factor,
     "block_trade": upsert_block_trade,
     "daily_basic": upsert_daily_basic,
     "moneyflow": upsert_moneyflow,
@@ -1286,5 +1297,7 @@ _CATALOG_UPSERTS = {
     "income": upsert_income,
     "balancesheet": upsert_balancesheet,
     "cashflow": upsert_cashflow,
+    "stock_weekly": upsert_weekly,
+    "stock_monthly": upsert_monthly,
     "index_basic": upsert_index_basic,
 }

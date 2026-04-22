@@ -13,7 +13,8 @@ import pandas as pd
 from sqlalchemy import text
 
 from app.datasync.base import BaseIngestInterface, InterfaceInfo, SyncResult, SyncStatus
-from app.datasync.sources.tushare.sync_error_handling import handle_tushare_sync_exception
+from app.datasync.sources.tushare.sync_error_handling import handle_tushare_sync_exception, is_permission_error
+from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface, TushareCatalogSpec
 from app.datasync.sources.tushare import ddl
 from app.infrastructure.db.connections import get_tushare_engine
 
@@ -522,6 +523,147 @@ class TushareTop10HoldersInterface(BaseIngestInterface):
         from app.domains.extdata.dao.data_sync_status_dao import get_top10_holders_counts
 
         return get_top10_holders_counts(start, end)
+
+
+class TushareCyqChipsInterface(TushareCatalogInterface):
+    def __init__(self):
+        super().__init__(
+            TushareCatalogSpec(
+                interface_key="cyq_chips",
+                display_name="筹码分布",
+                api_name="cyq_chips",
+                target_table="cyq_chips",
+                sync_priority=310,
+                requires_permission="0",
+            )
+        )
+
+    def supports_backfill(self) -> bool:
+        return self.supports_scheduled_sync()
+
+    def backfill_mode(self) -> str:
+        return "date"
+
+    def requires_nonempty_trading_day_data(self) -> bool:
+        return True
+
+    def _schema_date_column(self) -> str | None:
+        return "trade_date"
+
+    def _payload_key_fields(self) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(("ts_code", "trade_date", "price", *super()._payload_key_fields())))
+
+    def sync_date(self, trade_date: date) -> SyncResult:
+        from app.datasync.service.tushare_ingest import TushareQuotaExceededError, call_pro, get_all_ts_codes
+        from app.domains.extdata.dao.tushare_dao import insert_catalog_rows
+
+        target = trade_date.strftime("%Y%m%d")
+        try:
+            ts_codes = get_all_ts_codes()
+        except Exception as exc:
+            return handle_tushare_sync_exception(logger, f"cyq_chips symbol load for {trade_date}", exc)
+
+        if not ts_codes:
+            return SyncResult(SyncStatus.SUCCESS, 0, details={"symbol_count": 0, "processed_count": 0})
+
+        inferred_schema: dict[str, object] | None = None
+        total_rows = 0
+        processed_count = 0
+        failed_symbols: list[str] = []
+
+        for ts_code in ts_codes:
+            try:
+                df = call_pro(self.info.interface_key, ts_code=ts_code, trade_date=target)
+                processed_count += 1
+                if df is None or getattr(df, "empty", True):
+                    continue
+                if inferred_schema is None:
+                    inferred_schema = self._ensure_inferred_table(df)
+                rows = insert_catalog_rows(
+                    self.info.target_table,
+                    df,
+                    key_fields=self._payload_key_fields(),
+                    column_specs=None if inferred_schema is None else list(inferred_schema["column_specs"]),
+                    key_columns=None if inferred_schema is None else tuple(inferred_schema["key_columns"]),
+                )
+                total_rows += rows
+            except TushareQuotaExceededError as exc:
+                return SyncResult(
+                    SyncStatus.PENDING,
+                    total_rows,
+                    str(exc),
+                    details=self._build_symbol_sync_details(
+                        ts_codes,
+                        processed_count,
+                        failed_symbols,
+                        quota_exceeded=True,
+                        retry_after=getattr(exc, "retry_after", None),
+                    ),
+                )
+            except Exception as exc:
+                if is_permission_error(str(exc)):
+                    if total_rows == 0:
+                        return handle_tushare_sync_exception(
+                            logger,
+                            f"cyq_chips sync for {trade_date}",
+                            exc,
+                            allow_permission_partial=True,
+                        )
+                    return SyncResult(
+                        SyncStatus.PARTIAL,
+                        total_rows,
+                        "Permission denied",
+                        details=self._build_symbol_sync_details(
+                            ts_codes,
+                            processed_count,
+                            failed_symbols,
+                            permission_denied=True,
+                        ),
+                    )
+                failed_symbols.append(ts_code)
+                logger.warning("cyq_chips sync failed for %s on %s: %s", ts_code, target, exc)
+
+        details = self._build_symbol_sync_details(ts_codes, processed_count, failed_symbols)
+        if failed_symbols and total_rows == 0:
+            return SyncResult(
+                SyncStatus.ERROR,
+                0,
+                f"Failed symbols: {', '.join(failed_symbols[:5])}",
+                details=details,
+            )
+        if failed_symbols:
+            return SyncResult(
+                SyncStatus.PARTIAL,
+                total_rows,
+                f"Failed symbols: {', '.join(failed_symbols[:5])}",
+                details=details,
+            )
+        return SyncResult(SyncStatus.SUCCESS, total_rows, details=details)
+
+    @staticmethod
+    def _build_symbol_sync_details(
+        ts_codes: list[str],
+        processed_count: int,
+        failed_symbols: list[str],
+        *,
+        quota_exceeded: bool = False,
+        retry_after: float | None = None,
+        permission_denied: bool = False,
+    ) -> dict[str, object]:
+        details: dict[str, object] = {
+            "symbol_count": len(ts_codes),
+            "processed_count": max(processed_count, 0),
+        }
+        if failed_symbols:
+            details["failed_symbols"] = list(failed_symbols[:20])
+            details["failure_count"] = len(failed_symbols)
+        if quota_exceeded:
+            details["quota_exceeded"] = True
+        if retry_after is not None:
+            details["quota_retry_after"] = str(retry_after)
+        if permission_denied:
+            details["permission_denied"] = True
+        return details
 
 
 class TushareStockWeeklyInterface(BaseIngestInterface):

@@ -10,6 +10,9 @@ logger = logging.getLogger(__name__)
 
 
 class TushareDataSource(BaseDataSource):
+    def __init__(self) -> None:
+        self._interfaces_cache: list[BaseIngestInterface] | None = None
+
     @property
     def source_key(self) -> str:
         return "tushare"
@@ -23,39 +26,26 @@ class TushareDataSource(BaseDataSource):
         return True
 
     def get_interfaces(self) -> list[BaseIngestInterface]:
+        if self._interfaces_cache is not None:
+            return list(self._interfaces_cache)
+
         from app.datasync.sources.tushare.catalog_interfaces import build_catalog_interfaces
         from app.datasync.sources.tushare.interfaces import (
             TushareTradeCalInterface,
-            TushareStockBasicInterface,
+            TushareCyqChipsInterface,
             TushareStockCompanyInterface,
-            TushareStockDailyInterface,
-            TushareBakDailyInterface,
-            TushareMoneyflowInterface,
-            TushareSuspendDInterface,
-            TushareSuspendInterface,
-            TushareAdjFactorInterface,
             TushareDividendInterface,
             TushareTop10HoldersInterface,
-            TushareStockWeeklyInterface,
-            TushareStockMonthlyInterface,
             TushareIndexDailyInterface,
             TushareIndexWeeklyInterface,
         )
 
         interfaces: list[BaseIngestInterface] = [
             TushareTradeCalInterface(),
-            TushareStockBasicInterface(),
+            TushareCyqChipsInterface(),
             TushareStockCompanyInterface(),
-            TushareStockDailyInterface(),
-            TushareBakDailyInterface(),
-            TushareMoneyflowInterface(),
-            TushareSuspendDInterface(),
-            TushareSuspendInterface(),
-            TushareAdjFactorInterface(),
             TushareDividendInterface(),
             TushareTop10HoldersInterface(),
-            TushareStockWeeklyInterface(),
-            TushareStockMonthlyInterface(),
             TushareIndexDailyInterface(),
             TushareIndexWeeklyInterface(),
         ]
@@ -63,7 +53,8 @@ class TushareDataSource(BaseDataSource):
         existing_keys = {iface.info.interface_key for iface in interfaces}
         interfaces.extend(build_catalog_interfaces(existing_keys))
 
-        return interfaces
+        self._interfaces_cache = list(interfaces)
+        return list(self._interfaces_cache)
 
     def test_connection(self) -> bool:
         try:
