@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.api.routes import system_config
 from app.api.exception_handlers import register_exception_handlers
+from app.infrastructure.config.system_config_registry import SystemConfigDefinition
 
 
 @pytest.fixture
@@ -44,6 +45,46 @@ class TestSystemConfigs:
         resp = client.get("/api/v1/system/configs?category=ui")
         assert resp.status_code == 200
         instance.list_all.assert_called_once_with(category="ui")
+
+    @patch("app.api.routes.system_config.resolve_runtime_config_value")
+    @patch("app.api.routes.system_config.list_db_system_config_definitions")
+    @patch("app.api.routes.system_config.SystemConfigDao")
+    def test_list_runtime_config_catalog(self, MockDao, mock_list_defs, mock_resolve, client):
+        instance = MockDao.return_value
+        instance.list_all.return_value = [
+            {"config_key": "datasync.sync_hour", "config_value": "5", "updated_at": "2026-04-22T12:00:00"}
+        ]
+        mock_list_defs.return_value = [
+            SystemConfigDefinition(
+                key="datasync.sync_hour",
+                category="datasync",
+                label="Daily sync hour",
+                description="Daily sync schedule hour in 24-hour local time.",
+                value_type="int",
+                default_value="2",
+                legacy_env_keys=("SYNC_HOUR",),
+            )
+        ]
+        mock_resolve.return_value = ("5", "db")
+
+        resp = client.get("/api/v1/system/configs/catalog")
+        assert resp.status_code == 200
+        assert resp.json()["configs"] == [
+            {
+                "key": "datasync.sync_hour",
+                "category": "datasync",
+                "label": "Daily sync hour",
+                "description": "Daily sync schedule hour in 24-hour local time.",
+                "value_type": "int",
+                "default_value": "2",
+                "legacy_env_keys": ["SYNC_HOUR"],
+                "current_value": "5",
+                "stored_value": "5",
+                "is_overridden": True,
+                "value_source": "db",
+                "updated_at": "2026-04-22T12:00:00",
+            }
+        ]
 
     @patch("app.api.routes.system_config.SystemConfigDao")
     def test_get_config(self, MockDao, client):
@@ -100,4 +141,3 @@ class TestDataSourceConfigs:
         })
         assert resp.status_code == 200
         instance.upsert.assert_called_once()
-

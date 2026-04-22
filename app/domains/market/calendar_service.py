@@ -20,21 +20,28 @@ from app.infrastructure.runtime_cache import ExpiringCache
 
 logger = logging.getLogger(__name__)
 
-TRADE_DAYS_CACHE_TTL_SECONDS = get_runtime_int(
-    env_keys="MARKET_CALENDAR_TRADE_DAYS_CACHE_TTL_SECONDS",
-    db_key="market.calendar.trade_days_cache_ttl_seconds",
-    default=300,
-)
-EVENTS_CACHE_TTL_SECONDS = get_runtime_int(
-    env_keys="MARKET_CALENDAR_EVENTS_CACHE_TTL_SECONDS",
-    db_key="market.calendar.events_cache_ttl_seconds",
-    default=300,
-)
-MAX_EVENTS_PER_TYPE = get_runtime_int(
-    env_keys="MARKET_CALENDAR_MAX_EVENTS_PER_TYPE",
-    db_key="market.calendar.max_events_per_type",
-    default=30,
-)
+def _trade_days_cache_ttl_seconds() -> int:
+    return get_runtime_int(
+        env_keys="MARKET_CALENDAR_TRADE_DAYS_CACHE_TTL_SECONDS",
+        db_key="market.calendar.trade_days_cache_ttl_seconds",
+        default=300,
+    )
+
+
+def _events_cache_ttl_seconds() -> int:
+    return get_runtime_int(
+        env_keys="MARKET_CALENDAR_EVENTS_CACHE_TTL_SECONDS",
+        db_key="market.calendar.events_cache_ttl_seconds",
+        default=300,
+    )
+
+
+def _max_events_per_type() -> int:
+    return get_runtime_int(
+        env_keys="MARKET_CALENDAR_MAX_EVENTS_PER_TYPE",
+        db_key="market.calendar.max_events_per_type",
+        default=30,
+    )
 
 _TRADE_DAYS_CACHE = ExpiringCache(name="market_calendar_trade_days", maxsize=128)
 _EVENTS_CACHE = ExpiringCache(name="market_calendar_events", maxsize=128)
@@ -95,7 +102,7 @@ class CalendarService:
         return _TRADE_DAYS_CACHE.get_or_load(
             cache_key,
             lambda: self._load_trade_days(exchange, start_date, end_date),
-            ttl_seconds=TRADE_DAYS_CACHE_TTL_SECONDS,
+            ttl_seconds=_trade_days_cache_ttl_seconds(),
             stale_if_error=True,
         )
 
@@ -182,7 +189,7 @@ class CalendarService:
         return _EVENTS_CACHE.get_or_load(
             cache_key,
             lambda: self._load_events(start_date, end_date, event_type),
-            ttl_seconds=EVENTS_CACHE_TTL_SECONDS,
+            ttl_seconds=_events_cache_ttl_seconds(),
             stale_if_error=True,
         )
 
@@ -232,7 +239,7 @@ class CalendarService:
                         "importance": str(row.get("importance", row.get("重要性", ""))),
                     }
                 )
-                if len(items) >= MAX_EVENTS_PER_TYPE:
+                if len(items) >= _max_events_per_type():
                     break
             return items
         except Exception as exc:
@@ -253,7 +260,7 @@ class CalendarService:
                 ).fetchall()
 
             items: list[dict[str, Any]] = []
-            for row in rows[:MAX_EVENTS_PER_TYPE]:
+            for row in rows[:_max_events_per_type()]:
                 items.append(
                     {
                         "type": "ipo",
@@ -286,7 +293,7 @@ class CalendarService:
                 ).fetchall()
 
             items: list[dict[str, Any]] = []
-            for row in rows[:MAX_EVENTS_PER_TYPE]:
+            for row in rows[:_max_events_per_type()]:
                 items.append(
                     {
                         "type": "dividend",

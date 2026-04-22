@@ -105,11 +105,12 @@ class FillResult:
 # ── Matching logic ──────────────────────────────────────────
 
 
-_DEFAULT_SLIPPAGE = get_runtime_float(
-    env_keys="TRADING_DEFAULT_SLIPPAGE",
-    db_key="trading.default_slippage",
-    default=0.001,
-)
+def _default_slippage() -> float:
+    return get_runtime_float(
+        env_keys="TRADING_DEFAULT_SLIPPAGE",
+        db_key="trading.default_slippage",
+        default=0.001,
+    )
 
 
 def try_fill_market_order(
@@ -118,11 +119,13 @@ def try_fill_market_order(
     quantity: int,
     market: str,
     last_price: float,
-    slippage: float = _DEFAULT_SLIPPAGE,
+    slippage: float | None = None,
 ) -> FillResult:
     """Attempt to fill a market order at the current price +/- slippage."""
     if last_price <= 0:
         return FillResult(filled=False, reason="No valid market price available")
+    if slippage is None:
+        slippage = _default_slippage()
 
     if direction == "buy":
         fill_price = round(last_price * (1 + slippage), 4)
@@ -173,7 +176,7 @@ def try_fill_stop_order(
     stop_price: float,
     market: str,
     last_price: float,
-    slippage: float = _DEFAULT_SLIPPAGE,
+    slippage: float | None = None,
 ) -> FillResult:
     """Check if a stop order should be triggered and fill as market.
 
@@ -211,7 +214,7 @@ def match_order(
     stop_price: Optional[float],
     market: str,
     last_price: float,
-    slippage: float = _DEFAULT_SLIPPAGE,
+    slippage: float | None = None,
 ) -> FillResult:
     """Unified entry point: try to fill any order type against current market data."""
     if order_type == "market":

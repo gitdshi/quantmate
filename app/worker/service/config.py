@@ -14,73 +14,36 @@ redis_conn = Redis(
     decode_responses=False,  # Keep bytes for job data
 )
 
-# Define queues with priorities
-QUEUE_HIGH = Queue(
-    "high",
-    connection=redis_conn,
-    default_timeout=get_runtime_int(
-        env_keys="QUEUE_HIGH_DEFAULT_TIMEOUT_SECONDS",
-        db_key="worker.queue_timeout.high",
-        default=600,
-    ),
-)
-QUEUE_DEFAULT = Queue(
-    "default",
-    connection=redis_conn,
-    default_timeout=get_runtime_int(
-        env_keys="QUEUE_DEFAULT_DEFAULT_TIMEOUT_SECONDS",
-        db_key="worker.queue_timeout.default",
-        default=1800,
-    ),
-)
-QUEUE_LOW = Queue(
-    "low",
-    connection=redis_conn,
-    default_timeout=get_runtime_int(
-        env_keys="QUEUE_LOW_DEFAULT_TIMEOUT_SECONDS",
-        db_key="worker.queue_timeout.low",
-        default=3600,
-    ),
-)
-QUEUE_BACKTEST = Queue(
-    "backtest",
-    connection=redis_conn,
-    default_timeout=get_runtime_int(
-        env_keys="QUEUE_BACKTEST_DEFAULT_TIMEOUT_SECONDS",
-        db_key="worker.queue_timeout.backtest",
-        default=3600,
-    ),
-)
-QUEUE_OPTIMIZATION = Queue(
-    "optimization",
-    connection=redis_conn,
-    default_timeout=get_runtime_int(
-        env_keys="QUEUE_OPTIMIZATION_DEFAULT_TIMEOUT_SECONDS",
-        db_key="worker.queue_timeout.optimization",
-        default=7200,
-    ),
-)
-QUEUE_RDAGENT = Queue(
-    "rdagent",
-    connection=redis_conn,
-    default_timeout=get_runtime_int(
-        env_keys="QUEUE_RDAGENT_DEFAULT_TIMEOUT_SECONDS",
-        db_key="worker.queue_timeout.rdagent",
-        default=14400,
-    ),
-)
-
-# Queue registry
-QUEUES = {
-    "high": QUEUE_HIGH,
-    "default": QUEUE_DEFAULT,
-    "low": QUEUE_LOW,
-    "backtest": QUEUE_BACKTEST,
-    "optimization": QUEUE_OPTIMIZATION,
-    "rdagent": QUEUE_RDAGENT,
+_QUEUE_SPECS = {
+    "high": ("QUEUE_HIGH_DEFAULT_TIMEOUT_SECONDS", "worker.queue_timeout.high", 600),
+    "default": ("QUEUE_DEFAULT_DEFAULT_TIMEOUT_SECONDS", "worker.queue_timeout.default", 1800),
+    "low": ("QUEUE_LOW_DEFAULT_TIMEOUT_SECONDS", "worker.queue_timeout.low", 3600),
+    "backtest": ("QUEUE_BACKTEST_DEFAULT_TIMEOUT_SECONDS", "worker.queue_timeout.backtest", 3600),
+    "optimization": ("QUEUE_OPTIMIZATION_DEFAULT_TIMEOUT_SECONDS", "worker.queue_timeout.optimization", 7200),
+    "rdagent": ("QUEUE_RDAGENT_DEFAULT_TIMEOUT_SECONDS", "worker.queue_timeout.rdagent", 14400),
 }
+
+QUEUES = None
+
+
+def get_queues() -> dict[str, Queue]:
+    if isinstance(QUEUES, dict):
+        return QUEUES
+    queues: dict[str, Queue] = {}
+    for name, (env_key, db_key, default_timeout) in _QUEUE_SPECS.items():
+        queues[name] = Queue(
+            name,
+            connection=redis_conn,
+            default_timeout=get_runtime_int(
+                env_keys=env_key,
+                db_key=db_key,
+                default=default_timeout,
+            ),
+        )
+    return queues
 
 
 def get_queue(name: str = "default") -> Queue:
     """Get queue by name."""
-    return QUEUES.get(name, QUEUE_DEFAULT)
+    queues = get_queues()
+    return queues.get(name, queues["default"])

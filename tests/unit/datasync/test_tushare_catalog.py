@@ -626,6 +626,19 @@ class TestDataSourceItemDaoCategories:
         sql = str(conn.execute.call_args.args[0])
         assert "NOT IN ('1', 'true', 'yes', 'paid')" in sql
 
+    def test_build_catalog_interfaces_deduplicates_duplicate_specs(self):
+        import app.datasync.sources.tushare.catalog_interfaces as catalog_mod
+
+        duplicate_specs = (
+            catalog_mod.TushareCatalogSpec("stock_daily", "日线行情", "daily", "stock_daily", 20, "0"),
+            catalog_mod.TushareCatalogSpec("stock_daily", "日线行情", "daily", "stock_daily", 20, "0"),
+        )
+
+        with patch.object(catalog_mod, "_load_catalog_specs", return_value=duplicate_specs):
+            interfaces = catalog_mod.build_catalog_interfaces()
+
+        assert [iface.info.interface_key for iface in interfaces] == ["stock_daily"]
+
 
 # ===========================================================================
 # Settings routes tests (batch-by-permission, permissions endpoint)

@@ -45,7 +45,9 @@ class TushareBrowserService:
         category: str | None = None,
         sub_category: str | None = None,
     ) -> list[dict[str, Any]]:
+        inspector = inspect(self._engine)
         metadata_tables = self._list_metadata_tables(
+            inspector,
             keyword=keyword,
             category=category,
             sub_category=sub_category,
@@ -53,11 +55,11 @@ class TushareBrowserService:
         if metadata_tables is not None:
             return metadata_tables
 
-        inspector = inspect(self._engine)
         return self._list_physical_tables(inspector, keyword=keyword)
 
     def _list_metadata_tables(
         self,
+        inspector: Any,
         *,
         keyword: str | None = None,
         category: str | None = None,
@@ -74,6 +76,10 @@ class TushareBrowserService:
         keyword_lower = keyword.strip().lower() if keyword else None
         sub_category_lower = sub_category.strip().lower() if sub_category else None
         target_databases = self._resolve_target_databases()
+        available_tables = {
+            table_name.lower(): table_name
+            for table_name in inspector.get_table_names()
+        }
         items: list[dict[str, Any]] = []
         seen: set[tuple[str, str]] = set()
 
@@ -84,30 +90,39 @@ class TushareBrowserService:
                 continue
             if not target_table or not bool(row.get("table_created")):
                 continue
+            resolved_table_name = available_tables.get(target_table.lower())
+            if resolved_table_name is None:
+                continue
             if sub_category_lower and str(row.get("sub_category") or "").strip().lower() != sub_category_lower:
                 continue
 
             item_name = str(row.get("item_name") or row.get("display_name") or "").strip()
-            if keyword_lower and keyword_lower not in target_table.lower() and keyword_lower not in item_name.lower():
+            if (
+                keyword_lower
+                and keyword_lower not in resolved_table_name.lower()
+                and keyword_lower not in item_name.lower()
+            ):
                 continue
 
-            dedupe_key = (target_database.lower(), target_table.lower())
+            dedupe_key = (target_database.lower(), resolved_table_name.lower())
             if dedupe_key in seen:
                 continue
             seen.add(dedupe_key)
+            columns = inspector.get_columns(resolved_table_name)
+            primary_keys = inspector.get_pk_constraint(resolved_table_name).get("constrained_columns") or []
 
             items.append(
                 {
-                    "name": target_table,
+                    "name": resolved_table_name,
                     "target_database": target_database,
-                    "target_table": target_table,
+                    "target_table": resolved_table_name,
                     "table_created": bool(row.get("table_created")),
                     "item_key": row.get("item_key"),
                     "item_name": row.get("item_name") or row.get("display_name"),
                     "category": row.get("category"),
                     "sub_category": row.get("sub_category"),
-                    "column_count": 0,
-                    "primary_keys": [],
+                    "column_count": len(columns),
+                    "primary_keys": primary_keys,
                 }
             )
 

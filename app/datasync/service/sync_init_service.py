@@ -13,11 +13,12 @@ from app.infrastructure.db.connections import get_quantmate_engine
 
 logger = logging.getLogger(__name__)
 
-BATCH_SIZE = get_runtime_int(
-    env_keys="SYNC_INIT_BATCH_SIZE",
-    db_key="datasync.sync_init.batch_size",
-    default=500,
-)
+def _batch_size() -> int:
+    return get_runtime_int(
+        env_keys="SYNC_INIT_BATCH_SIZE",
+        db_key="datasync.sync_init.batch_size",
+        default=500,
+    )
 
 
 def _resolve_default_sync_window(end_date: date | None = None) -> tuple[date, date]:
@@ -173,8 +174,9 @@ def _insert_pending_rows(source: str, item_key: str, trade_days: list[date]) -> 
     engine = get_quantmate_engine()
     inserted = 0
 
-    for i in range(0, len(trade_days), BATCH_SIZE):
-        batch = trade_days[i : i + BATCH_SIZE]
+    batch_size = _batch_size()
+    for i in range(0, len(trade_days), batch_size):
+        batch = trade_days[i : i + batch_size]
         values = [{"sd": d, "src": source, "ik": item_key, "st": "pending"} for d in batch]
         with engine.begin() as conn:
             result = conn.execute(

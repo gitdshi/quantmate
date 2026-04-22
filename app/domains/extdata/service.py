@@ -11,13 +11,20 @@ from app.infrastructure.config import get_runtime_int
 from app.infrastructure.db.connections import get_quantmate_engine
 from app.infrastructure.runtime_cache import ExpiringCache
 
-SYNC_HOUR = get_runtime_int(env_keys="SYNC_HOUR", db_key="datasync.sync_hour", default=2)
-SYNC_MINUTE = get_runtime_int(env_keys="SYNC_MINUTE", db_key="datasync.sync_minute", default=0)
-DATASYNC_DASHBOARD_CACHE_TTL_SECONDS = get_runtime_int(
-    env_keys="DATASYNC_DASHBOARD_CACHE_TTL_SECONDS",
-    db_key="datasync.dashboard.cache_ttl_seconds",
-    default=30,
-)
+def _sync_hour() -> int:
+    return get_runtime_int(env_keys="SYNC_HOUR", db_key="datasync.sync_hour", default=2)
+
+
+def _sync_minute() -> int:
+    return get_runtime_int(env_keys="SYNC_MINUTE", db_key="datasync.sync_minute", default=0)
+
+
+def _dashboard_cache_ttl_seconds() -> int:
+    return get_runtime_int(
+        env_keys="DATASYNC_DASHBOARD_CACHE_TTL_SECONDS",
+        db_key="datasync.dashboard.cache_ttl_seconds",
+        default=30,
+    )
 DEFAULT_DASHBOARD_SUMMARY_DAYS = 7
 
 _DATASYNC_SUMMARY_CACHE = ExpiringCache(name="datasync_summary", maxsize=16)
@@ -29,6 +36,26 @@ def clear_datasync_dashboard_cache() -> None:
     _DATASYNC_SUMMARY_CACHE.clear()
     _DATASYNC_LATEST_CACHE.clear()
     _DATASYNC_INITIALIZATION_CACHE.clear()
+
+
+def _dedupe_source_item_rows(rows: list[Any]) -> list[Any]:
+    deduped: list[Any] = []
+    seen: set[tuple[str, str]] = set()
+
+    for row in rows:
+        source = str(row[0] or "").strip()
+        item_key = str(row[2] or "").strip()
+        if not source or not item_key:
+            continue
+
+        pair = (source, item_key)
+        if pair in seen:
+            continue
+
+        seen.add(pair)
+        deduped.append(row)
+
+    return deduped
 
 
 def _status_from_last_run(last_run_at: Optional[datetime], running_count: int) -> str:
@@ -95,7 +122,7 @@ class SyncStatusService:
                 "status": daemon_status,
                 "running_jobs": running_count,
                 "last_run_at": last_finished.isoformat() if last_finished else None,
-                "next_run_local": f"{SYNC_HOUR:02d}:{SYNC_MINUTE:02d}",
+                    "next_run_local": f"{_sync_hour():02d}:{_sync_minute():02d}",
             },
             "sync": {
                 "source_summary": source_summary,
@@ -118,7 +145,7 @@ class DataSyncDashboardService:
         return _DATASYNC_SUMMARY_CACHE.get_or_load(
             cache_key,
             lambda: self._build_summary(days),
-            ttl_seconds=DATASYNC_DASHBOARD_CACHE_TTL_SECONDS,
+            ttl_seconds=_dashboard_cache_ttl_seconds(),
             stale_if_error=True,
         )
 
@@ -130,7 +157,7 @@ class DataSyncDashboardService:
         return _DATASYNC_LATEST_CACHE.get_or_load(
             cache_key,
             self._build_latest,
-            ttl_seconds=DATASYNC_DASHBOARD_CACHE_TTL_SECONDS,
+            ttl_seconds=_dashboard_cache_ttl_seconds(),
             stale_if_error=True,
         )
 
@@ -142,7 +169,7 @@ class DataSyncDashboardService:
         return _DATASYNC_INITIALIZATION_CACHE.get_or_load(
             cache_key,
             get_initialization_state,
-            ttl_seconds=DATASYNC_DASHBOARD_CACHE_TTL_SECONDS,
+            ttl_seconds=_dashboard_cache_ttl_seconds(),
             stale_if_error=True,
         )
 
@@ -206,6 +233,7 @@ class DataSyncDashboardService:
                 if "unknown column" not in str(exc or "").lower():
                     raise
                 item_rows = conn.execute(text(legacy_item_sql), params).fetchall()
+            item_rows = _dedupe_source_item_rows(list(item_rows))
 
             status_rows = conn.execute(
                 text(

@@ -30,17 +30,24 @@ from app.infrastructure.db.connections import get_quantmate_engine
 
 logger = logging.getLogger(__name__)
 
-MAX_RETRIES = get_runtime_int(env_keys="MAX_RETRIES", db_key="datasync.max_retries", default=3)
-PARALLEL_WORKERS = get_runtime_int(
-    env_keys="SYNC_PARALLEL_WORKERS",
-    db_key="datasync.sync_parallel_workers",
-    default=4,
-)
-BACKFILL_WORKERS = get_runtime_int(
-    env_keys="BACKFILL_WORKERS",
-    db_key="datasync.backfill_workers",
-    default=10,
-)
+def _max_retries() -> int:
+    return get_runtime_int(env_keys="MAX_RETRIES", db_key="datasync.max_retries", default=3)
+
+
+def _parallel_workers() -> int:
+    return get_runtime_int(
+        env_keys="SYNC_PARALLEL_WORKERS",
+        db_key="datasync.sync_parallel_workers",
+        default=4,
+    )
+
+
+def _backfill_workers() -> int:
+    return get_runtime_int(
+        env_keys="BACKFILL_WORKERS",
+        db_key="datasync.backfill_workers",
+        default=10,
+    )
 
 _FORCE_RETRY_ERROR_SIGNATURES: dict[tuple[str, str], tuple[str, ...]] = {
     ("tushare", "trade_cal"): ("unknown column", "updated_at"),
@@ -55,17 +62,17 @@ _BACKFILL_SOURCE_SAFE_DEFAULTS: dict[str, int] = {
     "akshare": 1,
 }
 
-# Maximum concurrent API calls per data source (respects Tushare rate limits)
-SOURCE_CONCURRENCY: dict[str, int] = {
-    "tushare": get_runtime_int(
-        env_keys="TUSHARE_CONCURRENCY",
-        db_key="datasync.source_concurrency.tushare",
-        default=3,
-    ),
-}
+def _source_concurrency_overrides() -> dict[str, int]:
+    return {
+        "tushare": get_runtime_int(
+            env_keys="TUSHARE_CONCURRENCY",
+            db_key="datasync.source_concurrency.tushare",
+            default=3,
+        ),
+    }
 
-_source_semaphores: dict[str, Semaphore] = {}
-_backfill_source_semaphores: dict[str, Semaphore] = {}
+_source_semaphores: dict[str, tuple[int | None, Semaphore | None]] = {}
+_backfill_source_semaphores: dict[str, tuple[int | None, Semaphore | None]] = {}
 
 
 @dataclass
@@ -91,7 +98,7 @@ def _get_source_env_key(source: str) -> str:
 
 
 def _get_source_concurrency_limit(source: str) -> int | None:
-    return SOURCE_CONCURRENCY.get(source)
+    return _source_concurrency_overrides().get(source)
 
 
 def _get_backfill_source_concurrency_limit(source: str) -> int | None:
@@ -107,12 +114,17 @@ def _get_backfill_source_concurrency_limit(source: str) -> int | None:
     return max(1, int(override))
 
 
-def _get_semaphore(cache: dict[str, Semaphore], source: str, limit: int | None) -> Semaphore | None:
+def _get_semaphore(
+    cache: dict[str, tuple[int | None, Semaphore | None]],
+    source: str,
+    limit: int | None,
+) -> Semaphore | None:
     if limit is None:
         return None
-    if source not in cache:
-        cache[source] = Semaphore(limit)
-    return cache[source]
+    cached = cache.get(source)
+    if cached is None or cached[0] != limit:
+        cache[source] = (limit, Semaphore(limit))
+    return cache[source][1]
 
 
 def _get_source_semaphore(source: str) -> Semaphore | None:
@@ -346,7 +358,7 @@ def _effective_retry_count(record: tuple[date, str, str, int] | tuple[date, str,
     sync_date, source, iface_key, retry_count = record[:4]
     error_message = record[4] if len(record) > 4 else None
 
-    if retry_count < MAX_RETRIES:
+    if retry_count < _max_retries():
         return retry_count
 
     if _can_force_retry_terminal_error(source, iface_key, error_message):
@@ -894,7 +906,7 @@ def daily_sync(
         target_date = _get_latest_completed_trade_date()
 
     if max_workers is None:
-        max_workers = PARALLEL_WORKERS
+        max_workers = _parallel_workers()
 
     logger.info("=" * 80)
     logger.info("Daily sync starting for %s (workers=%d)", target_date, max_workers)
@@ -940,7 +952,7 @@ def backfill_retry(
     Uses DB lock from the old daemon to prevent concurrent runs.
     """
     if max_workers is None:
-        max_workers = BACKFILL_WORKERS
+        max_workers = _backfill_workers()
     max_workers = max(1, max_workers)
     window_start_date, window_end_date = _resolve_backfill_window()
 

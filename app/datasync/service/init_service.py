@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import date, timedelta
 
 from sqlalchemy import text
@@ -81,11 +82,8 @@ def _get_env_window_years(env: str | None = None) -> int:
 
 
 def _get_configured_sync_start_date(reference_date: date | None = None) -> date | None:
-    raw_value = get_runtime_str(
-        env_keys="SYNC_INIT_DEFAULT_START_DATE",
-        db_key="datasync.sync_init.default_start_date",
-        default="",
-    ).strip()
+    del reference_date
+    raw_value = os.getenv("SYNC_INIT_DEFAULT_START_DATE", "").strip()
     if not raw_value:
         return None
 

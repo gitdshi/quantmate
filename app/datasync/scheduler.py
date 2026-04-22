@@ -38,19 +38,36 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-SYNC_HOUR = get_runtime_int(env_keys="SYNC_HOUR", db_key="datasync.sync_hour", default=2)
-SYNC_MINUTE = get_runtime_int(env_keys="SYNC_MINUTE", db_key="datasync.sync_minute", default=0)
-BACKFILL_IDLE_INTERVAL_HOURS = get_runtime_int(
-    env_keys="BACKFILL_IDLE_INTERVAL_HOURS",
-    db_key="datasync.backfill_idle_interval_hours",
-    default=4,
-)
-BACKFILL_LOCK_RETRY_SECONDS = get_runtime_int(
-    env_keys="BACKFILL_LOCK_RETRY_SECONDS",
-    db_key="datasync.backfill_lock_retry_seconds",
-    default=60,
-)
-TIMEZONE = get_runtime_str(env_keys="DATASYNC_TIMEZONE", db_key="datasync.timezone", default="Asia/Shanghai")
+def _sync_hour() -> int:
+    return get_runtime_int(env_keys="SYNC_HOUR", db_key="datasync.sync_hour", default=2)
+
+
+def _sync_minute() -> int:
+    return get_runtime_int(env_keys="SYNC_MINUTE", db_key="datasync.sync_minute", default=0)
+
+
+def _backfill_idle_interval_hours() -> int:
+    return get_runtime_int(
+        env_keys="BACKFILL_IDLE_INTERVAL_HOURS",
+        db_key="datasync.backfill_idle_interval_hours",
+        default=4,
+    )
+
+
+def _backfill_lock_retry_seconds() -> int:
+    return get_runtime_int(
+        env_keys="BACKFILL_LOCK_RETRY_SECONDS",
+        db_key="datasync.backfill_lock_retry_seconds",
+        default=60,
+    )
+
+
+def _datasync_timezone() -> str:
+    return get_runtime_str(env_keys="DATASYNC_TIMEZONE", db_key="datasync.timezone", default="Asia/Shanghai")
+
+
+def _scheduler_signature() -> tuple[int, int, str]:
+    return (_sync_hour(), _sync_minute(), _datasync_timezone())
 
 
 def _env_flag(name: str) -> bool:
@@ -98,7 +115,7 @@ def run_backfill_loop(idle_hours: int | None = None, registry=None):
     from app.domains.extdata.dao.data_sync_status_dao import is_backfill_locked
 
     if idle_hours is None:
-        idle_hours = BACKFILL_IDLE_INTERVAL_HOURS
+        idle_hours = _backfill_idle_interval_hours()
     idle_hours = max(1, idle_hours)
     if registry is None:
         registry = _build_registry()
@@ -106,11 +123,12 @@ def run_backfill_loop(idle_hours: int | None = None, registry=None):
     logger.info("Backfill loop starting (idle every %dh)", idle_hours)
     while True:
         if is_backfill_locked():
+            retry_seconds = _backfill_lock_retry_seconds()
             logger.info(
                 "Backfill loop detected active lock; retrying in %ds",
-                BACKFILL_LOCK_RETRY_SECONDS,
+                retry_seconds,
             )
-            time.sleep(BACKFILL_LOCK_RETRY_SECONDS)
+            time.sleep(retry_seconds)
             continue
 
         results = run_backfill(registry=registry)
@@ -119,11 +137,12 @@ def run_backfill_loop(idle_hours: int | None = None, registry=None):
             continue
 
         if is_backfill_locked():
+            retry_seconds = _backfill_lock_retry_seconds()
             logger.info(
                 "Backfill loop pass ended while lock is active; retrying in %ds",
-                BACKFILL_LOCK_RETRY_SECONDS,
+                retry_seconds,
             )
-            time.sleep(BACKFILL_LOCK_RETRY_SECONDS)
+            time.sleep(retry_seconds)
             continue
 
         logger.info("Backfill loop idle: no retryable rows; sleeping %dh", idle_hours)
@@ -199,11 +218,12 @@ def _run_startup_sequence(registry) -> None:
 
 def daemon_loop():
     """Run the scheduler daemon."""
+    sync_hour, sync_minute, timezone_name = _scheduler_signature()
     logger.info(
         "DataSync scheduler starting (daily at %02d:%02d, timezone=%s)",
-        SYNC_HOUR,
-        SYNC_MINUTE,
-        TIMEZONE,
+        sync_hour,
+        sync_minute,
+        timezone_name,
     )
 
     registry = _build_registry()
@@ -227,11 +247,21 @@ def daemon_loop():
 
     _run_startup_sequence(registry)
 
-    # Schedule recurring jobs
-    schedule.every().day.at(f"{SYNC_HOUR:02d}:{SYNC_MINUTE:02d}").do(_scheduled_daily)
+    last_schedule_signature: tuple[int, int, str] | None = None
 
     logger.info("Scheduler loop started")
     while True:
+        schedule_signature = _scheduler_signature()
+        if schedule_signature != last_schedule_signature:
+            last_schedule_signature = schedule_signature
+            schedule.clear()
+            schedule.every().day.at(f"{schedule_signature[0]:02d}:{schedule_signature[1]:02d}").do(_scheduled_daily)
+            logger.info(
+                "Scheduler daily trigger updated to %02d:%02d (%s)",
+                schedule_signature[0],
+                schedule_signature[1],
+                schedule_signature[2],
+            )
         schedule.run_pending()
         time.sleep(30)
 

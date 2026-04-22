@@ -15,11 +15,12 @@ from app.infrastructure.runtime_cache import ExpiringCache
 
 logger = logging.getLogger(__name__)
 
-SENTIMENT_CACHE_TTL_SECONDS = get_runtime_int(
-    env_keys="MARKET_SENTIMENT_CACHE_TTL_SECONDS",
-    db_key="market.sentiment.cache_ttl_seconds",
-    default=60,
-)
+def _sentiment_cache_ttl_seconds() -> int:
+    return get_runtime_int(
+        env_keys="MARKET_SENTIMENT_CACHE_TTL_SECONDS",
+        db_key="market.sentiment.cache_ttl_seconds",
+        default=60,
+    )
 
 _SENTIMENT_CACHE = ExpiringCache(name="market_sentiment", maxsize=8)
 
@@ -59,7 +60,7 @@ class SentimentService:
         return _SENTIMENT_CACHE.get_or_load(
             cache_key,
             self._build_snapshot,
-            ttl_seconds=SENTIMENT_CACHE_TTL_SECONDS,
+            ttl_seconds=_sentiment_cache_ttl_seconds(),
             stale_if_error=True,
         )
 

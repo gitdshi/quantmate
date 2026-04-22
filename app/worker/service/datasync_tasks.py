@@ -27,10 +27,10 @@ def run_backfill_task(source: str, item_key: str, batch_size: int = 30) -> dict:
 
     from app.datasync.registry import build_default_registry
     from app.datasync.service.sync_engine import (
-        MAX_RETRIES,
         _final_retry_count_for_result,
         _get_backfill_source_semaphore,
         _is_quota_pause_result,
+        _max_retries,
         _write_status,
     )
     from app.datasync.base import SyncStatus, SyncResult
@@ -45,6 +45,7 @@ def run_backfill_task(source: str, item_key: str, batch_size: int = 30) -> dict:
         job.save_meta()
 
     registry = build_default_registry()
+    max_retries = _max_retries()
 
     iface = registry.get_interface(source, item_key)
     if iface is None:
@@ -80,7 +81,7 @@ def run_backfill_task(source: str, item_key: str, batch_size: int = 30) -> dict:
                 "AND retry_count < :max_retries "
                 "ORDER BY sync_date ASC LIMIT :limit"
             ),
-            {"s": source, "k": item_key, "limit": batch_size, "max_retries": MAX_RETRIES},
+            {"s": source, "k": item_key, "limit": batch_size, "max_retries": max_retries},
         ).fetchall()
 
     pending_records = [(r[0], r[1], int(r[2] or 0)) for r in rows]
@@ -92,7 +93,7 @@ def run_backfill_task(source: str, item_key: str, batch_size: int = 30) -> dict:
                     "WHERE source = :s AND interface_key = :k "
                     "AND status IN ('error', 'partial') AND retry_count >= :max_retries"
                 ),
-                {"s": source, "k": item_key, "max_retries": MAX_RETRIES},
+                {"s": source, "k": item_key, "max_retries": max_retries},
             ).fetchone()
 
         exhausted = exhausted_row[0] if exhausted_row else 0
@@ -163,7 +164,7 @@ def run_backfill_task(source: str, item_key: str, batch_size: int = 30) -> dict:
                 "WHERE source = :s AND interface_key = :k "
                 "AND status IN ('pending', 'error', 'partial') AND retry_count < :max_retries"
             ),
-            {"s": source, "k": item_key, "max_retries": MAX_RETRIES},
+            {"s": source, "k": item_key, "max_retries": max_retries},
         ).fetchone()
         exhausted_row = conn.execute(
             text(
@@ -171,7 +172,7 @@ def run_backfill_task(source: str, item_key: str, batch_size: int = 30) -> dict:
                 "WHERE source = :s AND interface_key = :k "
                 "AND status IN ('error', 'partial') AND retry_count >= :max_retries"
             ),
-            {"s": source, "k": item_key, "max_retries": MAX_RETRIES},
+            {"s": source, "k": item_key, "max_retries": max_retries},
         ).fetchone()
     remaining = remaining_row[0] if remaining_row else 0
     exhausted = exhausted_row[0] if exhausted_row else 0

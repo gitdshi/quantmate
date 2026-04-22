@@ -11,7 +11,8 @@ from app.api.services.auth_service import get_current_user
 from app.api.models.user import TokenData
 from app.api.exception_handlers import APIError
 from app.domains.system.dao.system_config_dao import SystemConfigDao, DataSourceConfigDao
-from app.infrastructure.config import clear_runtime_config_cache
+from app.infrastructure.config import clear_runtime_config_cache, resolve_runtime_config_value
+from app.infrastructure.config.system_config_registry import list_db_system_config_definitions
 
 router = APIRouter(prefix="/system", tags=["System Configuration"])
 
@@ -48,6 +49,34 @@ async def list_system_configs(
     dao = SystemConfigDao()
     configs = dao.list_all(category=category)
     return {"configs": configs}
+
+
+@router.get("/configs/catalog")
+async def list_runtime_system_config_catalog(current_user: TokenData = Depends(get_current_user)):
+    """List DB-managed runtime system configurations with effective values."""
+    dao = SystemConfigDao()
+    stored_configs = {row["config_key"]: row for row in dao.list_all()}
+    items: list[dict] = []
+
+    for definition in list_db_system_config_definitions():
+        stored_row = stored_configs.get(definition.key)
+        effective_value, value_source = resolve_runtime_config_value(
+            env_keys=definition.legacy_env_keys,
+            db_key=definition.key,
+            default=definition.default_value,
+        )
+        items.append(
+            {
+                **definition.to_dict(),
+                "current_value": effective_value,
+                "stored_value": stored_row["config_value"] if stored_row else None,
+                "is_overridden": stored_row is not None,
+                "value_source": value_source,
+                "updated_at": stored_row.get("updated_at") if stored_row else None,
+            }
+        )
+
+    return {"configs": items}
 
 
 @router.get("/configs/{key}")

@@ -100,6 +100,7 @@ class TestTushareBrowserService:
         assert "stock_basic" in names
         assert all(item["table_created"] is True for item in tables)
         assert tables[0]["target_database"] == "tushare"
+        assert all(item["column_count"] > 0 for item in tables)
 
     def test_list_tables_keyword(self, sqlite_tushare_engine):
         from app.domains.extdata.tushare_browser_service import TushareBrowserService
@@ -133,6 +134,41 @@ class TestTushareBrowserService:
             MockDao.return_value.list_with_categories.return_value = metadata_rows
             service = TushareBrowserService()
             tables = service.list_tables(keyword="daily")
+
+        assert [item["name"] for item in tables] == ["stock_daily"]
+
+    def test_list_tables_skips_metadata_rows_without_physical_table(self, sqlite_tushare_engine):
+        from app.domains.extdata.tushare_browser_service import TushareBrowserService
+
+        metadata_rows = [
+            {
+                "source": "tushare",
+                "item_key": "stock_daily",
+                "item_name": "日线行情",
+                "target_database": "tushare",
+                "target_table": "stock_daily",
+                "table_created": 1,
+                "category": "股票数据",
+                "sub_category": "行情数据",
+            },
+            {
+                "source": "tushare",
+                "item_key": "ghost_table",
+                "item_name": "幽灵表",
+                "target_database": "tushare",
+                "target_table": "ghost_table",
+                "table_created": 1,
+                "category": "股票数据",
+                "sub_category": "行情数据",
+            },
+        ]
+
+        with patch(f"{_MOD}.get_tushare_engine", return_value=sqlite_tushare_engine), patch(
+            f"{_MOD}.DataSourceItemDao"
+        ) as MockDao:
+            MockDao.return_value.list_with_categories.return_value = metadata_rows
+            service = TushareBrowserService()
+            tables = service.list_tables()
 
         assert [item["name"] for item in tables] == ["stock_daily"]
 

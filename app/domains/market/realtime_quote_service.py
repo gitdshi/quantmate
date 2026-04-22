@@ -28,31 +28,46 @@ logger = logging.getLogger(__name__)
 # ── In-memory TTL cache for expensive AkShare bulk calls ──────────────────
 _BULK_CACHE: dict[str, tuple[float, pd.DataFrame]] = {}
 _BULK_CACHE_LOCK = threading.Lock()
-_BULK_CACHE_TTL = get_runtime_int(
-    env_keys="REALTIME_QUOTE_BULK_CACHE_TTL_SECONDS",
-    db_key="realtime_quote.bulk_cache_ttl_seconds",
-    default=60,
-)
-_AKSHARE_TIMEOUT = get_runtime_float(
-    env_keys="REALTIME_QUOTE_AKSHARE_TIMEOUT_SECONDS",
-    db_key="realtime_quote.akshare_timeout_seconds",
-    default=15.0,
-)
-_TENCENT_TIMEOUT = get_runtime_float(
-    env_keys="REALTIME_QUOTE_TENCENT_TIMEOUT_SECONDS",
-    db_key="realtime_quote.tencent_timeout_seconds",
-    default=8.0,
-)
-_TENCENT_RETRIES = get_runtime_int(
-    env_keys="REALTIME_QUOTE_TENCENT_RETRIES",
-    db_key="realtime_quote.tencent_retries",
-    default=2,
-)
-_TENCENT_BACKOFF = get_runtime_float(
-    env_keys="REALTIME_QUOTE_TENCENT_BACKOFF_SECONDS",
-    db_key="realtime_quote.tencent_backoff_seconds",
-    default=1.0,
-)
+
+
+def _bulk_cache_ttl_seconds() -> int:
+    return get_runtime_int(
+        env_keys="REALTIME_QUOTE_BULK_CACHE_TTL_SECONDS",
+        db_key="realtime_quote.bulk_cache_ttl_seconds",
+        default=60,
+    )
+
+
+def _akshare_timeout_seconds() -> float:
+    return get_runtime_float(
+        env_keys="REALTIME_QUOTE_AKSHARE_TIMEOUT_SECONDS",
+        db_key="realtime_quote.akshare_timeout_seconds",
+        default=15.0,
+    )
+
+
+def _tencent_timeout_seconds() -> float:
+    return get_runtime_float(
+        env_keys="REALTIME_QUOTE_TENCENT_TIMEOUT_SECONDS",
+        db_key="realtime_quote.tencent_timeout_seconds",
+        default=8.0,
+    )
+
+
+def _tencent_retries() -> int:
+    return get_runtime_int(
+        env_keys="REALTIME_QUOTE_TENCENT_RETRIES",
+        db_key="realtime_quote.tencent_retries",
+        default=2,
+    )
+
+
+def _tencent_backoff_seconds() -> float:
+    return get_runtime_float(
+        env_keys="REALTIME_QUOTE_TENCENT_BACKOFF_SECONDS",
+        db_key="realtime_quote.tencent_backoff_seconds",
+        default=1.0,
+    )
 
 _executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="akshare")
 
@@ -60,7 +75,7 @@ _executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="akshare")
 def _get_cached_df(key: str) -> pd.DataFrame | None:
     with _BULK_CACHE_LOCK:
         entry = _BULK_CACHE.get(key)
-        if entry and (time.monotonic() - entry[0]) < _BULK_CACHE_TTL:
+        if entry and (time.monotonic() - entry[0]) < _bulk_cache_ttl_seconds():
             return entry[1]
     return None
 
@@ -77,7 +92,8 @@ def _fetch_akshare_with_timeout(func: Callable[[], pd.DataFrame], cache_key: str
         return cached
     future = _executor.submit(func)
     try:
-        df = future.result(timeout=_AKSHARE_TIMEOUT)
+        timeout_seconds = _akshare_timeout_seconds()
+        df = future.result(timeout=timeout_seconds)
         _set_cached_df(cache_key, df)
         return df
     except FuturesTimeoutError:
@@ -88,7 +104,7 @@ def _fetch_akshare_with_timeout(func: Callable[[], pd.DataFrame], cache_key: str
             if entry:
                 logger.warning("AkShare timeout for %s, returning stale cache", cache_key)
                 return entry[1]
-        raise TimeoutError(f"AkShare call timed out after {_AKSHARE_TIMEOUT}s: {cache_key}")
+        raise TimeoutError(f"AkShare call timed out after {timeout_seconds}s: {cache_key}")
 
 
 class RealtimeQuoteService:
@@ -197,9 +213,12 @@ class RealtimeQuoteService:
     @staticmethod
     def _tencent_request_with_retry(url: str, code: str) -> list[str]:
         last_exc: Exception | None = None
-        for attempt in range(_TENCENT_RETRIES + 1):
+        retries = _tencent_retries()
+        timeout_seconds = _tencent_timeout_seconds()
+        backoff_seconds = _tencent_backoff_seconds()
+        for attempt in range(retries + 1):
             try:
-                resp = requests.get(url, timeout=_TENCENT_TIMEOUT)
+                resp = requests.get(url, timeout=timeout_seconds)
                 resp.raise_for_status()
                 raw = resp.text
                 if "=" not in raw:
@@ -211,8 +230,8 @@ class RealtimeQuoteService:
                 return parts
             except (requests.Timeout, requests.ConnectionError) as exc:
                 last_exc = exc
-                if attempt < _TENCENT_RETRIES:
-                    time.sleep(_TENCENT_BACKOFF * (attempt + 1))
+                if attempt < retries:
+                    time.sleep(backoff_seconds * (attempt + 1))
             except Exception as exc:
                 raise exc
         raise last_exc or TimeoutError(f"Tencent quote failed after retries: {code}")

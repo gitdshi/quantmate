@@ -131,10 +131,10 @@ class JobStorage:
         return deleted
 
     def get_queue_stats(self) -> Dict[str, Any]:
-        from app.worker.service.config import QUEUES
+        from app.worker.service.config import get_queues
 
         stats = {}
-        for name, queue in QUEUES.items():
+        for name, queue in get_queues().items():
             stats[name] = {
                 "queued": len(queue),
                 "failed": queue.failed_job_registry.count,

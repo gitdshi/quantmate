@@ -98,17 +98,30 @@ from app.domains.extdata.dao.sync_log_dao import (
 )
 
 # Tushare daemon compatibility flags
-DRY_RUN = get_runtime_bool(env_keys="DRY_RUN", db_key="datasync.dry_run", default=False)
-LOOKBACK_DAYS = get_runtime_int(
-    env_keys="LOOKBACK_DAYS",
-    db_key="datasync.legacy_backfill_lookback_days",
-    default=30,
-)
-LOOKBACK_YEARS = get_runtime_int(
-    env_keys="LOOKBACK_YEARS",
-    db_key="datasync.legacy_reconcile_lookback_years",
-    default=15,
-)
+_LEGACY_DRY_RUN_OVERRIDE = object()
+DRY_RUN = _LEGACY_DRY_RUN_OVERRIDE
+
+
+def _dry_run() -> bool:
+    if DRY_RUN is not _LEGACY_DRY_RUN_OVERRIDE:
+        return bool(DRY_RUN)
+    return get_runtime_bool(env_keys="DRY_RUN", db_key="datasync.dry_run", default=False)
+
+
+def _lookback_days() -> int:
+    return get_runtime_int(
+        env_keys="LOOKBACK_DAYS",
+        db_key="datasync.legacy_backfill_lookback_days",
+        default=30,
+    )
+
+
+def _lookback_years() -> int:
+    return get_runtime_int(
+        env_keys="LOOKBACK_YEARS",
+        db_key="datasync.legacy_reconcile_lookback_years",
+        default=15,
+    )
 
 
 # Import AkShare for trade calendar
@@ -129,16 +142,43 @@ configure_logging(LOG_LEVEL)
 logger = logging.getLogger(__name__)
 
 # Configuration
-SYNC_HOUR = get_runtime_int(env_keys="SYNC_HOUR", db_key="datasync.sync_hour", default=2)
-SYNC_MINUTE = get_runtime_int(env_keys="SYNC_MINUTE", db_key="datasync.sync_minute", default=0)
-BACKFILL_INTERVAL_HOURS = get_runtime_int(
-    env_keys="BACKFILL_INTERVAL_HOURS",
-    db_key="datasync.backfill_interval_hours",
-    default=6,
-)
-BATCH_SIZE = get_runtime_int(env_keys="BATCH_SIZE", db_key="datasync.batch_size", default=100)
-MAX_RETRIES = get_runtime_int(env_keys="MAX_RETRIES", db_key="datasync.max_retries", default=3)
-TIMEZONE = get_runtime_str(env_keys="DATASYNC_TIMEZONE", db_key="datasync.timezone", default="Asia/Shanghai")
+def _sync_hour() -> int:
+    return get_runtime_int(env_keys="SYNC_HOUR", db_key="datasync.sync_hour", default=2)
+
+
+def _sync_minute() -> int:
+    return get_runtime_int(env_keys="SYNC_MINUTE", db_key="datasync.sync_minute", default=0)
+
+
+def _backfill_interval_hours() -> int:
+    return get_runtime_int(
+        env_keys="BACKFILL_INTERVAL_HOURS",
+        db_key="datasync.backfill_interval_hours",
+        default=6,
+    )
+
+
+def _batch_size() -> int:
+    return get_runtime_int(env_keys="BATCH_SIZE", db_key="datasync.batch_size", default=100)
+
+
+def _max_retries() -> int:
+    return get_runtime_int(env_keys="MAX_RETRIES", db_key="datasync.max_retries", default=3)
+
+
+def _timezone() -> str:
+    return get_runtime_str(env_keys="DATASYNC_TIMEZONE", db_key="datasync.timezone", default="Asia/Shanghai")
+
+
+# Legacy module-level config aliases kept for old tests and compatibility callers.
+LOOKBACK_DAYS = _lookback_days()
+LOOKBACK_YEARS = _lookback_years()
+SYNC_HOUR = _sync_hour()
+SYNC_MINUTE = _sync_minute()
+BACKFILL_INTERVAL_HOURS = _backfill_interval_hours()
+BATCH_SIZE = _batch_size()
+MAX_RETRIES = _max_retries()
+TIMEZONE = _timezone()
 
 # Endpoints that must be synced (used by SyncStatusService)
 REQUIRED_ENDPOINTS = [
@@ -334,7 +374,7 @@ def get_trade_days(start_d: date, end_d: date) -> List[str]:
 
 
 def write_sync_log(sync_date: date, endpoint: str, status: str, rows: int = 0, err: Optional[str] = None):
-    if DRY_RUN:
+    if _dry_run():
         logger.info("DRY RUN - skip writing sync log: %s %s %s", sync_date, endpoint, status)
         return
     dao_write_tushare_stock_sync_log(sync_date, endpoint, status, rows, err)
@@ -372,7 +412,7 @@ def run_sync_for_date(d: date, allowed_endpoints: list):
                 sync_daily_for_date(d)
             elif ep == "repo":
                 try:
-                    if not DRY_RUN:
+                    if not _dry_run():
                         ingest_repo(repo_date=d.strftime("%Y-%m-%d"))
                         write_sync_log(d, "repo", "success", 0, None)
                 except Exception as e:
@@ -971,7 +1011,7 @@ def missing_data_backfill(**_compat):
             try:
                 failed = get_failed_steps(window_start, window_end)
             except TypeError:
-                failed = get_failed_steps(lookback_days=LOOKBACK_DAYS)
+                failed = get_failed_steps(lookback_days=_lookback_days())
         if not failed:
             logger.info("No failed steps to backfill")
             return
@@ -996,7 +1036,7 @@ def missing_data_backfill(**_compat):
                     logger.info("  Backfilling dividend %s -> %s", start, end)
                     try:
                         ingest_dividend_by_date_range(
-                            start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"), batch_size=BATCH_SIZE
+                            start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"), batch_size=_batch_size()
                         )
                         # Mark all dates in range as success
                         for d in dates_sorted:
@@ -1016,7 +1056,7 @@ def missing_data_backfill(**_compat):
                     logger.info("  Backfilling top10_holders %s -> %s", start, end)
                     try:
                         ingest_top10_holders_by_date_range(
-                            start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"), batch_size=BATCH_SIZE
+                            start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"), batch_size=_batch_size()
                         )
                         for d in dates_sorted:
                             if start <= d <= end:
@@ -1038,7 +1078,7 @@ def missing_data_backfill(**_compat):
                     logger.info("  Backfilling adj_factor %s -> %s", start, end)
                     try:
                         ingest_adj_factor_by_date_range(
-                            start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"), batch_size=BATCH_SIZE
+                            start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"), batch_size=_batch_size()
                         )
                         for d in dates_sorted:
                             if start <= d <= end:
@@ -1280,8 +1320,10 @@ def main():
     parser.add_argument("--backfill", action="store_true", help="Run backfill once")
     parser.add_argument("--init", action="store_true", help="Initialize sync status table")
     parser.add_argument("--date", type=lambda raw: datetime.strptime(raw, "%Y-%m-%d").date(), help="Target date (YYYY-MM-DD)")
-    parser.add_argument("--lookback-days", type=int, default=LOOKBACK_DAYS, help="Legacy backfill lookback window")
-    parser.add_argument("--lookback-years", type=int, default=LOOKBACK_YEARS, help="Legacy reconcile lookback window")
+    parser.add_argument("--lookback-days", type=int, default=_lookback_days(), help="Legacy backfill lookback window")
+    parser.add_argument(
+        "--lookback-years", type=int, default=_lookback_years(), help="Legacy reconcile lookback window"
+    )
     parser.add_argument("--refresh-calendar", action="store_true", help="Refresh trade calendar")
 
     args = parser.parse_args()

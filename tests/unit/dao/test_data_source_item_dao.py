@@ -47,6 +47,23 @@ class TestDataSourceItemDao:
         result = _mod.DataSourceItemDao().list_all(source="tushare")
         assert result == []
 
+    def test_list_all_deduplicates_source_item_pairs(self, _mock_connection):
+        rows = [
+            _row(id=1, source="tushare", item_key="stock_daily"),
+            _row(id=2, source="tushare", item_key="stock_daily"),
+            _row(id=3, source="tushare", item_key="daily_basic"),
+        ]
+        _mock_connection.execute.return_value = MagicMock(
+            fetchall=MagicMock(return_value=rows)
+        )
+
+        result = _mod.DataSourceItemDao().list_all(source="tushare")
+
+        assert result == [
+            {"id": 1, "source": "tushare", "item_key": "stock_daily"},
+            {"id": 3, "source": "tushare", "item_key": "daily_basic"},
+        ]
+
     def test_get_by_key(self, _mock_connection):
         _mock_connection.execute.return_value = MagicMock(
             fetchone=MagicMock(return_value=_row(id=1, source="tushare"))

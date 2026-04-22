@@ -298,7 +298,7 @@ class TestWorkerTasksErrorPaths:
         """_evaluate_single returns None when backtest crashes."""
         fn = self.mod._evaluate_single
         # Mock internals via monkeypatch
-        monkeypatch.setattr(self.mod, "BacktestingEngine", MagicMock(side_effect=RuntimeError("boom")))
+        monkeypatch.setattr(self.mod, "evaluate", MagicMock(side_effect=RuntimeError("boom")))
         result = fn("sharpe_ratio", MagicMock, "000001.SZ", datetime(2024, 1, 1), datetime(2024, 6, 1), 0.0001, 0, 1, 0.01, 100000, {"fast": 5})
         # Should return None (exception caught internally)
         assert result is None or isinstance(result, tuple)

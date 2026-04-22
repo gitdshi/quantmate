@@ -6,6 +6,10 @@ import time
 from typing import Any, Callable, Sequence, TypeVar
 
 from sqlalchemy import text
+from app.infrastructure.config.system_config_registry import (
+    is_db_system_config_key,
+    is_env_only_system_config_key,
+)
 
 T = TypeVar("T")
 
@@ -65,6 +69,31 @@ def _read_system_config_value(config_key: str | None) -> str | None:
     return value
 
 
+def resolve_runtime_config_value(
+    *,
+    env_keys: str | Sequence[str] | None = None,
+    db_key: str | None = None,
+    default: str | None = None,
+) -> tuple[str | None, str]:
+    if is_db_system_config_key(db_key):
+        candidate_values = (
+            ("db", _read_system_config_value(db_key)),
+            ("legacy_env", _read_env_value(env_keys)),
+        )
+    elif is_env_only_system_config_key(db_key):
+        candidate_values = (("env", _read_env_value(env_keys)),)
+    else:
+        candidate_values = (
+            ("env", _read_env_value(env_keys)),
+            ("db", _read_system_config_value(db_key)),
+        )
+
+    for source, raw_value in candidate_values:
+        if raw_value not in {None, ""}:
+            return raw_value, source
+    return default, "default"
+
+
 def _parse_bool(value: Any) -> bool:
     if isinstance(value, bool):
         return value
@@ -84,16 +113,12 @@ def get_runtime_config(
     parser: Callable[[Any], T] | None = None,
 ) -> T:
     parse = parser or (lambda value: value)
-    for raw_value in (
-        _read_env_value(env_keys),
-        _read_system_config_value(db_key),
-    ):
-        if raw_value in {None, ""}:
-            continue
+    raw_value, _ = resolve_runtime_config_value(env_keys=env_keys, db_key=db_key, default=None)
+    if raw_value not in {None, ""}:
         try:
             return parse(raw_value)
         except Exception:
-            continue
+            pass
     return default
 
 

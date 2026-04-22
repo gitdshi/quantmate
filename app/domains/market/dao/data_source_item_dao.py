@@ -15,6 +15,27 @@ _UNRESTRICTED_PERMISSION_SQL = (
 )
 
 
+def _dedupe_items(rows: list[Any]) -> list[dict[str, Any]]:
+    deduped: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+
+    for row in rows:
+        item = dict(row._mapping)
+        source = str(item.get("source") or "").strip()
+        item_key = str(item.get("item_key") or "").strip()
+        if not source or not item_key:
+            continue
+
+        pair = (source, item_key)
+        if pair in seen:
+            continue
+
+        seen.add(pair)
+        deduped.append(item)
+
+    return deduped
+
+
 class DataSourceItemDao:
     """CRUD for data_source_items configuration table."""
 
@@ -29,7 +50,7 @@ class DataSourceItemDao:
                 rows = conn.execute(
                     text(f"{_ITEM_SELECT} ORDER BY dsi.source, dsi.sync_priority, dsi.id")
                 ).fetchall()
-            return [dict(r._mapping) for r in rows]
+            return _dedupe_items(list(rows))
 
     def get_by_key(self, source: str, item_key: str) -> Optional[dict[str, Any]]:
         with connection("quantmate") as conn:
@@ -85,7 +106,7 @@ class DataSourceItemDao:
                 rows = conn.execute(
                     text(f"{_ITEM_SELECT} WHERE dsi.enabled = 1 ORDER BY dsi.source, dsi.sync_priority, dsi.id")
                 ).fetchall()
-            return [dict(r._mapping) for r in rows]
+            return _dedupe_items(list(rows))
 
     def list_with_categories(
         self, source: Optional[str] = None, category: Optional[str] = None
@@ -103,7 +124,7 @@ class DataSourceItemDao:
         sql = f"{_ITEM_SELECT} {where} ORDER BY dsi.category, dsi.sub_category, dsi.sync_priority, dsi.id"
         with connection("quantmate") as conn:
             rows = conn.execute(text(sql), params).fetchall()
-            return [dict(r._mapping) for r in rows]
+            return _dedupe_items(list(rows))
 
     def batch_update_by_permission(self, source: str, permission_points: int, enabled: bool) -> int:
         """Enable/disable all items matching a specific permission_points value."""

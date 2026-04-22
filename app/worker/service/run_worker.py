@@ -29,23 +29,27 @@ logger = get_logger(__name__)
 
 # Import to register tasks
 from app.worker.service import tasks  # noqa
-from app.worker.service.config import redis_conn, QUEUES
+from app.worker.service.config import get_queues, redis_conn
+
+QUEUES = None
 
 
-DEFAULT_QUEUE_NAMES = get_runtime_csv(
-    env_keys="WORKER_DEFAULT_QUEUE_NAMES",
-    db_key="worker.default_queue_names",
-    default=["backtest", "optimization", "default", "low"],
-)
+def get_default_queue_names() -> list[str]:
+    return get_runtime_csv(
+        env_keys="WORKER_DEFAULT_QUEUE_NAMES",
+        db_key="worker.default_queue_names",
+        default=["backtest", "optimization", "default", "low"],
+    )
 
 
 def main():
     from rq import Worker
 
-    queue_names = sys.argv[1:] if len(sys.argv) > 1 else DEFAULT_QUEUE_NAMES
-    queues = [QUEUES[name] for name in queue_names if name in QUEUES]
+    queue_names = sys.argv[1:] if len(sys.argv) > 1 else get_default_queue_names()
+    available_queues = QUEUES if isinstance(QUEUES, dict) else get_queues()
+    queues = [available_queues[name] for name in queue_names if name in available_queues]
     if not queues:
-        logger.error("No valid queues specified. Available queues: %s", list(QUEUES.keys()))
+        logger.error("No valid queues specified. Available queues: %s", list(available_queues.keys()))
         sys.exit(1)
 
     logger.info("Starting worker for queues: %s", queue_names)

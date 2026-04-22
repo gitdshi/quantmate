@@ -360,18 +360,27 @@ def _is_unknown_data_source_items_column_error(exc: Exception) -> bool:
 
 
 def _build_specs(rows: list[tuple]) -> tuple[TushareCatalogSpec, ...]:
-    return tuple(
-        TushareCatalogSpec(
-            interface_key=item_key,
-            display_name=display_name,
-            api_name=api_name,
-            target_table=target_table,
-            sync_priority=sync_priority,
-            requires_permission=_normalize_permission(requires_permission),
+    specs: list[TushareCatalogSpec] = []
+    seen: set[str] = set()
+
+    for item_key, display_name, api_name, target_table, sync_priority, requires_permission in rows:
+        normalized_key = str(item_key or "").strip()
+        if not normalized_key or normalized_key in seen:
+            continue
+
+        seen.add(normalized_key)
+        specs.append(
+            TushareCatalogSpec(
+                interface_key=normalized_key,
+                display_name=display_name,
+                api_name=api_name,
+                target_table=target_table,
+                sync_priority=sync_priority,
+                requires_permission=_normalize_permission(requires_permission),
+            )
         )
-        for item_key, display_name, api_name, target_table, sync_priority, requires_permission in rows
-        if str(item_key or "").strip()
-    )
+
+    return tuple(specs)
 
 
 def _fetch_catalog_rows() -> list[tuple]:
@@ -409,11 +418,12 @@ def _load_catalog_specs() -> tuple[TushareCatalogSpec, ...]:
 
 
 def build_catalog_interfaces(existing_keys: set[str] | None = None) -> list[BaseIngestInterface]:
-    seen = existing_keys or set()
+    seen = set(existing_keys or set())
     interfaces: list[BaseIngestInterface] = []
     for spec in _load_catalog_specs():
         if spec.interface_key in seen:
             continue
+        seen.add(spec.interface_key)
         if spec.interface_key == "cyq_chips":
             from app.datasync.sources.tushare.interfaces import TushareCyqChipsInterface
 

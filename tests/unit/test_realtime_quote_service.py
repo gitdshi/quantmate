@@ -58,7 +58,7 @@ class TestRealtimeQuoteServiceHelpers:
 
         with pytest.raises(requests.Timeout):
             RealtimeQuoteService._tencent_request_with_retry("url", "000001")
-        assert calls["n"] == quote_module._TENCENT_RETRIES + 1
+        assert calls["n"] == quote_module._tencent_retries() + 1
 
     def test_fetch_akshare_with_timeout_uses_cache_and_returns_stale_on_timeout(self, monkeypatch):
         df = pd.DataFrame([{"x": 1}])

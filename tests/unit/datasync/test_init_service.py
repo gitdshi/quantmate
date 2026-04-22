@@ -65,20 +65,28 @@ class TestWindowRules:
     def test_configured_sync_start_date_uses_today_when_blank(self):
         from app.datasync.service.init_service import _get_configured_sync_start_date
 
-        with patch(f"{_MOD}.get_runtime_str", return_value=""):
+        with patch.dict("os.environ", {"SYNC_INIT_DEFAULT_START_DATE": ""}, clear=True):
             assert _get_configured_sync_start_date(date(2026, 4, 17)) is None
 
     def test_configured_sync_start_date_uses_explicit_date(self):
         from app.datasync.service.init_service import _get_configured_sync_start_date
 
-        with patch(f"{_MOD}.get_runtime_str", return_value="2010-01-01"):
+        with patch.dict("os.environ", {"SYNC_INIT_DEFAULT_START_DATE": "2010-01-01"}, clear=True):
             assert _get_configured_sync_start_date(date(2026, 4, 17)) == date(2010, 1, 1)
 
     def test_configured_sync_start_date_ignores_invalid_date(self):
         from app.datasync.service.init_service import _get_configured_sync_start_date
 
-        with patch(f"{_MOD}.get_runtime_str", return_value="not-a-date"):
+        with patch.dict("os.environ", {"SYNC_INIT_DEFAULT_START_DATE": "not-a-date"}, clear=True):
             assert _get_configured_sync_start_date(date(2026, 4, 17)) is None
+
+    def test_configured_sync_start_date_does_not_fall_back_to_db_config(self):
+        from app.datasync.service.init_service import _get_configured_sync_start_date
+
+        with patch.dict("os.environ", {}, clear=True), patch(f"{_MOD}.get_runtime_str") as runtime_str:
+            assert _get_configured_sync_start_date(date(2026, 4, 17)) is None
+
+        runtime_str.assert_not_called()
 
 
 class TestCoverageWindow:

@@ -24,11 +24,12 @@ logger = logging.getLogger(__name__)
 # Engine is provided by the akshare DAO (DB URL moved to infrastructure.connections)
 
 # Rate limiting
-DEFAULT_CALLS_PER_MIN = get_runtime_int(
-    env_keys="AKSHARE_CALLS_PER_MIN",
-    db_key="datasync.akshare.calls_per_min.default",
-    default=30,
-)
+def _default_calls_per_min() -> int:
+    return get_runtime_int(
+        env_keys="AKSHARE_CALLS_PER_MIN",
+        db_key="datasync.akshare.calls_per_min.default",
+        default=30,
+    )
 
 
 def _env_rate(name, default):
@@ -39,15 +40,22 @@ def _env_rate(name, default):
     )
 
 
-RATE_LIMITS = {
-    "stock_zh_index_daily": _env_rate("stock_zh_index_daily", 60),
-    # fallback
-    "__default__": DEFAULT_CALLS_PER_MIN,
-}
+def _rate_limits() -> dict[str, int]:
+    return {
+        "stock_zh_index_daily": _env_rate("stock_zh_index_daily", 60),
+        "__default__": _default_calls_per_min(),
+    }
+
+
+def __getattr__(name: str):
+    if name == "DEFAULT_CALLS_PER_MIN":
+        return _default_calls_per_min()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def _min_interval_for(api_name: str) -> float:
-    calls = RATE_LIMITS.get(api_name, RATE_LIMITS.get("__default__", DEFAULT_CALLS_PER_MIN))
+    rate_limits = _rate_limits()
+    calls = rate_limits.get(api_name, rate_limits.get("__default__", _default_calls_per_min()))
     return 60.0 / max(1, int(calls))
 
 
@@ -87,6 +95,7 @@ def call_ak(api_name: str, fn, max_retries: int | None = None, backoff_base: int
             call_ak._last_call[api_name] = time.time()
             hook = call_ak._metrics_hook
             if hook:
+                rate_limits = _rate_limits()
                 try:
                     hook(
                         {
@@ -94,7 +103,7 @@ def call_ak(api_name: str, fn, max_retries: int | None = None, backoff_base: int
                             "attempt": attempt + 1,
                             "success": True,
                             "duration_s": duration,
-                            "rate_config_calls_per_min": RATE_LIMITS.get(api_name, RATE_LIMITS.get("__default__")),
+                            "rate_config_calls_per_min": rate_limits.get(api_name, rate_limits.get("__default__")),
                             "next_allowed_in_s": _min_interval_for(api_name),
                         }
                     )
@@ -121,6 +130,7 @@ def call_ak(api_name: str, fn, max_retries: int | None = None, backoff_base: int
                 )
                 hook = call_ak._metrics_hook
                 if hook:
+                    rate_limits = _rate_limits()
                     try:
                         hook(
                             {
@@ -129,7 +139,7 @@ def call_ak(api_name: str, fn, max_retries: int | None = None, backoff_base: int
                                 "success": False,
                                 "rate_limited": True,
                                 "duration_s": duration,
-                                "rate_config_calls_per_min": RATE_LIMITS.get(api_name, RATE_LIMITS.get("__default__")),
+                                "rate_config_calls_per_min": rate_limits.get(api_name, rate_limits.get("__default__")),
                                 "sleeping_for_s": sleep_time,
                             }
                         )
