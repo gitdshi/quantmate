@@ -548,6 +548,51 @@ class TestTushareCatalogInterface:
         mock_ensure_table.assert_called_once()
         mock_insert.assert_called_once()
 
+    def test_block_trade_inferred_schema_skips_auto_unique_index(self):
+        from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface, TushareCatalogSpec
+
+        iface = TushareCatalogInterface(
+            TushareCatalogSpec(
+                interface_key="block_trade",
+                display_name="大宗交易",
+                api_name="block_trade",
+                target_table="block_trade",
+                sync_priority=90,
+            )
+        )
+
+        df = pd.DataFrame(
+            {
+                "ts_code": ["000001.SZ"],
+                "trade_date": ["20240105"],
+                "trade_time": ["2024-01-05 10:30:00"],
+                "price": [10.5],
+            }
+        )
+        inferred_schema = {
+            "column_specs": [
+                {"name": "ts_code", "sql_type": "VARCHAR(32)", "source_fields": ["ts_code"]},
+                {"name": "trade_date", "sql_type": "DATE", "source_fields": ["trade_date"]},
+                {"name": "trade_time", "sql_type": "DATETIME", "source_fields": ["trade_time"]},
+                {"name": "price", "sql_type": "DECIMAL(18,4)", "source_fields": ["price"]},
+            ],
+            "key_columns": ("trade_date", "ts_code"),
+            "unique_index_name": "ux_block_trade_trade_date_ts_code",
+            "ddl": "CREATE TABLE block_trade (...)",
+        }
+
+        with patch(
+            "app.datasync.sources.tushare.catalog_interfaces.ddl.infer_dynamic_table_schema",
+            return_value=inferred_schema,
+        ), patch("app.datasync.table_manager.ensure_inferred_table") as mock_ensure_table:
+            adjusted_schema = iface._ensure_inferred_table(df)
+
+        assert adjusted_schema is not None
+        assert adjusted_schema["key_columns"] == ()
+        assert adjusted_schema["unique_index_name"] == ""
+        assert "UNIQUE KEY" not in adjusted_schema["ddl"]
+        mock_ensure_table.assert_called_once_with("tushare", "block_trade", adjusted_schema)
+
     def test_runtime_unsupported_catalog_item_disables_scheduled_sync(self):
         from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface, TushareCatalogSpec
 
@@ -662,6 +707,25 @@ class TestTushareCatalogInterface:
         )
 
         with patch("app.datasync.service.tushare_ingest.call_pro", side_effect=RuntimeError("没有接口访问权限")):
+            result = iface.sync_date(date(2024, 1, 5))
+
+        assert result.status == SyncStatus.PARTIAL
+
+    def test_catalog_permission_denied_with_interface_name_returns_partial(self):
+        from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface, TushareCatalogSpec
+
+        iface = TushareCatalogInterface(
+            TushareCatalogSpec(
+                interface_key="stk_premarket",
+                display_name="盘前指标",
+                api_name="stk_premarket",
+                target_table="stk_premarket",
+                sync_priority=315,
+            )
+        )
+
+        error_message = "抱歉，您没有接口(stk_premarket)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。"
+        with patch("app.datasync.service.tushare_ingest.call_pro", side_effect=RuntimeError(error_message)):
             result = iface.sync_date(date(2024, 1, 5))
 
         assert result.status == SyncStatus.PARTIAL
@@ -941,6 +1005,101 @@ class TestTushareCatalogInterface:
         )
         assert mock_insert.call_args.kwargs["key_columns"] == ("index_code", "trade_date", "con_code")
 
+    def test_income_syncer_loops_stock_codes_by_announcement_date(self):
+        from app.datasync.sources.tushare.catalog_interfaces import build_catalog_interfaces
+        from app.datasync.sources.tushare.interfaces import TusharePerSymbolDateCatalogInterface
+
+        df = pd.DataFrame(
+            {
+                "ts_code": ["000001.SZ"],
+                "ann_date": ["20240105"],
+                "end_date": ["20231231"],
+                "report_type": ["1"],
+                "comp_type": ["1"],
+            }
+        )
+
+        with patch(f"{_CATALOG_MOD}._load_catalog_specs", return_value=(_catalog_spec("income"),)), \
+             patch(f"{_MOD}._get_stock_codes", return_value=["000001.SZ", "000002.SZ"]), \
+             patch(f"{_INGEST}.call_pro", side_effect=[df, pd.DataFrame()]) as mock_call, \
+             patch(f"{_TS_DAO}.insert_catalog_rows", return_value=3):
+            interfaces = build_catalog_interfaces(set())
+            iface = next(item for item in interfaces if item.info.interface_key == "income")
+            result = iface.sync_date(date(2024, 1, 5))
+
+        assert isinstance(iface, TusharePerSymbolDateCatalogInterface)
+        assert iface.supports_scheduled_sync() is True
+        assert iface.supports_backfill() is True
+        assert result.status == SyncStatus.SUCCESS
+        assert result.rows_synced == 3
+        assert result.details["entity_count"] == 2
+        mock_call.assert_any_call("income", ts_code="000001.SZ", ann_date="20240105")
+        mock_call.assert_any_call("income", ts_code="000002.SZ", ann_date="20240105")
+
+    def test_fina_mainbz_syncer_preserves_business_item_keys(self):
+        from app.datasync.sources.tushare.catalog_interfaces import build_catalog_interfaces
+        from app.datasync.sources.tushare.interfaces import TusharePerSymbolDateCatalogInterface
+
+        df = pd.DataFrame(
+            {
+                "ts_code": ["000001.SZ"],
+                "end_date": ["20240105"],
+                "ann_date": ["20240110"],
+                "bz_item": ["按产品"],
+                "curr_type": ["CNY"],
+            }
+        )
+        inferred_schema = _inferred_schema(tuple(df.columns), ("ts_code", "end_date", "ann_date", "bz_item", "curr_type"))
+
+        with patch(f"{_CATALOG_MOD}._load_catalog_specs", return_value=(_catalog_spec("fina_mainbz"),)), \
+             patch(f"{_MOD}._get_stock_codes", return_value=["000001.SZ"]), \
+             patch(f"{_INGEST}.call_pro", return_value=df) as mock_call, \
+             patch(f"{_MOD}._infer_catalog_schema", return_value=inferred_schema), \
+             patch("app.datasync.table_manager.ensure_inferred_table"), \
+             patch(f"{_TS_DAO}.insert_catalog_rows", return_value=1) as mock_insert:
+            interfaces = build_catalog_interfaces(set())
+            iface = next(item for item in interfaces if item.info.interface_key == "fina_mainbz")
+            result = iface.sync_date(date(2024, 1, 5))
+
+        assert isinstance(iface, TusharePerSymbolDateCatalogInterface)
+        assert result.status == SyncStatus.SUCCESS
+        mock_call.assert_called_once_with("fina_mainbz", ts_code="000001.SZ", end_date="20240105")
+        assert mock_insert.call_args.kwargs["key_columns"] == ("ts_code", "end_date", "ann_date", "bz_item", "curr_type")
+
+    def test_stk_rewards_syncer_uses_symbol_snapshot_loop(self):
+        from app.datasync.sources.tushare.catalog_interfaces import build_catalog_interfaces
+        from app.datasync.sources.tushare.interfaces import TusharePerSymbolLatestCatalogInterface
+
+        df = pd.DataFrame(
+            {
+                "ts_code": ["000001.SZ"],
+                "ann_date": ["20240105"],
+                "end_date": ["20231231"],
+                "name": ["Alice"],
+                "title": ["Director"],
+            }
+        )
+        inferred_schema = _inferred_schema(tuple(df.columns), ("ts_code", "ann_date", "end_date", "name"))
+
+        with patch(f"{_CATALOG_MOD}._load_catalog_specs", return_value=(_catalog_spec("stk_rewards"),)), \
+             patch(f"{_MOD}._get_stock_codes", return_value=["000001.SZ", "000002.SZ"]), \
+             patch(f"{_INGEST}.call_pro", side_effect=[df, pd.DataFrame()]) as mock_call, \
+             patch(f"{_MOD}._infer_catalog_schema", return_value=inferred_schema), \
+             patch("app.datasync.table_manager.ensure_inferred_table"), \
+             patch(f"{_TS_DAO}.insert_catalog_rows", return_value=2) as mock_insert:
+            interfaces = build_catalog_interfaces(set())
+            iface = next(item for item in interfaces if item.info.interface_key == "stk_rewards")
+            result = iface.sync_date(date(2024, 1, 5))
+
+        assert isinstance(iface, TusharePerSymbolLatestCatalogInterface)
+        assert iface.supports_scheduled_sync() is True
+        assert iface.supports_backfill() is False
+        assert result.status == SyncStatus.SUCCESS
+        assert result.rows_synced == 2
+        mock_call.assert_any_call("stk_rewards", ts_code="000001.SZ")
+        mock_call.assert_any_call("stk_rewards", ts_code="000002.SZ")
+        assert mock_insert.call_args.kwargs["key_columns"] == ("ts_code", "ann_date", "end_date", "name")
+
     def test_pledge_detail_syncer_loops_stock_codes(self):
         from app.datasync.sources.tushare.interfaces import TusharePledgeDetailInterface
 
@@ -1083,6 +1242,8 @@ class TestTushareDataSourceRegistration:
     def test_custom_syncers_override_generic_runtime_unsupported_catalog_specs(self):
         from app.datasync.sources.tushare.interfaces import (
             TushareBoxOfficeMonthlyInterface,
+            TusharePerSymbolDateCatalogInterface,
+            TusharePerSymbolLatestCatalogInterface,
             TushareFundNavInterface,
             TushareIndexWeightInterface,
             TusharePledgeDetailInterface,
@@ -1091,21 +1252,29 @@ class TestTushareDataSourceRegistration:
 
         specs = (
             _catalog_spec("bo_monthly"),
+            _catalog_spec("income"),
             _catalog_spec("fund_nav"),
             _catalog_spec("index_weight"),
             _catalog_spec("pledge_detail"),
+            _catalog_spec("stk_rewards"),
         )
         with patch(f"{_CATALOG_MOD}._load_catalog_specs", return_value=specs):
             interfaces = {iface.info.interface_key: iface for iface in TushareDataSource().get_interfaces()}
 
         assert isinstance(interfaces["bo_monthly"], TushareBoxOfficeMonthlyInterface)
+        assert isinstance(interfaces["income"], TusharePerSymbolDateCatalogInterface)
         assert isinstance(interfaces["fund_nav"], TushareFundNavInterface)
         assert isinstance(interfaces["index_weight"], TushareIndexWeightInterface)
         assert isinstance(interfaces["pledge_detail"], TusharePledgeDetailInterface)
+        assert isinstance(interfaces["stk_rewards"], TusharePerSymbolLatestCatalogInterface)
         assert interfaces["bo_monthly"].supports_scheduled_sync() is True
+        assert interfaces["income"].supports_scheduled_sync() is True
+        assert interfaces["income"].supports_backfill() is True
         assert interfaces["fund_nav"].supports_scheduled_sync() is True
         assert interfaces["index_weight"].supports_scheduled_sync() is True
         assert interfaces["pledge_detail"].supports_scheduled_sync() is True
+        assert interfaces["stk_rewards"].supports_scheduled_sync() is True
+        assert interfaces["stk_rewards"].supports_backfill() is False
 
     def test_falls_back_to_bundled_catalog_when_db_catalog_unavailable(self):
         from app.datasync.sources.tushare.source import TushareDataSource

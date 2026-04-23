@@ -75,7 +75,6 @@ CREATE TABLE IF NOT EXISTS stock_daily (
     vol BIGINT,
     amount DECIMAL(20,2),
     PRIMARY KEY (ts_code, trade_date),
-    INDEX idx_daily_ts (ts_code),
     INDEX idx_daily_date (trade_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 

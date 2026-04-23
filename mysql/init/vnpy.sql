@@ -21,7 +21,6 @@ CREATE TABLE IF NOT EXISTS dbbardata (
     low_price DOUBLE,
     close_price DOUBLE,
     UNIQUE KEY idx_bar_unique (symbol, exchange, `interval`, `datetime`),
-    INDEX idx_bar_symbol_exchange (symbol, exchange),
     INDEX idx_bar_datetime (`datetime`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 

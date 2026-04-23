@@ -8,8 +8,13 @@ from app.datasync.base import SyncResult, SyncStatus
 
 
 def is_permission_error(error_message: str | None) -> bool:
-    normalized = str(error_message or "").lower()
-    return "没有接口访问权限" in str(error_message or "") or "permission" in normalized
+    raw_message = str(error_message or "")
+    normalized = raw_message.lower()
+    return (
+        "没有接口访问权限" in raw_message
+        or ("没有接口" in raw_message and "访问权限" in raw_message)
+        or "permission" in normalized
+    )
 
 
 def is_quota_pause_result(result: SyncResult) -> bool:

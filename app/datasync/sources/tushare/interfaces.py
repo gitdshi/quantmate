@@ -69,6 +69,16 @@ def _get_index_codes() -> list[str]:
     return list(INDEX_CODES)
 
 
+def _get_stock_codes() -> list[str]:
+    cached_codes = _load_distinct_table_values("stock_basic", ("ts_code",))
+    if cached_codes:
+        return cached_codes
+
+    from app.datasync.service.tushare_ingest import get_all_ts_codes
+
+    return get_all_ts_codes()
+
+
 def _resolve_explicit_key_columns(
     column_specs: list[dict[str, object]],
     preferred_key_fields: tuple[str, ...] | list[str] | None = None,
@@ -163,6 +173,14 @@ def _build_entity_sync_details(
     return details
 
 
+def _catalog_api_name(iface: TushareCatalogInterface) -> str:
+    spec = getattr(iface, "_spec", None)
+    api_name = getattr(spec, "api_name", None)
+    if api_name:
+        return str(api_name)
+    return str(iface.info.interface_key)
+
+
 def _sync_catalog_once(
     iface: TushareCatalogInterface,
     *,
@@ -171,8 +189,9 @@ def _sync_catalog_once(
     from app.datasync.service.tushare_ingest import call_pro
 
     request_params = dict(params or {})
+    api_name = _catalog_api_name(iface)
     try:
-        df = call_pro(iface.info.interface_key, **request_params)
+        df = call_pro(api_name, **request_params)
         _, rows = _insert_catalog_dataframe(iface, df)
         return SyncResult(SyncStatus.SUCCESS, rows)
     except Exception as exc:
@@ -195,6 +214,7 @@ def _sync_catalog_by_entities(
     if not ordered_entities:
         return SyncResult(SyncStatus.SUCCESS, 0, details={"entity_count": 0, "processed_count": 0})
 
+    api_name = _catalog_api_name(iface)
     inferred_schema: dict[str, object] | None = None
     total_rows = 0
     processed_count = 0
@@ -203,7 +223,7 @@ def _sync_catalog_by_entities(
     for entity in ordered_entities:
         params = params_builder(entity)
         try:
-            df = call_pro(iface.info.interface_key, **params)
+            df = call_pro(api_name, **params)
             processed_count += 1
             inferred_schema, rows = _insert_catalog_dataframe(iface, df, inferred_schema)
             total_rows += rows
@@ -804,6 +824,82 @@ class _LatestOnlyCatalogInterface(_ExplicitKeyCatalogInterface):
         return False
 
 
+class TusharePerSymbolDateCatalogInterface(_ExplicitKeyCatalogInterface):
+    def __init__(
+        self,
+        spec: TushareCatalogSpec,
+        *,
+        request_date_param: str,
+        extra_key_fields: tuple[str, ...] = (),
+    ):
+        super().__init__(spec)
+        self._request_date_param = request_date_param
+        self._extra_key_fields = tuple(field for field in extra_key_fields if field)
+
+    def supports_backfill(self) -> bool:
+        return True
+
+    def _schema_date_column(self) -> str | None:
+        return self._request_date_param
+
+    def _payload_key_fields(self) -> tuple[str, ...]:
+        fields = [
+            "ts_code",
+            self._request_date_param,
+            *self._extra_key_fields,
+            "symbol",
+            "code",
+            "exchange",
+            "market",
+            "name",
+        ]
+        return tuple(dict.fromkeys(field for field in fields if field))
+
+    def sync_date(self, trade_date: date) -> SyncResult:
+        try:
+            ts_codes = _get_stock_codes()
+        except Exception as exc:
+            return handle_tushare_sync_exception(logger, f"{self.info.interface_key} symbol load", exc)
+
+        target = trade_date.strftime("%Y%m%d")
+        return _sync_catalog_by_entities(
+            self,
+            ts_codes,
+            lambda ts_code: {"ts_code": ts_code, self._request_date_param: target},
+        )
+
+
+class TusharePerSymbolLatestCatalogInterface(_LatestOnlyCatalogInterface):
+    def __init__(
+        self,
+        spec: TushareCatalogSpec,
+        *,
+        extra_key_fields: tuple[str, ...] = (),
+    ):
+        super().__init__(spec)
+        self._extra_key_fields = tuple(field for field in extra_key_fields if field)
+
+    def _payload_key_fields(self) -> tuple[str, ...]:
+        fields = [
+            "ts_code",
+            *self._extra_key_fields,
+            "symbol",
+            "code",
+            "exchange",
+            "market",
+            "name",
+        ]
+        return tuple(dict.fromkeys(field for field in fields if field))
+
+    def sync_date(self, trade_date: date) -> SyncResult:
+        try:
+            ts_codes = _get_stock_codes()
+        except Exception as exc:
+            return handle_tushare_sync_exception(logger, f"{self.info.interface_key} symbol load", exc)
+
+        return _sync_catalog_by_entities(self, ts_codes, lambda ts_code: {"ts_code": ts_code})
+
+
 class TushareCyqChipsInterface(_ExplicitKeyCatalogInterface):
     def __init__(self):
         super().__init__(
@@ -1336,3 +1432,57 @@ class TushareIndexWeeklyInterface(BaseIngestInterface):
                 details={"symbols": list(INDEX_CODES), "failed_symbols": failures},
             )
         return SyncResult(SyncStatus.SUCCESS, total_rows, details={"symbols": list(INDEX_CODES)})
+
+
+_PER_SYMBOL_DATE_CATALOG_CONFIG: dict[str, dict[str, tuple[str, ...] | str]] = {
+    "balancesheet": {"request_date_param": "ann_date", "extra_key_fields": ("end_date", "report_type", "comp_type")},
+    "balancesheet_vip": {"request_date_param": "ann_date", "extra_key_fields": ("end_date", "report_type", "comp_type")},
+    "cashflow": {"request_date_param": "ann_date", "extra_key_fields": ("end_date", "report_type", "comp_type")},
+    "cashflow_vip": {"request_date_param": "ann_date", "extra_key_fields": ("end_date", "report_type", "comp_type")},
+    "fina_audit": {"request_date_param": "ann_date", "extra_key_fields": ("end_date", "audit_agency", "audit_sign")},
+    "fina_indicator": {"request_date_param": "ann_date", "extra_key_fields": ("end_date",)},
+    "fina_indicator_vip": {"request_date_param": "ann_date", "extra_key_fields": ("end_date",)},
+    "fina_mainbz": {"request_date_param": "end_date", "extra_key_fields": ("ann_date", "bz_item", "curr_type")},
+    "fina_mainbz_vip": {"request_date_param": "end_date", "extra_key_fields": ("ann_date", "bz_item", "curr_type")},
+    "income": {"request_date_param": "ann_date", "extra_key_fields": ("end_date", "report_type", "comp_type")},
+    "income_vip": {"request_date_param": "ann_date", "extra_key_fields": ("end_date", "report_type", "comp_type")},
+}
+
+_PER_SYMBOL_LATEST_CATALOG_CONFIG: dict[str, tuple[str, ...]] = {
+    "stk_rewards": ("ann_date", "end_date", "name"),
+}
+
+
+def build_specialized_catalog_interface(spec: TushareCatalogSpec) -> BaseIngestInterface | None:
+    key = spec.interface_key
+
+    if key == "bo_monthly":
+        return TushareBoxOfficeMonthlyInterface()
+    if key == "bo_weekly":
+        return TushareBoxOfficeWeeklyInterface()
+    if key == "cyq_chips":
+        return TushareCyqChipsInterface()
+    if key == "fund_div":
+        return TushareFundDivInterface()
+    if key == "fund_nav":
+        return TushareFundNavInterface()
+    if key == "fund_portfolio":
+        return TushareFundPortfolioInterface()
+    if key == "index_weight":
+        return TushareIndexWeightInterface()
+    if key == "pledge_detail":
+        return TusharePledgeDetailInterface()
+
+    date_config = _PER_SYMBOL_DATE_CATALOG_CONFIG.get(key)
+    if date_config is not None:
+        return TusharePerSymbolDateCatalogInterface(
+            spec,
+            request_date_param=str(date_config["request_date_param"]),
+            extra_key_fields=tuple(date_config.get("extra_key_fields", ())),
+        )
+
+    latest_key_fields = _PER_SYMBOL_LATEST_CATALOG_CONFIG.get(key)
+    if latest_key_fields is not None:
+        return TusharePerSymbolLatestCatalogInterface(spec, extra_key_fields=latest_key_fields)
+
+    return None

@@ -48,8 +48,7 @@ CREATE TABLE IF NOT EXISTS stock_daily (
     amount DECIMAL(20,4),
     turnover DECIMAL(12,4),
     PRIMARY KEY (ts_code, trade_date),
-    INDEX idx_daily_date (trade_date),
-    INDEX idx_daily_ts (ts_code)
+    INDEX idx_daily_date (trade_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Index daily data (HS300, SSE50, CSI500, etc.)

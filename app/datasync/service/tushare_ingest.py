@@ -126,6 +126,9 @@ def parse_retry_after(error_msg: str):
         (r"每分钟最多访问该接口(\d+(?:\.\d+)?)次", 60.0),
         (r"每小时最多访问该接口(\d+(?:\.\d+)?)次", 3600.0),
         (r"每天最多访问该接口(\d+(?:\.\d+)?)次", 86400.0),
+        (r"(\d+(?:\.\d+)?)次\s*/\s*分钟", 60.0),
+        (r"(\d+(?:\.\d+)?)次\s*/\s*小时", 3600.0),
+        (r"(\d+(?:\.\d+)?)次\s*/\s*(?:天|日)", 86400.0),
         (r"at\s+most\s+(\d+(?:\.\d+)?)\s*(?:times|requests?)\s+per\s+minute", 60.0),
         (r"at\s+most\s+(\d+(?:\.\d+)?)\s*(?:times|requests?)\s+per\s+hour", 3600.0),
         (r"at\s+most\s+(\d+(?:\.\d+)?)\s*(?:times|requests?)\s+per\s+day", 86400.0),
@@ -152,6 +155,9 @@ def parse_rate_limit_scope(error_msg: str):
         (r"每天最多访问|per\s+day", "day"),
         (r"每小时最多访问|per\s+hour", "hour"),
         (r"每分钟最多访问|per\s+minute", "minute"),
+        (r"次\s*/\s*(?:天|日)", "day"),
+        (r"次\s*/\s*小时", "hour"),
+        (r"次\s*/\s*分钟", "minute"),
     ]
     for pattern, scope in patterns:
         if re.search(pattern, text_msg):

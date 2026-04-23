@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from sqlalchemy import text
 
@@ -90,9 +91,18 @@ def ensure_inferred_table(database: str, table: str, schema: dict[str, object]) 
 
     for column_spec in column_specs:
         name = str(column_spec.get("name") or "").strip()
-        if not name or name in existing_columns:
+        if not name:
             continue
-        statements.append(f"ALTER TABLE `{table}` ADD COLUMN {_column_ddl(column_spec, key_columns)}")
+        if name not in existing_columns:
+            statements.append(f"ALTER TABLE `{table}` ADD COLUMN {_column_ddl(column_spec, key_columns)}")
+            continue
+        if _column_requires_widen(existing_columns[name], column_spec):
+            statements.append(f"ALTER TABLE `{table}` MODIFY COLUMN {_column_ddl(column_spec, key_columns)}")
+            continue
+        if _column_requires_nullable_relax(existing_columns[name], name, key_columns):
+            relax_spec = dict(column_spec)
+            relax_spec["sql_type"] = existing_columns[name]["column_type"]
+            statements.append(f"ALTER TABLE `{table}` MODIFY COLUMN {_column_ddl(relax_spec, key_columns)}")
 
     if _column_requires_legacy_relax(existing_columns, "key_hash", expected_type="char(64)"):
         statements.append(f"ALTER TABLE `{table}` MODIFY COLUMN `key_hash` CHAR(64) NULL")
@@ -148,6 +158,52 @@ def _column_requires_legacy_relax(
     if str(column.get("is_nullable") or "").upper() != "NO":
         return False
     return expected_type.lower() in str(column.get("column_type") or "").lower()
+
+
+def _parse_text_type(sql_type: str) -> tuple[int, int | None] | None:
+    normalized = str(sql_type or "").strip().lower()
+    varchar_match = re.fullmatch(r"varchar\((\d+)\)", normalized)
+    if varchar_match:
+        return (0, int(varchar_match.group(1)))
+
+    text_ranks = {
+        "text": (1, None),
+        "mediumtext": (2, None),
+        "longtext": (3, None),
+    }
+    return text_ranks.get(normalized)
+
+
+def _column_requires_widen(existing_column: dict[str, str], column_spec: dict[str, object]) -> bool:
+    expected = _parse_text_type(str(column_spec.get("sql_type") or ""))
+    if expected is None:
+        return False
+
+    current = _parse_text_type(str(existing_column.get("column_type") or ""))
+    if current is None:
+        return False
+
+    expected_rank, expected_size = expected
+    current_rank, current_size = current
+    if expected_rank != current_rank:
+        return expected_rank > current_rank
+
+    if expected_rank != 0:
+        return False
+
+    return int(expected_size or 0) > int(current_size or 0)
+
+
+def _column_requires_nullable_relax(
+    existing_column: dict[str, str],
+    name: str,
+    key_columns: tuple[str, ...],
+) -> bool:
+    if not name or name in key_columns:
+        return False
+    if str(existing_column.get("is_nullable") or "").upper() != "NO":
+        return False
+    return True
 
 
 def _has_unique_index(database: str, table: str, key_columns: tuple[str, ...]) -> bool:

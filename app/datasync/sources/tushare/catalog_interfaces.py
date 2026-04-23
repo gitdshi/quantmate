@@ -194,6 +194,10 @@ _RUNTIME_UNSUPPORTED_INTERFACE_KEYS = {
     "pledge_detail",
 }
 
+_APPEND_ONLY_DYNAMIC_TABLES = {
+    "block_trade",
+}
+
 
 @dataclass(frozen=True)
 class TushareCatalogSpec:
@@ -339,6 +343,13 @@ class TushareCatalogInterface(BaseIngestInterface):
             preferred_date_column=self._schema_date_column(),
             preferred_key_fields=self._payload_key_fields(),
         )
+        if self.info.target_table in _APPEND_ONLY_DYNAMIC_TABLES:
+            schema = {
+                **schema,
+                "key_columns": (),
+                "unique_index_name": "",
+                "ddl": ddl.build_dynamic_table_ddl(self.info.target_table, list(schema["column_specs"]), ()),
+            }
         ensure_inferred_table(self.info.target_database, self.info.target_table, schema)
         return schema
 
@@ -418,16 +429,17 @@ def _load_catalog_specs() -> tuple[TushareCatalogSpec, ...]:
 
 
 def build_catalog_interfaces(existing_keys: set[str] | None = None) -> list[BaseIngestInterface]:
+    from app.datasync.sources.tushare.interfaces import build_specialized_catalog_interface
+
     seen = set(existing_keys or set())
     interfaces: list[BaseIngestInterface] = []
     for spec in _load_catalog_specs():
         if spec.interface_key in seen:
             continue
         seen.add(spec.interface_key)
-        if spec.interface_key == "cyq_chips":
-            from app.datasync.sources.tushare.interfaces import TushareCyqChipsInterface
-
-            interfaces.append(TushareCyqChipsInterface())
+        specialized = build_specialized_catalog_interface(spec)
+        if specialized is not None:
+            interfaces.append(specialized)
             continue
         interfaces.append(TushareCatalogInterface(spec))
     return interfaces

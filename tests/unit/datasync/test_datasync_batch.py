@@ -795,6 +795,68 @@ class TestTableManager:
         result = _tm.ensure_table("tushare", "new_tbl", "CREATE TABLE test (id INT)")
         assert result is True
 
+    def test_ensure_inferred_table_widens_existing_varchar(self, monkeypatch):
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.scalar.return_value = 1
+        mock_eng = MagicMock()
+        mock_eng.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_eng.connect.return_value.__exit__ = MagicMock(return_value=False)
+        mock_begin_conn = MagicMock()
+        mock_eng.begin.return_value.__enter__ = MagicMock(return_value=mock_begin_conn)
+        mock_eng.begin.return_value.__exit__ = MagicMock(return_value=False)
+
+        monkeypatch.setattr(_tm, "_get_engine", lambda db: mock_eng)
+        monkeypatch.setattr(_tm, "_mark_table_created", lambda db, tbl: None)
+        monkeypatch.setattr(
+            _tm,
+            "_get_existing_columns",
+            lambda db, tbl: {"author_name": {"is_nullable": "YES", "column_type": "varchar(16)"}},
+        )
+
+        schema = {
+            "ddl": "CREATE TABLE ignored",
+            "column_specs": [{"name": "author_name", "sql_type": "VARCHAR(255)"}],
+            "key_columns": (),
+            "unique_index_name": "",
+        }
+
+        result = _tm.ensure_inferred_table("tushare", "report_rc", schema)
+
+        assert result is True
+        assert mock_begin_conn.execute.call_count == 1
+        assert "MODIFY COLUMN `author_name` VARCHAR(255) NULL" in str(mock_begin_conn.execute.call_args.args[0])
+
+    def test_ensure_inferred_table_relaxes_old_non_key_column_to_nullable(self, monkeypatch):
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.scalar.return_value = 1
+        mock_eng = MagicMock()
+        mock_eng.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_eng.connect.return_value.__exit__ = MagicMock(return_value=False)
+        mock_begin_conn = MagicMock()
+        mock_eng.begin.return_value.__enter__ = MagicMock(return_value=mock_begin_conn)
+        mock_eng.begin.return_value.__exit__ = MagicMock(return_value=False)
+
+        monkeypatch.setattr(_tm, "_get_engine", lambda db: mock_eng)
+        monkeypatch.setattr(_tm, "_mark_table_created", lambda db, tbl: None)
+        monkeypatch.setattr(
+            _tm,
+            "_get_existing_columns",
+            lambda db, tbl: {"title": {"is_nullable": "NO", "column_type": "varchar(32)"}},
+        )
+
+        schema = {
+            "ddl": "CREATE TABLE ignored",
+            "column_specs": [{"name": "title", "sql_type": "VARCHAR(32)"}],
+            "key_columns": ("ts_code", "ann_date", "name"),
+            "unique_index_name": "",
+        }
+
+        result = _tm.ensure_inferred_table("tushare", "stk_rewards", schema)
+
+        assert result is True
+        assert mock_begin_conn.execute.call_count == 1
+        assert "MODIFY COLUMN `title` varchar(32) NULL" in str(mock_begin_conn.execute.call_args.args[0])
+
 
 # =====================================================================
 # scheduler

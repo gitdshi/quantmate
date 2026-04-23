@@ -77,6 +77,14 @@ class TestParseRetryAfter:
         msg = "抱歉，您每天最多访问该接口50次"
         assert parse_retry_after(msg) == 1728.0
 
+    def test_chinese_quota_slash_per_minute(self):
+        msg = "抱歉，您访问接口(report_rc)频率超限(2次/分钟)，具体频次详情：https://tushare.pro/document/1?doc_id=108。"
+        assert parse_retry_after(msg) == 30.0
+
+    def test_chinese_quota_slash_per_hour(self):
+        msg = "抱歉，您访问接口(report_rc)频率超限(10次/小时)，具体频次详情：https://tushare.pro/document/1?doc_id=108。"
+        assert parse_retry_after(msg) == 360.0
+
 
 class TestParseRateLimitScope:
     def test_detects_daily_scope(self):
@@ -87,6 +95,12 @@ class TestParseRateLimitScope:
 
     def test_detects_minute_scope(self):
         assert parse_rate_limit_scope("抱歉，您每分钟最多访问该接口5次") == "minute"
+
+    def test_detects_minute_scope_from_slash_format(self):
+        assert parse_rate_limit_scope("抱歉，您访问接口(report_rc)频率超限(2次/分钟)") == "minute"
+
+    def test_detects_hour_scope_from_slash_format(self):
+        assert parse_rate_limit_scope("抱歉，您访问接口(report_rc)频率超限(10次/小时)") == "hour"
 
 
 class TestIsRateLimitError:
