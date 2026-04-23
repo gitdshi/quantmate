@@ -129,18 +129,22 @@ def _resolve_reconcile_bounds(
 
     default_start_date, default_end_date = _resolve_default_sync_window(end_date)
 
-    resolved_start_date = (
-        start_date
-        or (item_bounds[0] if item_bounds is not None else None)
-        or (source_bounds[0] if source_bounds is not None else None)
-        or default_start_date
-    )
-    resolved_end_date = (
-        end_date
-        or (item_bounds[1] if item_bounds is not None else None)
-        or (source_bounds[1] if source_bounds is not None else None)
-        or default_end_date
-    )
+    resolved_start_date = start_date or default_start_date
+    resolved_end_date = end_date or default_end_date
+    inherited_source_bounds = False
+
+    fallback_bounds = item_bounds or source_bounds
+    if fallback_bounds is not None and (start_date is None or end_date is None):
+        # Never widen the implicit reconcile window beyond the current coverage window,
+        # even if historical sync_status_init rows still remember older ranges.
+        bounded_start = max(default_start_date, fallback_bounds[0])
+        bounded_end = min(default_end_date, fallback_bounds[1])
+        if bounded_start <= bounded_end:
+            if start_date is None:
+                resolved_start_date = bounded_start
+            if end_date is None:
+                resolved_end_date = bounded_end
+            inherited_source_bounds = item_bounds is None and source_bounds is not None
 
     if use_trade_calendar:
         if resolved_start_date > resolved_end_date:
@@ -148,7 +152,7 @@ def _resolve_reconcile_bounds(
     else:
         resolved_start_date = resolved_end_date
 
-    return resolved_start_date, resolved_end_date, item_bounds is None and source_bounds is not None
+    return resolved_start_date, resolved_end_date, inherited_source_bounds
 
 
 def _record_init(source: str, item_key: str, start: date, end: date) -> None:
