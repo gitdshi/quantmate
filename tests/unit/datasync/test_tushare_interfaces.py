@@ -593,7 +593,7 @@ class TestTushareCatalogInterface:
         assert "UNIQUE KEY" not in adjusted_schema["ddl"]
         mock_ensure_table.assert_called_once_with("tushare", "block_trade", adjusted_schema)
 
-    def test_runtime_unsupported_catalog_item_disables_scheduled_sync(self):
+    def test_generic_guardrail_disables_symbol_scoped_catalog_item(self):
         from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface, TushareCatalogSpec
 
         iface = TushareCatalogInterface(
@@ -653,7 +653,7 @@ class TestTushareCatalogInterface:
             ("index_weight", "index_weight"),
         ],
     )
-    def test_known_generic_unsupported_catalog_items_are_scheduler_disabled(self, interface_key, api_name):
+    def test_generic_guardrail_keeps_specialized_catalog_keys_off_generic_scheduler(self, interface_key, api_name):
         from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface, TushareCatalogSpec
 
         iface = TushareCatalogInterface(
@@ -1100,6 +1100,91 @@ class TestTushareCatalogInterface:
         mock_call.assert_any_call("stk_rewards", ts_code="000002.SZ")
         assert mock_insert.call_args.kwargs["key_columns"] == ("ts_code", "ann_date", "end_date", "name")
 
+    def test_stk_managers_syncer_uses_symbol_snapshot_loop(self):
+        from app.datasync.sources.tushare.catalog_interfaces import build_catalog_interfaces
+        from app.datasync.sources.tushare.interfaces import TusharePerSymbolLatestCatalogInterface
+
+        df = pd.DataFrame(
+            {
+                "ts_code": ["000001.SZ", "000001.SZ"],
+                "ann_date": ["20251217", "20251217"],
+                "name": ["Alice", "Alice"],
+                "title": ["Director", "Risk Manager"],
+                "lev": ["Board", "Committee"],
+                "begin_date": ["20230101", "20240101"],
+            }
+        )
+        inferred_schema = _inferred_schema(
+            tuple(df.columns),
+            ("ts_code", "ann_date", "name", "title", "lev", "begin_date"),
+        )
+
+        with patch(f"{_CATALOG_MOD}._load_catalog_specs", return_value=(_catalog_spec("stk_managers"),)), \
+             patch(f"{_MOD}._get_stock_codes", return_value=["000001.SZ", "000002.SZ"]), \
+             patch(f"{_INGEST}.call_pro", side_effect=[df, pd.DataFrame()]) as mock_call, \
+             patch(f"{_MOD}._infer_catalog_schema", return_value=inferred_schema), \
+             patch("app.datasync.table_manager.ensure_inferred_table"), \
+             patch(f"{_TS_DAO}.insert_catalog_rows", return_value=2) as mock_insert:
+            interfaces = build_catalog_interfaces(set())
+            iface = next(item for item in interfaces if item.info.interface_key == "stk_managers")
+            result = iface.sync_date(date(2024, 1, 5))
+
+        assert isinstance(iface, TusharePerSymbolLatestCatalogInterface)
+        assert iface.supports_scheduled_sync() is True
+        assert iface.supports_backfill() is False
+        assert result.status == SyncStatus.SUCCESS
+        assert result.rows_synced == 2
+        mock_call.assert_any_call("stk_managers", ts_code="000001.SZ")
+        mock_call.assert_any_call("stk_managers", ts_code="000002.SZ")
+        assert mock_insert.call_args.kwargs["key_columns"] == (
+            "ts_code",
+            "ann_date",
+            "name",
+            "title",
+            "lev",
+            "begin_date",
+        )
+
+    def test_latest_snapshot_catalog_specs_stay_generic_without_backfill(self):
+        from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface, build_catalog_interfaces
+
+        specs = (
+            _catalog_spec("stk_account"),
+            _catalog_spec("stk_account_old"),
+            _catalog_spec("us_basic"),
+        )
+
+        with patch(f"{_CATALOG_MOD}._load_catalog_specs", return_value=specs):
+            interfaces = {iface.info.interface_key: iface for iface in build_catalog_interfaces(set())}
+
+        assert isinstance(interfaces["stk_account"], TushareCatalogInterface)
+        assert isinstance(interfaces["stk_account_old"], TushareCatalogInterface)
+        assert isinstance(interfaces["us_basic"], TushareCatalogInterface)
+        assert interfaces["stk_account"].supports_scheduled_sync() is True
+        assert interfaces["stk_account_old"].supports_scheduled_sync() is True
+        assert interfaces["us_basic"].supports_scheduled_sync() is True
+        assert interfaces["stk_account"].supports_backfill() is False
+        assert interfaces["stk_account_old"].supports_backfill() is False
+        assert interfaces["us_basic"].supports_backfill() is False
+
+    def test_minute_catalog_specs_stay_on_generic_guardrail_without_custom_syncers(self):
+        from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface, build_catalog_interfaces
+
+        specs = (
+            _catalog_spec("ft_mins"),
+            _catalog_spec("opt_mins"),
+        )
+
+        with patch(f"{_CATALOG_MOD}._load_catalog_specs", return_value=specs):
+            interfaces = {iface.info.interface_key: iface for iface in build_catalog_interfaces(set())}
+
+        assert isinstance(interfaces["ft_mins"], TushareCatalogInterface)
+        assert isinstance(interfaces["opt_mins"], TushareCatalogInterface)
+        assert interfaces["ft_mins"].supports_scheduled_sync() is False
+        assert interfaces["opt_mins"].supports_scheduled_sync() is False
+        assert interfaces["ft_mins"].supports_backfill() is False
+        assert interfaces["opt_mins"].supports_backfill() is False
+
     def test_pledge_detail_syncer_loops_stock_codes(self):
         from app.datasync.sources.tushare.interfaces import TusharePledgeDetailInterface
 
@@ -1239,7 +1324,7 @@ class TestTushareDataSourceRegistration:
         assert isinstance(interfaces["pledge_detail"], TusharePledgeDetailInterface)
         assert isinstance(interfaces["cyq_chips"], TushareCyqChipsInterface)
 
-    def test_custom_syncers_override_generic_runtime_unsupported_catalog_specs(self):
+    def test_custom_syncers_replace_generic_guardrail_catalog_specs(self):
         from app.datasync.sources.tushare.interfaces import (
             TushareBoxOfficeMonthlyInterface,
             TusharePerSymbolDateCatalogInterface,
@@ -1256,6 +1341,7 @@ class TestTushareDataSourceRegistration:
             _catalog_spec("fund_nav"),
             _catalog_spec("index_weight"),
             _catalog_spec("pledge_detail"),
+            _catalog_spec("stk_managers"),
             _catalog_spec("stk_rewards"),
         )
         with patch(f"{_CATALOG_MOD}._load_catalog_specs", return_value=specs):
@@ -1266,6 +1352,7 @@ class TestTushareDataSourceRegistration:
         assert isinstance(interfaces["fund_nav"], TushareFundNavInterface)
         assert isinstance(interfaces["index_weight"], TushareIndexWeightInterface)
         assert isinstance(interfaces["pledge_detail"], TusharePledgeDetailInterface)
+        assert isinstance(interfaces["stk_managers"], TusharePerSymbolLatestCatalogInterface)
         assert isinstance(interfaces["stk_rewards"], TusharePerSymbolLatestCatalogInterface)
         assert interfaces["bo_monthly"].supports_scheduled_sync() is True
         assert interfaces["income"].supports_scheduled_sync() is True
@@ -1273,6 +1360,8 @@ class TestTushareDataSourceRegistration:
         assert interfaces["fund_nav"].supports_scheduled_sync() is True
         assert interfaces["index_weight"].supports_scheduled_sync() is True
         assert interfaces["pledge_detail"].supports_scheduled_sync() is True
+        assert interfaces["stk_managers"].supports_scheduled_sync() is True
+        assert interfaces["stk_managers"].supports_backfill() is False
         assert interfaces["stk_rewards"].supports_scheduled_sync() is True
         assert interfaces["stk_rewards"].supports_backfill() is False
 

@@ -1449,6 +1449,7 @@ _PER_SYMBOL_DATE_CATALOG_CONFIG: dict[str, dict[str, tuple[str, ...] | str]] = {
 }
 
 _PER_SYMBOL_LATEST_CATALOG_CONFIG: dict[str, tuple[str, ...]] = {
+    "stk_managers": ("ann_date", "name", "title", "lev", "begin_date"),
     "stk_rewards": ("ann_date", "end_date", "name"),
 }
 

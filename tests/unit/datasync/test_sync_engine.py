@@ -408,7 +408,7 @@ class TestDailySync:
         assert result["tushare/stock_daily"]["status"] == "success"
         mock_ensure.assert_called_once()
 
-    def test_skips_runtime_unsupported_interface(self):
+    def test_skips_interface_without_scheduled_sync_support(self):
         from app.datasync.service.sync_engine import daily_sync
 
         registry = MagicMock()
@@ -417,15 +417,15 @@ class TestDailySync:
         registry.get_interface.return_value = iface
 
         with patch(f"{_MOD}._get_enabled_items", return_value=[
-            {"source": "tushare", "item_key": "fina_indicator",
-             "target_database": "ts", "target_table": "fina_indicator",
+            {"source": "tushare", "item_key": "generic_symbol_scoped_item",
+             "target_database": "ts", "target_table": "generic_symbol_scoped_item",
              "table_created": 1, "sync_priority": 10},
         ]), \
             patch(f"{_MOD}._write_status") as mock_write:
             result = daily_sync(registry, target_date=date(2024, 1, 5))
 
-        assert result["tushare/fina_indicator"]["skipped"] is True
-        assert result["tushare/fina_indicator"]["status"] == "success"
+        assert result["tushare/generic_symbol_scoped_item"]["skipped"] is True
+        assert result["tushare/generic_symbol_scoped_item"]["status"] == "success"
         mock_write.assert_called_once()
 
     def test_handles_missing_interface(self):
@@ -562,7 +562,7 @@ class TestBackfillRetry:
         assert "tushare/stock_daily@2024-01-03" in result
         assert result["tushare/stock_daily@2024-01-03"]["status"] == "success"
 
-    def test_skips_runtime_unsupported_backfill_interface(self):
+    def test_skips_backfill_for_interface_without_scheduled_sync_support(self):
         from app.datasync.service.sync_engine import backfill_retry
 
         registry = MagicMock()
@@ -570,16 +570,16 @@ class TestBackfillRetry:
         iface.supports_scheduled_sync.return_value = False
         registry.get_interface.return_value = iface
 
-        with patch(f"{_MOD}._get_enabled_backfill_keys", return_value={("tushare", "fina_indicator")}), \
-             patch(f"{_MOD}._get_failed_records", return_value=[(date(2024, 1, 3), "tushare", "fina_indicator", 0)]), \
+        with patch(f"{_MOD}._get_enabled_backfill_keys", return_value={("tushare", "generic_symbol_scoped_item")}), \
+             patch(f"{_MOD}._get_failed_records", return_value=[(date(2024, 1, 3), "tushare", "generic_symbol_scoped_item", 0)]), \
              patch(f"{_MOD}._write_status") as mock_write, \
              patch("app.domains.extdata.dao.data_sync_status_dao.acquire_backfill_lock"), \
              patch("app.domains.extdata.dao.data_sync_status_dao.release_backfill_lock"), \
              patch("app.domains.extdata.dao.data_sync_status_dao.is_backfill_locked", return_value=False):
             result = backfill_retry(registry, max_workers=1)
 
-        assert result["tushare/fina_indicator@2024-01-03"]["skipped"] is True
-        assert result["tushare/fina_indicator@2024-01-03"]["status"] == "success"
+        assert result["tushare/generic_symbol_scoped_item@2024-01-03"]["skipped"] is True
+        assert result["tushare/generic_symbol_scoped_item@2024-01-03"]["status"] == "success"
         mock_write.assert_called_once()
 
     def test_quota_pause_does_not_consume_retry_budget(self):

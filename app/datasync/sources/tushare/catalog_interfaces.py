@@ -180,17 +180,19 @@ _NONEMPTY_TRADING_DAY_APIS = {
     "industry_daily",
 }
 
-# These catalog interfaces stay registered so bootstrap code can still resolve
-# DDL and metadata, but the runtime scheduler should not execute them. Keep this
-# list small and canonical so auto-sync support is driven by the current CSV
-# catalog rather than stale aliases.
-_RUNTIME_UNSUPPORTED_INTERFACE_KEYS = {
+# These keys are invalid on the generic catalog path because they require a
+# specialized per-entity or latest-snapshot implementation. build_catalog_interfaces()
+# replaces them with custom interfaces before runtime, but keep this guardrail so
+# an accidental generic registration does not execute the wrong request shape.
+_GENERIC_RUNTIME_UNSUPPORTED_INTERFACE_KEYS = {
     "bo_monthly",
     "bo_weekly",
     "fund_div",
     "fund_nav",
     "fund_portfolio",
+    "ft_mins",
     "index_weight",
+    "opt_mins",
     "pledge_detail",
 }
 
@@ -231,7 +233,7 @@ class TushareCatalogInterface(BaseIngestInterface):
         return ddl.get_catalog_ddl(self.info.target_table)
 
     def supports_scheduled_sync(self) -> bool:
-        return self._spec.interface_key not in _RUNTIME_UNSUPPORTED_INTERFACE_KEYS
+        return self._spec.interface_key not in _GENERIC_RUNTIME_UNSUPPORTED_INTERFACE_KEYS
 
     def should_ensure_table_before_sync(self) -> bool:
         return not ddl.uses_sample_inferred_schema(self.info.target_table)

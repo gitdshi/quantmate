@@ -111,7 +111,7 @@ class TestIsItemSyncSupported:
                 source_configs={},
             ) is True
 
-    def test_runtime_unsupported_interface_is_not_supported(self):
+    def test_interface_without_scheduled_sync_support_is_not_supported(self):
         from app.datasync.capabilities import is_item_sync_supported
 
         registry = MagicMock()
@@ -121,11 +121,11 @@ class TestIsItemSyncSupported:
 
         assert is_item_sync_supported(
             registry,
-            {"source": "tushare", "item_key": "fina_indicator", "api_name": "fina_indicator"},
+            {"source": "tushare", "item_key": "generic_symbol_scoped_item", "api_name": "generic_symbol_scoped_item"},
             source_configs={"tushare": {"config_json": {"token_points": 2000}}},
         ) is False
 
-    def test_runtime_unsupported_interface_still_reports_capability_support(self):
+    def test_interface_without_scheduled_sync_still_reports_capability_support(self):
         from app.datasync.capabilities import get_item_support_state
 
         registry = MagicMock()
@@ -137,8 +137,8 @@ class TestIsItemSyncSupported:
             registry,
             {
                 "source": "tushare",
-                "item_key": "fina_indicator",
-                "api_name": "fina_indicator",
+                "item_key": "generic_symbol_scoped_item",
+                "api_name": "generic_symbol_scoped_item",
                 "permission_points": 2000,
                 "requires_permission": "0",
             },
