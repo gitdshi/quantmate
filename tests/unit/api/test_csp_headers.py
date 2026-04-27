@@ -2,10 +2,11 @@
 
 Validates that nginx configs contain the required security headers.
 """
-import os
+from pathlib import Path
+
 import pytest
 
-REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 REQUIRED_HEADERS = [
     "X-Frame-Options",
@@ -18,21 +19,19 @@ REQUIRED_HEADERS = [
 ]
 
 NGINX_CONFIGS = [
-    os.path.join(REPO_ROOT, "nginx", "staging.conf"),
+    REPO_ROOT / "nginx" / "staging.conf",
 ]
 
 # Portal config is in a sibling repo
-PORTAL_CONFIG = os.path.abspath(
-    os.path.join(REPO_ROOT, "..", "quantmate-portal", "nginx.conf")
-)
+PORTAL_CONFIG = REPO_ROOT.parent / "quantmate-portal" / "nginx.conf"
 
 
 class TestStagingNginxHeaders:
     @pytest.fixture(autouse=True)
     def load_config(self):
         path = NGINX_CONFIGS[0]
-        assert os.path.exists(path), f"Config not found: {path}"
-        with open(path) as f:
+        assert path.exists(), f"Config not found: {path}"
+        with path.open() as f:
             self.content = f.read()
 
     @pytest.mark.parametrize("header", REQUIRED_HEADERS)
@@ -52,9 +51,9 @@ class TestStagingNginxHeaders:
 class TestPortalNginxHeaders:
     @pytest.fixture(autouse=True)
     def load_config(self):
-        if not os.path.exists(PORTAL_CONFIG):
+        if not PORTAL_CONFIG.exists():
             pytest.skip("Portal nginx.conf not found")
-        with open(PORTAL_CONFIG) as f:
+        with PORTAL_CONFIG.open() as f:
             self.content = f.read()
 
     @pytest.mark.parametrize("header", REQUIRED_HEADERS)

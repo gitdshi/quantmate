@@ -8,6 +8,7 @@ import os
 import pytest
 from unittest.mock import patch, MagicMock
 from datetime import date
+from pathlib import Path
 
 import pandas as pd
 import numpy as np
@@ -381,13 +382,13 @@ class TestStepRunners:
 class TestMigrationSQL:
     """Verify migration file content."""
 
+    MIGRATION_FILE = Path(__file__).resolve().parents[3] / 'mysql' / 'migrations' / '008_add_weekly_monthly_index_tables.sql'
+
     def test_migration_file_exists(self):
-        path = os.path.join(os.path.dirname(__file__), '..', '..', 'mysql', 'migrations', '008_add_weekly_monthly_index_tables.sql')
-        assert os.path.exists(path)
+        assert self.MIGRATION_FILE.exists()
 
     def test_migration_contains_tables(self):
-        path = os.path.join(os.path.dirname(__file__), '..', '..', 'mysql', 'migrations', '008_add_weekly_monthly_index_tables.sql')
-        with open(path) as f:
+        with self.MIGRATION_FILE.open() as f:
             sql = f.read()
         assert 'stock_weekly' in sql
         assert 'stock_monthly' in sql

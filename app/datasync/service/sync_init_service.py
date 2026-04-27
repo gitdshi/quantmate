@@ -347,9 +347,10 @@ def reconcile_sync_status_item(
     if iface is None:
         return None
 
+    inferred_sync_mode = infer_sync_mode_from_interface(iface)
     resolved_sync_mode = normalize_sync_mode(
-        sync_mode or _get_item_sync_mode(source, item_key),
-        default=infer_sync_mode_from_interface(iface),
+        sync_mode,
+        default=inferred_sync_mode,
     )
     use_trade_calendar = sync_mode_supports_backfill(resolved_sync_mode)
 

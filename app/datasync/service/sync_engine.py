@@ -673,21 +673,24 @@ def _get_enabled_items() -> list[dict]:
                 "ORDER BY dsi.sync_priority ASC"
             )
         ).fetchall()
-        items = [
-            {
-                "source": r[0],
-                "item_key": r[1],
-                "target_database": r[2],
-                "target_table": r[3],
-                "table_created": r[4],
-                "sync_priority": r[5],
-                "api_name": r[6],
-                "permission_points": r[7],
-                "requires_permission": r[8],
-                "sync_mode": r[9] if len(r) > 9 else None,
-            }
-            for r in rows
-        ]
+        items = []
+        for row in rows:
+            item_key = row[1]
+            api_name = row[6] if len(row) > 6 and row[6] not in (None, "") else item_key
+            items.append(
+                {
+                    "source": row[0],
+                    "item_key": item_key,
+                    "target_database": row[2] if len(row) > 2 else None,
+                    "target_table": row[3] if len(row) > 3 else None,
+                    "table_created": row[4] if len(row) > 4 else None,
+                    "sync_priority": row[5] if len(row) > 5 else None,
+                    "api_name": api_name,
+                    "permission_points": row[7] if len(row) > 7 else None,
+                    "requires_permission": row[8] if len(row) > 8 else None,
+                    "sync_mode": row[9] if len(row) > 9 else None,
+                }
+            )
 
     try:
         registry = _runtime_support_registry()
