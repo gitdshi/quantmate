@@ -253,3 +253,13 @@ def test_apply_migrations_real_handles_percent_literals(tmp_path):
         and "%单独权限%" in str(call_args.args[0])
         for call_args in mock_conn.execute.call_args_list
     )
+
+
+def test_sync_mode_migration_uses_mysql_compatible_column_guard():
+    migration_path = Path(__file__).resolve().parents[3] / "mysql" / "migrations" / "040_add_sync_mode_to_data_source_items.sql"
+
+    sql = migration_path.read_text(encoding="utf-8")
+
+    assert "information_schema.columns" in sql
+    assert "PREPARE stmt_add_sync_mode" in sql
+    assert "ADD COLUMN IF NOT EXISTS sync_mode" not in sql

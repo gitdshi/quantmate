@@ -1,8 +1,6 @@
 # QuantMate Staging 环境 Docker Compose 配置
 # 使用方法: docker-compose -f docker-compose.yml -f docker-compose.staging.yml up -d
 
-version: '3.8'
-
 services:
   # QuantMate API Service (Staging 配置)
   api:
