@@ -19,6 +19,8 @@ from app.infrastructure.db.connections import connection
 
 logger = logging.getLogger(__name__)
 
+_RDAGENT_DB = "qlib"
+
 
 class RunStatus(str, Enum):
     QUEUED = "queued"
@@ -58,7 +60,7 @@ class RDAgentService:
         run_id = str(uuid.uuid4())
         now = datetime.utcnow().isoformat()
 
-        with connection("quantmate") as conn:
+        with connection(_RDAGENT_DB) as conn:
             conn.execute(
                 text(
                     "INSERT INTO rdagent_runs "
@@ -80,7 +82,7 @@ class RDAgentService:
 
     def get_run(self, user_id: int, run_id: str) -> Optional[dict[str, Any]]:
         """Get a single mining run."""
-        with connection("quantmate") as conn:
+        with connection(_RDAGENT_DB) as conn:
             result = conn.execute(
                 text(
                     "SELECT run_id, user_id, scenario, config, status, "
@@ -97,7 +99,7 @@ class RDAgentService:
         self, user_id: int, limit: int = 20, offset: int = 0
     ) -> list[dict[str, Any]]:
         """List mining runs for a user."""
-        with connection("quantmate") as conn:
+        with connection(_RDAGENT_DB) as conn:
             result = conn.execute(
                 text(
                     "SELECT run_id, scenario, status, current_iteration, "
@@ -128,7 +130,7 @@ class RDAgentService:
         if not run:
             raise KeyError("Run not found")
 
-        with connection("quantmate") as conn:
+        with connection(_RDAGENT_DB) as conn:
             result = conn.execute(
                 text(
                     "SELECT id, run_id, iteration_number, hypothesis, "
@@ -148,7 +150,7 @@ class RDAgentService:
         if not run:
             raise KeyError("Run not found")
 
-        with connection("quantmate") as conn:
+        with connection(_RDAGENT_DB) as conn:
             result = conn.execute(
                 text(
                     "SELECT id, run_id, factor_name, expression, description, "
@@ -171,7 +173,7 @@ class RDAgentService:
             raise KeyError("Run not found")
 
         # Get the discovered factor
-        with connection("quantmate") as conn:
+        with connection(_RDAGENT_DB) as conn:
             result = conn.execute(
                 text(
                     "SELECT id, factor_name, expression, description "
@@ -195,7 +197,7 @@ class RDAgentService:
         )
 
         # Mark as imported
-        with connection("quantmate") as conn:
+        with connection(_RDAGENT_DB) as conn:
             conn.execute(
                 text(
                     "UPDATE rdagent_discovered_factors "
@@ -217,7 +219,7 @@ def _update_run_status(
     error_message: Optional[str] = None,
 ) -> None:
     """Update the status of a mining run."""
-    with connection("quantmate") as conn:
+    with connection(_RDAGENT_DB) as conn:
         conn.execute(
             text(
                 "UPDATE rdagent_runs SET status = :status, "
@@ -237,7 +239,7 @@ def save_iteration(
     status: str = "completed",
 ) -> int:
     """Save an iteration result to the database."""
-    with connection("quantmate") as conn:
+    with connection(_RDAGENT_DB) as conn:
         result = conn.execute(
             text(
                 "INSERT INTO rdagent_iterations "
@@ -268,7 +270,7 @@ def save_discovered_factor(
     sharpe: Optional[float] = None,
 ) -> int:
     """Save a discovered factor to the database."""
-    with connection("quantmate") as conn:
+    with connection(_RDAGENT_DB) as conn:
         result = conn.execute(
             text(
                 "INSERT INTO rdagent_discovered_factors "

@@ -24,8 +24,8 @@ class TestRunWorker:
             mock_worker_cls.assert_called_once()
             worker_instance.work.assert_called_once()
 
-    def test_main_uses_low_queue_by_default(self):
-        """Verify the default worker queue set includes the datasync low queue."""
+    def test_main_uses_rdagent_queue_by_default(self):
+        """Verify the default worker queue set includes the RD-Agent queue."""
         import app.worker.service.run_worker as _mod
 
         queue_map = {
@@ -33,6 +33,7 @@ class TestRunWorker:
             "optimization": MagicMock(name="optimization_queue"),
             "default": MagicMock(name="default_queue"),
             "low": MagicMock(name="low_queue"),
+            "rdagent": MagicMock(name="rdagent_queue"),
         }
         worker_instance = MagicMock()
         mock_worker_cls = MagicMock(return_value=worker_instance)
@@ -48,6 +49,7 @@ class TestRunWorker:
             queue_map["optimization"],
             queue_map["default"],
             queue_map["low"],
+            queue_map["rdagent"],
         ]
         assert kwargs["connection"] is _mod.redis_conn
         worker_instance.work.assert_called_once_with(with_scheduler=True)

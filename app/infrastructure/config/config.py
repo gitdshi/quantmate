@@ -77,7 +77,7 @@ class Settings(BaseSettings):
     queue_optimization_default_timeout_seconds: int = 7200
     queue_rdagent_default_timeout_seconds: int = 14400
 
-    worker_default_queue_names: Annotated[list[str], NoDecode] = ["backtest", "optimization", "default", "low"]
+    worker_default_queue_names: Annotated[list[str], NoDecode] = ["backtest", "optimization", "default", "low", "rdagent"]
 
     rdagent_request_timeout_seconds: float = 14400.0
 

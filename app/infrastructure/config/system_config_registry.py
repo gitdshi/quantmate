@@ -475,7 +475,7 @@ DB_SYSTEM_CONFIG_DEFINITIONS: tuple[SystemConfigDefinition, ...] = (
         label="Default worker queues",
         description="Comma-separated queue names used when a worker starts without explicit queue arguments.",
         value_type="csv",
-        default_value="backtest,optimization,default,low",
+        default_value="backtest,optimization,default,low,rdagent",
         legacy_env_keys="WORKER_DEFAULT_QUEUE_NAMES",
     ),
     _cfg(

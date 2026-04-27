@@ -75,6 +75,7 @@ services:
       - RDAGENT_SIDECAR_URL=http://rdagent-service:8001
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - WORKER_DEFAULT_QUEUE_NAMES=backtest,optimization,default,low,rdagent
       - DEBUG=false
     command: ["python", "-m", "app.worker.service.run_worker"]
     networks:

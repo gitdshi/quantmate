@@ -15,9 +15,11 @@ tests/
 ├── unit/               # Unit tests for specific modules
 │   ├── dao/
 │   │   └── test_user_dao.py
+│   ├── infrastructure/
+│   │   └── config/
+│   │       └── test_config_security.py
 │   └── services/
 │       └── test_strategy_service.py
-└── test_config_security.py  # Security configuration tests
 ```
 
 ## Running Tests
