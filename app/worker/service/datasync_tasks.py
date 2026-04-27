@@ -34,6 +34,7 @@ def run_backfill_task(source: str, item_key: str, batch_size: int = 30) -> dict:
         _write_status,
     )
     from app.datasync.base import SyncStatus, SyncResult
+    from app.datasync.sync_mode import infer_sync_mode_from_interface, normalize_sync_mode, sync_mode_supports_backfill
     from app.datasync.table_manager import ensure_table
     from app.infrastructure.db.connections import get_quantmate_engine
     from sqlalchemy import text
@@ -58,11 +59,15 @@ def run_backfill_task(source: str, item_key: str, batch_size: int = 30) -> dict:
     with engine.connect() as conn:
         row = conn.execute(
             text(
-                "SELECT target_database, target_table, table_created "
+                "SELECT target_database, target_table, table_created, sync_mode "
                 "FROM data_source_items WHERE source = :s AND item_key = :k"
             ),
             {"s": source, "k": item_key},
         ).fetchone()
+    sync_mode = normalize_sync_mode(
+        row[3] if row is not None and len(row) > 3 else None,
+        default=infer_sync_mode_from_interface(iface),
+    )
     if row:
         try:
             if iface.should_ensure_table_before_sync():
@@ -70,6 +75,38 @@ def run_backfill_task(source: str, item_key: str, batch_size: int = 30) -> dict:
         except Exception as e:
             logger.exception("DDL failed for %s/%s: %s", source, item_key, e)
             return {"status": "error", "error": f"DDL failed: {e}"}
+
+    latest_only_target_date = None
+    if not sync_mode_supports_backfill(sync_mode):
+        with engine.begin() as conn:
+            latest_row = conn.execute(
+                text(
+                    "SELECT MAX(sync_date) FROM data_sync_status "
+                    "WHERE source = :s AND interface_key = :k "
+                    "AND status IN ('pending', 'error', 'partial') "
+                    "AND retry_count < :max_retries"
+                ),
+                {"s": source, "k": item_key, "max_retries": max_retries},
+            ).fetchone()
+            latest_only_target_date = latest_row[0] if latest_row else None
+            if latest_only_target_date is not None:
+                conn.execute(
+                    text(
+                        "UPDATE data_sync_status SET status = 'success', rows_synced = 0, "
+                        "error_message = :msg, updated_at = CURRENT_TIMESTAMP "
+                        "WHERE source = :s AND interface_key = :k "
+                        "AND status IN ('pending', 'error', 'partial') "
+                        "AND retry_count < :max_retries "
+                        "AND sync_date < :latest_sync_date"
+                    ),
+                    {
+                        "s": source,
+                        "k": item_key,
+                        "max_retries": max_retries,
+                        "latest_sync_date": latest_only_target_date,
+                        "msg": "Skipped historical backfill for latest-only interface",
+                    },
+                )
 
     # Fetch retryable dates
     with engine.connect() as conn:
@@ -79,9 +116,16 @@ def run_backfill_task(source: str, item_key: str, batch_size: int = 30) -> dict:
                 "WHERE source = :s AND interface_key = :k "
                 "AND status IN ('pending', 'error', 'partial') "
                 "AND retry_count < :max_retries "
+                "AND (:latest_sync_date IS NULL OR sync_date = :latest_sync_date) "
                 "ORDER BY sync_date ASC LIMIT :limit"
             ),
-            {"s": source, "k": item_key, "limit": batch_size, "max_retries": max_retries},
+            {
+                "s": source,
+                "k": item_key,
+                "limit": batch_size,
+                "max_retries": max_retries,
+                "latest_sync_date": latest_only_target_date,
+            },
         ).fetchall()
 
     pending_records = [(r[0], r[1], int(r[2] or 0)) for r in rows]

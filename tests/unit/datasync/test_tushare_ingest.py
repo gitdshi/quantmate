@@ -425,20 +425,22 @@ class TestIngestStockCompany:
     def test_snapshot(self):
         from app.datasync.service import tushare_ingest as mod
         progress = MagicMock()
-        with patch.object(mod, "ingest_stock_company", side_effect=[2, 3]):
+        with patch.object(mod, "ingest_stock_company", side_effect=[2, 3, 4]):
             result = mod.ingest_stock_company_snapshot(progress_cb=progress, sleep_between=0)
-        assert result == 5
+        assert result == 9
         assert progress.call_args_list[0].kwargs["ts_code"] == "SSE"
         assert progress.call_args_list[1].kwargs["ts_code"] == "SZSE"
+        assert progress.call_args_list[2].kwargs["ts_code"] == "BSE"
 
     def test_snapshot_resume_reprocesses_saved_exchange(self):
         from app.datasync.service import tushare_ingest as mod
 
-        with patch.object(mod, "ingest_stock_company", side_effect=[3]) as ingest_one:
+        with patch.object(mod, "ingest_stock_company", side_effect=[3, 4]) as ingest_one:
             result = mod.ingest_stock_company_snapshot(start_after_exchange="SZSE", sleep_between=0)
 
-        assert result == 3
-        ingest_one.assert_called_once_with(exchange="SZSE")
+        assert result == 7
+        assert ingest_one.call_args_list[0].kwargs["exchange"] == "SZSE"
+        assert ingest_one.call_args_list[1].kwargs["exchange"] == "BSE"
 
     def test_quota_propagates(self):
         from app.datasync.service import tushare_ingest as mod

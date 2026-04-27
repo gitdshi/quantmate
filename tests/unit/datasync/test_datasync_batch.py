@@ -781,6 +781,38 @@ class TestTableManager:
         result = _tm.ensure_table("tushare", "test_tbl", "CREATE TABLE ...")
         assert result is False  # table already exists
 
+        def test_ensure_table_adds_missing_static_column(self, monkeypatch):
+                mock_conn = MagicMock()
+                mock_conn.execute.return_value.scalar.return_value = 1
+                mock_eng = MagicMock()
+                mock_eng.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+                mock_eng.connect.return_value.__exit__ = MagicMock(return_value=False)
+                mock_begin_conn = MagicMock()
+                mock_eng.begin.return_value.__enter__ = MagicMock(return_value=mock_begin_conn)
+                mock_eng.begin.return_value.__exit__ = MagicMock(return_value=False)
+
+                monkeypatch.setattr(_tm, "_get_engine", lambda db: mock_eng)
+                monkeypatch.setattr(_tm, "_mark_table_created", lambda db, tbl: None)
+                monkeypatch.setattr(
+                        _tm,
+                        "_get_existing_columns",
+                        lambda db, tbl: {"ts_code": {"is_nullable": "NO", "column_type": "varchar(16)"}},
+                )
+
+                ddl = """
+CREATE TABLE `stock_company` (
+    `ts_code` VARCHAR(16) NOT NULL,
+    `exchange` VARCHAR(10) NULL,
+    PRIMARY KEY (`ts_code`)
+)
+"""
+
+                result = _tm.ensure_table("tushare", "stock_company", ddl)
+
+                assert result is False
+                assert mock_begin_conn.execute.call_count == 1
+                assert "ADD COLUMN `exchange` VARCHAR(10) NULL" in str(mock_begin_conn.execute.call_args.args[0])
+
     def test_ensure_table_creates(self, monkeypatch):
         mock_conn = MagicMock()
         mock_conn.execute.return_value.scalar.return_value = 0  # doesn't exist

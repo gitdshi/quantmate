@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional
 
 from sqlalchemy import text
 
+from app.datasync.sync_mode import infer_sync_mode_from_interface, normalize_sync_mode, sync_mode_supports_backfill
 from app.infrastructure.config import get_runtime_int
 from app.infrastructure.db.connections import get_quantmate_engine
 from app.infrastructure.runtime_cache import ExpiringCache
@@ -203,7 +204,7 @@ class DataSyncDashboardService:
         item_sql = (
             "SELECT dsi.source, dsc.display_name AS source_name, dsi.item_key, "
             "dsi.item_name AS item_name, dsi.sync_priority, dsi.api_name, "
-            "dsi.permission_points, dsi.requires_permission "
+            "dsi.permission_points, dsi.requires_permission, dsi.sync_mode "
             "FROM data_source_items dsi "
             "JOIN data_source_configs dsc ON dsi.source = dsc.source_key "
             f"WHERE {' AND '.join(clauses)} "
@@ -212,7 +213,7 @@ class DataSyncDashboardService:
         legacy_item_sql = (
             "SELECT dsi.source, dsc.display_name AS source_name, dsi.item_key, "
             "dsi.item_name AS item_name, dsi.sync_priority, dsi.item_key AS api_name, "
-            "0 AS permission_points, dsi.requires_permission "
+            "0 AS permission_points, dsi.requires_permission, 'backfill' AS sync_mode "
             "FROM data_source_items dsi "
             "JOIN data_source_configs dsc ON dsi.source = dsc.source_key "
             f"WHERE {' AND '.join(clauses)} "
@@ -296,6 +297,7 @@ class DataSyncDashboardService:
                 "api_name": row[5] if len(row) > 5 else None,
                 "permission_points": row[6] if len(row) > 6 else None,
                 "requires_permission": row[7] if len(row) > 7 else None,
+                "sync_mode": row[8] if len(row) > 8 else None,
             }
             if not is_item_sync_supported(registry, item_meta, source_configs=source_configs):
                 unsupported_items += 1
@@ -306,10 +308,8 @@ class DataSyncDashboardService:
                 unsupported_items += 1
                 continue
 
-            supports_backfill = True
-            method = getattr(iface, "supports_backfill", None)
-            if callable(method):
-                supports_backfill = bool(method())
+            sync_mode = normalize_sync_mode(item_meta.get("sync_mode"), default=infer_sync_mode_from_interface(iface))
+            supports_backfill = sync_mode_supports_backfill(sync_mode)
 
             counts = status_map.get((source_key, item_key), {})
             total_sync_dates = int(counts.get("total", 0) or 0)
@@ -320,8 +320,7 @@ class DataSyncDashboardService:
 
             if missing_sync_dates > 0:
                 missing_items += 1
-            if supports_backfill:
-                repairable_items += 1
+            repairable_items += 1
 
             items.append(
                 {
@@ -331,6 +330,7 @@ class DataSyncDashboardService:
                     "item_name": row[3] or item_key,
                     "sync_priority": int(row[4] or 0),
                     "api_name": row[5],
+                    "sync_mode": sync_mode,
                     "supports_backfill": supports_backfill,
                     "expected_sync_dates": expected_sync_dates,
                     "total_sync_dates": total_sync_dates,

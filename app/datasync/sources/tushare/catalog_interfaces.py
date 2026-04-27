@@ -115,6 +115,7 @@ _TRADE_DATE_APIS = {
     "capital_flow",
     "daily_info",
     "block_trade",
+    "stock_st",
 }
 
 _ANN_DATE_APIS = {
@@ -130,6 +131,7 @@ _ANN_DATE_APIS = {
     "fina_indicator_vip",
     "fina_audit",
     "disclosure_date",
+    "stk_holdertrade",
 }
 
 _END_DATE_APIS = {
@@ -140,12 +142,21 @@ _END_DATE_APIS = {
 _RANGE_APIS = {
     "new_share",
     "ipo",
+    "ft_mins",
+    "namechange",
+    "stk_account",
+    "stk_account_old",
+    "stk_holdertrade",
+    "stock_st",
 }
 
 _KEY_DATE_OVERRIDES = {
+    "ft_mins": "trade_time",
     "namechange": "end_date",
     "repurchase": "end_date",
     "report_rc": "report_date",
+    "stk_account": "date",
+    "stk_account_old": "date",
 }
 
 _REQUEST_DATE_OVERRIDES = {
@@ -239,8 +250,6 @@ class TushareCatalogInterface(BaseIngestInterface):
         return not ddl.uses_sample_inferred_schema(self.info.target_table)
 
     def supports_backfill(self) -> bool:
-        if not self.supports_scheduled_sync():
-            return False
         return self._date_param() is not None or self._range_params() is not None
 
     def backfill_mode(self) -> str:

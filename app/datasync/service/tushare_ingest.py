@@ -430,7 +430,7 @@ def ingest_stock_company_snapshot(
     progress_cb=None,
     start_after_exchange: str = None,
 ):
-    exchanges = exchanges or ["SSE", "SZSE"]
+    exchanges = exchanges or ["SSE", "SZSE", "BSE"]
     total_rows = 0
     skip_until_found = bool(start_after_exchange)
     for exchange in exchanges:

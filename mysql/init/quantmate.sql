@@ -271,7 +271,9 @@ INSERT IGNORE INTO schema_migrations (version, name) VALUES
     ('035', '035_fix_tushare_suspend_and_audit.sql'),
     ('036', '036_normalize_tushare_permissions.sql'),
     ('037', '037_permission_points_as_int.sql'),
-    ('038', '038_refresh_tushare_catalog_from_csv.sql');
+    ('038', '038_refresh_tushare_catalog_from_csv.sql'),
+    ('039', '039_align_tushare_target_tables_with_interface_keys.sql'),
+    ('040', '040_add_sync_mode_to_data_source_items.sql');
 
 -- Migration 001: Audit logs
 CREATE TABLE IF NOT EXISTS audit_logs (
@@ -342,49 +344,51 @@ CREATE TABLE IF NOT EXISTS data_source_items (
     target_table        VARCHAR(100) NOT NULL DEFAULT '' COMMENT 'Target table name',
     table_created       TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '1 if table has been created',
     sync_priority       INT          NOT NULL DEFAULT 100 COMMENT 'Lower = higher priority',
+    sync_mode           VARCHAR(20)  NOT NULL DEFAULT 'backfill' COMMENT 'backfill or latest_only',
     updated_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uq_source_item (source, item_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Consolidated seed data for data_source_items (from migrations 004, 008, 013, 014, 018)
-INSERT INTO data_source_items (source, item_key, item_name, enabled, description, requires_permission, target_database, target_table, table_created, sync_priority) VALUES
+INSERT INTO data_source_items (source, item_key, item_name, enabled, description, requires_permission, target_database, target_table, table_created, sync_priority, sync_mode) VALUES
 -- Core tushare items
-('tushare', 'stock_basic',     '股票基本信息',  1, 'A股基本资料',                   NULL,      'tushare', 'stock_basic',     0, 10),
-('tushare', 'stock_company',   '公司基本面',    1, '上市公司基本信息',                '0',       'tushare', 'stock_company',   1, 15),
-('tushare', 'new_share',       'IPO新股列表',   0, '新股上市列表数据',                NULL,      'tushare', 'new_share',      1, 104),
-('tushare', 'stock_daily',     '日线行情',      1, 'A股日K线',                      NULL,      'tushare', 'stock_daily',     1, 20),
-('tushare', 'adj_factor',      '复权因子',      1, '前复权因子',                     NULL,      'tushare', 'adj_factor',      0, 30),
-('tushare', 'trade_cal',       '交易日历',      1, '交易所交易日历',                  NULL,      'tushare', 'trade_cal',       0, 5),
-('tushare', 'suspend_d',       '停复牌当日信息',0, '停复牌当日状态数据',              NULL,      'tushare', 'suspend_d',       1, 23),
-('tushare', 'report_rc',       '盈利预测数据',  0, '券商盈利预测数据',                NULL,      'tushare', 'report_rc',      1, 315),
+('tushare', 'stock_basic',     '股票基本信息',  1, 'A股基本资料',                   NULL,      'tushare', 'stock_basic',     0, 10, 'latest_only'),
+('tushare', 'stock_company',   '公司基本面',    1, '上市公司基本信息',                '0',       'tushare', 'stock_company',   1, 15, 'latest_only'),
+('tushare', 'new_share',       'IPO新股列表',   0, '新股上市列表数据',                NULL,      'tushare', 'new_share',      1, 104, 'backfill'),
+('tushare', 'stock_daily',     '日线行情',      1, 'A股日K线',                      NULL,      'tushare', 'stock_daily',     1, 20, 'backfill'),
+('tushare', 'adj_factor',      '复权因子',      1, '前复权因子',                     NULL,      'tushare', 'adj_factor',      0, 30, 'backfill'),
+('tushare', 'trade_cal',       '交易日历',      1, '交易所交易日历',                  NULL,      'tushare', 'trade_cal',       0, 5, 'backfill'),
+('tushare', 'suspend_d',       '停复牌当日信息',0, '停复牌当日状态数据',              NULL,      'tushare', 'suspend_d',       1, 23, 'backfill'),
+('tushare', 'report_rc',       '盈利预测数据',  0, '券商盈利预测数据',                NULL,      'tushare', 'report_rc',      1, 315, 'backfill'),
 -- Weekly/Monthly/Index items
-('tushare', 'stock_weekly',    '周线行情',      1, 'A股周K线',                      NULL,      'tushare', 'stock_weekly',    0, 25),
-('tushare', 'stock_monthly',   '月线行情',      1, 'A股月K线',                      NULL,      'tushare', 'stock_monthly',   0, 26),
-('tushare', 'index_weekly',    '指数周线',      1, '指数周K线',                      NULL,      'tushare', 'index_weekly',    0, 28),
-('tushare', 'index_daily',     '指数日线',      1, '指数日K线',                      NULL,      'tushare', 'index_daily',     0, 27),
+('tushare', 'stock_weekly',    '周线行情',      1, 'A股周K线',                      NULL,      'tushare', 'stock_weekly',    0, 25, 'backfill'),
+('tushare', 'stock_monthly',   '月线行情',      1, 'A股月K线',                      NULL,      'tushare', 'stock_monthly',   0, 26, 'backfill'),
+('tushare', 'index_weekly',    '指数周线',      1, '指数周K线',                      NULL,      'tushare', 'index_weekly',    0, 28, 'backfill'),
+('tushare', 'index_daily',     '指数日线',      1, '指数日K线',                      NULL,      'tushare', 'index_daily',     0, 27, 'backfill'),
 -- Extended tushare items
-('tushare', 'moneyflow',       '资金流向',      1, '个股资金流向数据',                '0',       'tushare', 'moneyflow',       0, 25),
-('tushare', 'stk_limit',       '涨跌停统计',    1, '涨跌停数据(封单/强度)',           '0',       'tushare', 'stk_limit',       0, 70),
-('tushare', 'margin_detail',   '融资融券',      1, '融资融券余额明细',                '0',       'tushare', 'margin_detail',   0, 80),
-('tushare', 'block_trade',     '大宗交易',      1, '大宗交易数据',                   '0',       'tushare', 'block_trade',     0, 90),
-('tushare', 'fina_indicator',  '财务指标',      1, '主要财务指标数据',                '0',       'tushare', 'fina_indicator',  0, 55),
-('tushare', 'dividend',        '分红送股',      0, '分红送股数据(需高级权限)',         '1',       'tushare', 'dividend',        0, 50),
-('tushare', 'income',          '利润表',        0, '利润表数据(需高级权限)',           '1',       'tushare', 'income',          0, 56),
-('tushare', 'top10_holders',   '十大股东',      0, '十大股东数据(需高级权限)',         '1',       'tushare', 'top10_holders',   0, 57),
-('tushare', 'us_basic',        '美股列表',      0, '美股基础信息',                    NULL,      'tushare', 'us_basic',        1, 800),
-('tushare', 'us_daily',        '美股日线',      0, '美股日线行情',                    NULL,      'tushare', 'us_daily',        1, 801),
-('tushare', 'shibor_lpr',      'LPR贷款基础利率',0,'LPR贷款基础利率',                NULL,      'tushare', 'shibor_lpr',      1, 840),
+('tushare', 'moneyflow',       '资金流向',      1, '个股资金流向数据',                '0',       'tushare', 'moneyflow',       0, 25, 'backfill'),
+('tushare', 'stk_limit',       '涨跌停统计',    1, '涨跌停数据(封单/强度)',           '0',       'tushare', 'stk_limit',       0, 70, 'backfill'),
+('tushare', 'margin_detail',   '融资融券',      1, '融资融券余额明细',                '0',       'tushare', 'margin_detail',   0, 80, 'backfill'),
+('tushare', 'block_trade',     '大宗交易',      1, '大宗交易数据',                   '0',       'tushare', 'block_trade',     0, 90, 'backfill'),
+('tushare', 'fina_indicator',  '财务指标',      1, '主要财务指标数据',                '0',       'tushare', 'fina_indicator',  0, 55, 'backfill'),
+('tushare', 'dividend',        '分红送股',      0, '分红送股数据(需高级权限)',         '1',       'tushare', 'dividend',        0, 50, 'backfill'),
+('tushare', 'income',          '利润表',        0, '利润表数据(需高级权限)',           '1',       'tushare', 'income',          0, 56, 'backfill'),
+('tushare', 'top10_holders',   '十大股东',      0, '十大股东数据(需高级权限)',         '1',       'tushare', 'top10_holders',   0, 57, 'backfill'),
+('tushare', 'us_basic',        '美股列表',      0, '美股基础信息',                    NULL,      'tushare', 'us_basic',        1, 800, 'latest_only'),
+('tushare', 'us_daily',        '美股日线',      0, '美股日线行情',                    NULL,      'tushare', 'us_daily',        1, 801, 'backfill'),
+('tushare', 'shibor_lpr',      'LPR贷款基础利率',0,'LPR贷款基础利率',                NULL,      'tushare', 'shibor_lpr',      1, 840, 'backfill'),
 -- AkShare items
-('akshare', 'stock_zh_index_spot', '指数实时行情', 1, 'A股指数实时报价',              '0',       'akshare', 'stock_zh_index_spot', 1, 40),
-('akshare', 'fund_etf_daily',  'ETF日线',       1, 'ETF基金日K线数据',               '0',       'akshare', 'fund_etf_daily',  1, 45),
+('akshare', 'stock_zh_index_spot', '指数实时行情', 1, 'A股指数实时报价',              '0',       'akshare', 'stock_zh_index_spot', 1, 40, 'latest_only'),
+('akshare', 'fund_etf_daily',  'ETF日线',       1, 'ETF基金日K线数据',               '0',       'akshare', 'fund_etf_daily',  1, 45, 'backfill'),
 -- AkShare index_daily (for index OHLCV)
-('akshare', 'index_daily',     '指数日线',      1, 'AkShare指数日K线(沪深300等)',     NULL,      'akshare', 'index_daily',     1, 41)
+('akshare', 'index_daily',     '指数日线',      1, 'AkShare指数日K线(沪深300等)',     NULL,      'akshare', 'index_daily',     1, 41, 'backfill')
 ON DUPLICATE KEY UPDATE
     item_name = VALUES(item_name),
     target_database = VALUES(target_database),
     target_table = VALUES(target_table),
     table_created = VALUES(table_created),
-    sync_priority = VALUES(sync_priority);
+    sync_priority = VALUES(sync_priority),
+    sync_mode = VALUES(sync_mode);
 
 -- Migration 006: Portfolio tables
 CREATE TABLE IF NOT EXISTS portfolios (

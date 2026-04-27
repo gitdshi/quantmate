@@ -326,12 +326,33 @@ class TestGetEnabledItems:
     def test_returns_items(self):
         from app.datasync.service.sync_engine import _get_enabled_items
         engine, conn = _conn_ctx()
-        rows = [("tushare", "stock_daily", "tushare_db", "stock_daily", 1, 10)]
+        rows = [("tushare", "stock_daily", "tushare_db", "stock_daily", 1, 10, "daily", 0, None)]
         conn.execute.return_value = MagicMock(fetchall=MagicMock(return_value=rows))
-        with patch(f"{_MOD}.get_quantmate_engine", return_value=engine):
+        with patch(f"{_MOD}.get_quantmate_engine", return_value=engine), \
+             patch(f"{_MOD}._runtime_support_registry", return_value=MagicMock()), \
+             patch(f"{_MOD}.load_source_config_map", return_value={}), \
+             patch(f"{_MOD}.is_item_sync_supported", return_value=True):
             result = _get_enabled_items()
         assert len(result) == 1
         assert result[0]["source"] == "tushare"
+
+    def test_filters_runtime_unsupported_items(self):
+        from app.datasync.service.sync_engine import _get_enabled_items
+
+        engine, conn = _conn_ctx()
+        rows = [
+            ("tushare", "bak_daily", "tushare_db", "bak_daily", 1, 10, "bak_daily", 5000, None),
+            ("tushare", "stock_daily", "tushare_db", "stock_daily", 1, 20, "daily", 0, None),
+        ]
+        conn.execute.return_value = MagicMock(fetchall=MagicMock(return_value=rows))
+
+        with patch(f"{_MOD}.get_quantmate_engine", return_value=engine), \
+             patch(f"{_MOD}._runtime_support_registry", return_value=MagicMock()), \
+             patch(f"{_MOD}.load_source_config_map", return_value={"tushare": {"config_json": {"token_points": 2000}}}), \
+             patch(f"{_MOD}.is_item_sync_supported", side_effect=[False, True]):
+            result = _get_enabled_items()
+
+        assert [item["item_key"] for item in result] == ["stock_daily"]
 
     def test_backfill_keys_follow_enabled_items(self):
         from app.datasync.service.sync_engine import _get_enabled_backfill_keys

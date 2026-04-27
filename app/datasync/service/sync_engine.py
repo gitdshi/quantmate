@@ -22,7 +22,9 @@ from typing import Optional
 from sqlalchemy import text
 
 from app.datasync.base import SyncResult, SyncStatus
-from app.datasync.registry import DataSourceRegistry
+from app.datasync.capabilities import is_item_sync_supported, load_source_config_map
+from app.datasync.registry import DataSourceRegistry, build_default_registry
+from app.datasync.sync_mode import infer_sync_mode_from_interface, normalize_sync_mode, sync_mode_supports_backfill
 from app.datasync.sources.tushare.sync_error_handling import final_retry_count_for_result, is_quota_pause_result
 from app.datasync.table_manager import ensure_table
 from app.infrastructure.config import get_runtime_config, get_runtime_int
@@ -403,17 +405,6 @@ def _group_backfill_records_by_date(
     return grouped
 
 
-def _supports_backfill(iface, source: str, iface_key: str) -> bool:
-    supports_backfill = True
-    method = getattr(iface, "supports_backfill", None)
-    if callable(method):
-        try:
-            supports_backfill = bool(method())
-        except Exception:
-            logger.exception("Failed to inspect backfill support for %s/%s", source, iface_key)
-    return supports_backfill
-
-
 def _supports_scheduled_sync(iface, source: str, iface_key: str) -> bool:
     supports_scheduled_sync = True
     method = getattr(iface, "supports_scheduled_sync", None)
@@ -673,14 +664,16 @@ def _get_enabled_items() -> list[dict]:
         rows = conn.execute(
             text(
                 "SELECT dsi.source, dsi.item_key, dsi.target_database, dsi.target_table, "
-                "dsi.table_created, dsi.sync_priority "
+                "dsi.table_created, dsi.sync_priority, "
+                "COALESCE(NULLIF(TRIM(dsi.api_name), ''), dsi.item_key) AS api_name, "
+                "dsi.permission_points, dsi.requires_permission, dsi.sync_mode "
                 "FROM data_source_items dsi "
                 "JOIN data_source_configs dsc ON dsi.source = dsc.source_key AND dsc.enabled = 1 "
                 "WHERE dsi.enabled = 1 "
                 "ORDER BY dsi.sync_priority ASC"
             )
         ).fetchall()
-        return [
+        items = [
             {
                 "source": r[0],
                 "item_key": r[1],
@@ -688,9 +681,45 @@ def _get_enabled_items() -> list[dict]:
                 "target_table": r[3],
                 "table_created": r[4],
                 "sync_priority": r[5],
+                "api_name": r[6],
+                "permission_points": r[7],
+                "requires_permission": r[8],
+                "sync_mode": r[9] if len(r) > 9 else None,
             }
             for r in rows
         ]
+
+    try:
+        registry = _runtime_support_registry()
+        source_configs = load_source_config_map()
+    except Exception:
+        logger.exception("Failed to load runtime support metadata; using DB-enabled item set")
+        return items
+
+    enabled_items: list[dict] = []
+    for item in items:
+        try:
+            if is_item_sync_supported(registry, item, source_configs=source_configs):
+                enabled_items.append(item)
+                continue
+            logger.info(
+                "Skipping runtime-unsupported enabled item %s/%s",
+                item["source"],
+                item["item_key"],
+            )
+        except Exception:
+            logger.exception(
+                "Failed to evaluate runtime support for %s/%s; keeping DB-enabled item",
+                item["source"],
+                item["item_key"],
+            )
+            enabled_items.append(item)
+    return enabled_items
+
+
+@lru_cache(maxsize=1)
+def _runtime_support_registry() -> DataSourceRegistry:
+    return build_default_registry()
 
 
 def _get_enabled_backfill_keys() -> set[tuple[str, str]]:
@@ -975,6 +1004,14 @@ def backfill_retry(
     results: dict[str, dict] = {}
     try:
         enabled_backfill_keys = _get_enabled_backfill_keys()
+        try:
+            enabled_items = {(item["source"], item["item_key"]): item for item in _get_enabled_items()}
+        except Exception:
+            logger.exception("Failed to load enabled item metadata for backfill; falling back to interface metadata")
+            enabled_items = {
+                (source_key, enabled_item_key): {"source": source_key, "item_key": enabled_item_key}
+                for source_key, enabled_item_key in enabled_backfill_keys
+            }
         failed = [
             record
             for record in _filter_backfill_retry_records(_get_failed_records(window_start_date, window_end_date))
@@ -987,6 +1024,7 @@ def backfill_retry(
             sync_date, source, iface_key, retry_count = record[:4]
             label = f"{source}/{iface_key}@{sync_date}"
             effective_retry_count = _effective_retry_count(record)
+            item = enabled_items.get((source, iface_key), {})
 
             if effective_retry_count is None:
                 logger.debug("Skipping %s: max retries reached", label)
@@ -997,6 +1035,11 @@ def backfill_retry(
                 logger.warning("Backfill skip date=%s interface=%s: no plugin registered", sync_date, f"{source}/{iface_key}")
                 results[label] = {"status": "skipped", "reason": "no plugin"}
                 continue
+
+            sync_mode = normalize_sync_mode(
+                item.get("sync_mode"),
+                default=infer_sync_mode_from_interface(iface),
+            )
 
             if not _supports_scheduled_sync(iface, source, iface_key):
                 logger.info("Skipping runtime-unsupported interface %s during backfill", label)
@@ -1030,27 +1073,27 @@ def backfill_retry(
                 )
                 continue
 
-            if not _supports_backfill(iface, source, iface_key):
-                logger.info("Skipping historical backfill for non-historical interface %s", label)
+            if not sync_mode_supports_backfill(sync_mode) and sync_date != window_end_date:
+                logger.info("Skipping historical backfill for latest-only interface %s", label)
                 _write_status(
                     sync_date,
                     source,
                     iface_key,
                     SyncStatus.SUCCESS.value,
                     0,
-                    "Skipped historical backfill for non-historical interface",
+                    "Skipped historical backfill for latest-only interface",
                     retry_count=effective_retry_count,
                 )
                 skipped_result = SyncResult(
                     SyncStatus.SUCCESS,
                     0,
-                    "Skipped historical backfill for non-historical interface",
+                    "Skipped historical backfill for latest-only interface",
                 )
                 _log_backfill_result(sync_date, source, iface_key, skipped_result, iface)
                 results[label] = {"status": SyncStatus.SUCCESS.value, "rows": 0, "skipped": True}
                 continue
 
-            mode = _get_backfill_mode(iface, source, iface_key)
+            mode = "date" if not sync_mode_supports_backfill(sync_mode) else _get_backfill_mode(iface, source, iface_key)
             if mode == "range":
                 task_key = (source, iface_key)
                 bucket = pending_range_records.setdefault(

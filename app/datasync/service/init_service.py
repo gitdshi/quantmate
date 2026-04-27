@@ -10,6 +10,7 @@ from sqlalchemy import text
 
 from app.datasync.registry import DataSourceRegistry
 from app.datasync.service.sync_init_service import ensure_sync_status_init_table, reconcile_enabled_sync_status
+from app.datasync.sync_mode import infer_sync_mode_from_interface, normalize_sync_mode, sync_mode_supports_backfill
 from app.datasync.table_manager import ensure_table
 from app.domains.extdata.dao.data_sync_status_dao import ensure_backfill_lock_table, ensure_tables
 from app.infrastructure.config import get_runtime_str
@@ -18,7 +19,7 @@ from app.infrastructure.db.connections import get_quantmate_engine
 logger = logging.getLogger(__name__)
 
 _ENABLED_ITEM_METADATA_SQL = (
-    "SELECT dsi.source, dsi.item_key, dsi.api_name, dsi.permission_points, dsi.requires_permission "
+    "SELECT dsi.source, dsi.item_key, dsi.api_name, dsi.permission_points, dsi.requires_permission, dsi.sync_mode "
     "FROM data_source_items dsi "
     "JOIN data_source_configs dsc ON dsi.source = dsc.source_key "
     "WHERE dsi.enabled = 1 AND dsc.enabled = 1 "
@@ -26,7 +27,7 @@ _ENABLED_ITEM_METADATA_SQL = (
 )
 
 _ENABLED_ITEM_METADATA_LEGACY_SQL = (
-    "SELECT dsi.source, dsi.item_key, dsi.item_key AS api_name, 0 AS permission_points, dsi.requires_permission "
+    "SELECT dsi.source, dsi.item_key, dsi.item_key AS api_name, 0 AS permission_points, dsi.requires_permission, 'backfill' AS sync_mode "
     "FROM data_source_items dsi "
     "JOIN data_source_configs dsc ON dsi.source = dsc.source_key "
     "WHERE dsi.enabled = 1 AND dsc.enabled = 1 "
@@ -34,14 +35,14 @@ _ENABLED_ITEM_METADATA_LEGACY_SQL = (
 )
 
 _TUSHARE_ITEM_METADATA_SQL = (
-    "SELECT source, item_key, enabled, api_name, permission_points, requires_permission "
+    "SELECT source, item_key, enabled, api_name, permission_points, requires_permission, sync_mode "
     "FROM data_source_items "
     "WHERE source = 'tushare' "
     "ORDER BY sync_priority, item_key"
 )
 
 _TUSHARE_ITEM_METADATA_LEGACY_SQL = (
-    "SELECT source, item_key, enabled, item_key AS api_name, 0 AS permission_points, requires_permission "
+    "SELECT source, item_key, enabled, item_key AS api_name, 0 AS permission_points, requires_permission, 'backfill' AS sync_mode "
     "FROM data_source_items "
     "WHERE source = 'tushare' "
     "ORDER BY sync_priority, item_key"
@@ -212,6 +213,7 @@ def _get_sync_status_coverage_state() -> dict[str, object]:
             "api_name": row[2] if len(row) > 2 else None,
             "permission_points": row[3] if len(row) > 3 else None,
             "requires_permission": row[4] if len(row) > 4 else None,
+            "sync_mode": row[5] if len(row) > 5 else None,
         }
         if not is_item_sync_supported(registry, item, source_configs=source_configs):
             unsupported_items.append({"source": source, "item_key": item_key})
@@ -223,10 +225,8 @@ def _get_sync_status_coverage_state() -> dict[str, object]:
             continue
 
         enabled_sync_items += 1
-        supports_backfill = True
-        method = getattr(iface, "supports_backfill", None)
-        if callable(method):
-            supports_backfill = bool(method())
+        sync_mode = normalize_sync_mode(item.get("sync_mode"), default=infer_sync_mode_from_interface(iface))
+        supports_backfill = sync_mode_supports_backfill(sync_mode)
 
         init_bounds = init_map.get((source, item_key))
         if init_bounds is None:
@@ -547,12 +547,13 @@ def _seed_items(engine, registry: DataSourceRegistry) -> None:
     with engine.begin() as conn:
         for iface in registry.all_interfaces():
             info = iface.info
+            sync_mode = infer_sync_mode_from_interface(iface)
             conn.execute(
                 text(
                     "INSERT IGNORE INTO data_source_items "
                     "(source, item_key, item_name, enabled, description, requires_permission, "
-                    "target_database, target_table, sync_priority) "
-                    "VALUES (:src, :key, :name, :en, :desc, :perm, :db, :tbl, :pri)"
+                    "target_database, target_table, sync_priority, sync_mode) "
+                    "VALUES (:src, :key, :name, :en, :desc, :perm, :db, :tbl, :pri, :mode)"
                 ),
                 {
                     "src": info.source_key,
@@ -564,6 +565,7 @@ def _seed_items(engine, registry: DataSourceRegistry) -> None:
                     "db": info.target_database,
                     "tbl": info.target_table,
                     "pri": info.sync_priority,
+                    "mode": sync_mode,
                 },
             )
 

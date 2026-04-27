@@ -210,6 +210,7 @@ class TestReconcileBounds:
                 "start_date": "2024-01-15",
                 "end_date": "2024-01-31",
                 "pending_records": 23,
+                "sync_mode": "backfill",
                 "supports_backfill": True,
                 "inherited_bounds": True,
             }
@@ -260,6 +261,7 @@ class TestReconcileBounds:
                 "start_date": "2025-01-01",
                 "end_date": "2026-04-22",
                 "pending_records": 5,
+                "sync_mode": "backfill",
                 "supports_backfill": True,
                 "inherited_bounds": False,
             }

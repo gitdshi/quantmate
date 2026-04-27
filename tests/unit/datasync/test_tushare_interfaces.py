@@ -47,6 +47,21 @@ class TestIndexCodes:
         assert len(INDEX_CODES) >= 5
 
 
+class TestTushareBackfillGuardrails:
+    def test_low_quota_catalog_api_is_latest_only(self):
+        from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface
+
+        iface = TushareCatalogInterface(_catalog_spec("report_rc"))
+
+        assert iface.supports_scheduled_sync() is True
+        assert iface.supports_backfill() is True
+
+    def test_cyq_chips_is_latest_only(self):
+        from app.datasync.sources.tushare.interfaces import TushareCyqChipsInterface
+
+        assert TushareCyqChipsInterface().supports_backfill() is True
+
+
 class TestTushareStockBasicInterface:
     def test_info(self):
         from app.datasync.sources.tushare.interfaces import TushareStockBasicInterface
@@ -875,7 +890,7 @@ class TestTushareCatalogInterface:
             ("TushareBoxOfficeWeeklyInterface", "bo_weekly", ("date", "week", "movie_name")),
         ],
     )
-    def test_latest_only_box_office_syncers_use_one_shot_catalog_sync(
+    def test_box_office_syncers_use_date_filtered_catalog_sync(
         self,
         cls_name: str,
         interface_key: str,
@@ -905,21 +920,21 @@ class TestTushareCatalogInterface:
             result = iface.sync_date(date(2024, 1, 5))
 
         assert iface.supports_scheduled_sync() is True
-        assert iface.supports_backfill() is False
+        assert iface.supports_backfill() is True
         assert result.status == SyncStatus.SUCCESS
         assert result.rows_synced == 1
-        mock_call.assert_called_once_with(interface_key)
+        mock_call.assert_called_once_with(interface_key, date="20240105")
         assert mock_insert.call_args.kwargs["key_columns"] == expected_key_columns
 
     @pytest.mark.parametrize(
         ("cls_name", "interface_key", "date_column", "key_columns"),
         [
             ("TushareFundDivInterface", "fund_div", "ann_date", ("ts_code", "ann_date", "record_date")),
-            ("TushareFundNavInterface", "fund_nav", "end_date", ("ts_code", "end_date", "ann_date")),
+            ("TushareFundNavInterface", "fund_nav", "nav_date", ("ts_code", "nav_date", "ann_date")),
             (
                 "TushareFundPortfolioInterface",
                 "fund_portfolio",
-                "end_date",
+                "ann_date",
                 ("ts_code", "end_date", "symbol"),
             ),
         ],
@@ -953,13 +968,18 @@ class TestTushareCatalogInterface:
             result = iface.sync_date(date(2024, 1, 5))
 
         assert iface.supports_scheduled_sync() is True
-        assert iface.supports_backfill() is False
+        assert iface.supports_backfill() is True
         assert result.status == SyncStatus.SUCCESS
         assert result.rows_synced == 2
         assert result.details["entity_count"] == 2
         assert result.details["processed_count"] == 2
-        mock_call.assert_any_call(interface_key, ts_code="FUND0001.OF")
-        mock_call.assert_any_call(interface_key, ts_code="FUND0002.OF")
+        request_date_param = {
+            "fund_div": "ann_date",
+            "fund_nav": "nav_date",
+            "fund_portfolio": "ann_date",
+        }[interface_key]
+        mock_call.assert_any_call(interface_key, ts_code="FUND0001.OF", **{request_date_param: "20240105"})
+        mock_call.assert_any_call(interface_key, ts_code="FUND0002.OF", **{request_date_param: "20240105"})
         assert mock_insert.call_args.kwargs["key_columns"] == key_columns
 
     def test_index_weight_syncer_uses_range_by_index_code(self):
@@ -1066,9 +1086,9 @@ class TestTushareCatalogInterface:
         mock_call.assert_called_once_with("fina_mainbz", ts_code="000001.SZ", end_date="20240105")
         assert mock_insert.call_args.kwargs["key_columns"] == ("ts_code", "end_date", "ann_date", "bz_item", "curr_type")
 
-    def test_stk_rewards_syncer_uses_symbol_snapshot_loop(self):
+    def test_stk_rewards_syncer_uses_symbol_date_loop(self):
         from app.datasync.sources.tushare.catalog_interfaces import build_catalog_interfaces
-        from app.datasync.sources.tushare.interfaces import TusharePerSymbolLatestCatalogInterface
+        from app.datasync.sources.tushare.interfaces import TusharePerSymbolDateCatalogInterface
 
         df = pd.DataFrame(
             {
@@ -1091,18 +1111,18 @@ class TestTushareCatalogInterface:
             iface = next(item for item in interfaces if item.info.interface_key == "stk_rewards")
             result = iface.sync_date(date(2024, 1, 5))
 
-        assert isinstance(iface, TusharePerSymbolLatestCatalogInterface)
+        assert isinstance(iface, TusharePerSymbolDateCatalogInterface)
         assert iface.supports_scheduled_sync() is True
-        assert iface.supports_backfill() is False
+        assert iface.supports_backfill() is True
         assert result.status == SyncStatus.SUCCESS
         assert result.rows_synced == 2
-        mock_call.assert_any_call("stk_rewards", ts_code="000001.SZ")
-        mock_call.assert_any_call("stk_rewards", ts_code="000002.SZ")
+        mock_call.assert_any_call("stk_rewards", ts_code="000001.SZ", end_date="20240105")
+        mock_call.assert_any_call("stk_rewards", ts_code="000002.SZ", end_date="20240105")
         assert mock_insert.call_args.kwargs["key_columns"] == ("ts_code", "ann_date", "end_date", "name")
 
-    def test_stk_managers_syncer_uses_symbol_snapshot_loop(self):
+    def test_stk_managers_syncer_uses_symbol_date_loop(self):
         from app.datasync.sources.tushare.catalog_interfaces import build_catalog_interfaces
-        from app.datasync.sources.tushare.interfaces import TusharePerSymbolLatestCatalogInterface
+        from app.datasync.sources.tushare.interfaces import TusharePerSymbolDateCatalogInterface
 
         df = pd.DataFrame(
             {
@@ -1129,13 +1149,13 @@ class TestTushareCatalogInterface:
             iface = next(item for item in interfaces if item.info.interface_key == "stk_managers")
             result = iface.sync_date(date(2024, 1, 5))
 
-        assert isinstance(iface, TusharePerSymbolLatestCatalogInterface)
+        assert isinstance(iface, TusharePerSymbolDateCatalogInterface)
         assert iface.supports_scheduled_sync() is True
-        assert iface.supports_backfill() is False
+        assert iface.supports_backfill() is True
         assert result.status == SyncStatus.SUCCESS
         assert result.rows_synced == 2
-        mock_call.assert_any_call("stk_managers", ts_code="000001.SZ")
-        mock_call.assert_any_call("stk_managers", ts_code="000002.SZ")
+        mock_call.assert_any_call("stk_managers", ts_code="000001.SZ", ann_date="20240105")
+        mock_call.assert_any_call("stk_managers", ts_code="000002.SZ", ann_date="20240105")
         assert mock_insert.call_args.kwargs["key_columns"] == (
             "ts_code",
             "ann_date",
@@ -1145,7 +1165,7 @@ class TestTushareCatalogInterface:
             "begin_date",
         )
 
-    def test_latest_snapshot_catalog_specs_stay_generic_without_backfill(self):
+    def test_generic_catalog_specs_follow_doc_backfill_capability(self):
         from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface, build_catalog_interfaces
 
         specs = (
@@ -1163,8 +1183,8 @@ class TestTushareCatalogInterface:
         assert interfaces["stk_account"].supports_scheduled_sync() is True
         assert interfaces["stk_account_old"].supports_scheduled_sync() is True
         assert interfaces["us_basic"].supports_scheduled_sync() is True
-        assert interfaces["stk_account"].supports_backfill() is False
-        assert interfaces["stk_account_old"].supports_backfill() is False
+        assert interfaces["stk_account"].supports_backfill() is True
+        assert interfaces["stk_account_old"].supports_backfill() is True
         assert interfaces["us_basic"].supports_backfill() is False
 
     def test_minute_catalog_specs_stay_on_generic_guardrail_without_custom_syncers(self):
@@ -1182,7 +1202,7 @@ class TestTushareCatalogInterface:
         assert isinstance(interfaces["opt_mins"], TushareCatalogInterface)
         assert interfaces["ft_mins"].supports_scheduled_sync() is False
         assert interfaces["opt_mins"].supports_scheduled_sync() is False
-        assert interfaces["ft_mins"].supports_backfill() is False
+        assert interfaces["ft_mins"].supports_backfill() is True
         assert interfaces["opt_mins"].supports_backfill() is False
 
     def test_pledge_detail_syncer_loops_stock_codes(self):
@@ -1328,7 +1348,6 @@ class TestTushareDataSourceRegistration:
         from app.datasync.sources.tushare.interfaces import (
             TushareBoxOfficeMonthlyInterface,
             TusharePerSymbolDateCatalogInterface,
-            TusharePerSymbolLatestCatalogInterface,
             TushareFundNavInterface,
             TushareIndexWeightInterface,
             TusharePledgeDetailInterface,
@@ -1352,18 +1371,20 @@ class TestTushareDataSourceRegistration:
         assert isinstance(interfaces["fund_nav"], TushareFundNavInterface)
         assert isinstance(interfaces["index_weight"], TushareIndexWeightInterface)
         assert isinstance(interfaces["pledge_detail"], TusharePledgeDetailInterface)
-        assert isinstance(interfaces["stk_managers"], TusharePerSymbolLatestCatalogInterface)
-        assert isinstance(interfaces["stk_rewards"], TusharePerSymbolLatestCatalogInterface)
+        assert isinstance(interfaces["stk_managers"], TusharePerSymbolDateCatalogInterface)
+        assert isinstance(interfaces["stk_rewards"], TusharePerSymbolDateCatalogInterface)
         assert interfaces["bo_monthly"].supports_scheduled_sync() is True
+        assert interfaces["bo_monthly"].supports_backfill() is True
         assert interfaces["income"].supports_scheduled_sync() is True
         assert interfaces["income"].supports_backfill() is True
         assert interfaces["fund_nav"].supports_scheduled_sync() is True
+        assert interfaces["fund_nav"].supports_backfill() is True
         assert interfaces["index_weight"].supports_scheduled_sync() is True
         assert interfaces["pledge_detail"].supports_scheduled_sync() is True
         assert interfaces["stk_managers"].supports_scheduled_sync() is True
-        assert interfaces["stk_managers"].supports_backfill() is False
+        assert interfaces["stk_managers"].supports_backfill() is True
         assert interfaces["stk_rewards"].supports_scheduled_sync() is True
-        assert interfaces["stk_rewards"].supports_backfill() is False
+        assert interfaces["stk_rewards"].supports_backfill() is True
 
     def test_falls_back_to_bundled_catalog_when_db_catalog_unavailable(self):
         from app.datasync.sources.tushare.source import TushareDataSource

@@ -824,6 +824,23 @@ class _LatestOnlyCatalogInterface(_ExplicitKeyCatalogInterface):
         return False
 
 
+class _OneShotDateCatalogInterface(_ExplicitKeyCatalogInterface):
+    def __init__(self, spec: TushareCatalogSpec, *, request_date_param: str, schema_date_column: str | None = None):
+        super().__init__(spec)
+        self._request_date_param = request_date_param
+        self._schema_date_key = schema_date_column or request_date_param
+
+    def supports_backfill(self) -> bool:
+        return True
+
+    def _schema_date_column(self) -> str | None:
+        return self._schema_date_key
+
+    def sync_date(self, trade_date: date) -> SyncResult:
+        target = trade_date.strftime("%Y%m%d")
+        return _sync_catalog_once(self, params={self._request_date_param: target})
+
+
 class TusharePerSymbolDateCatalogInterface(_ExplicitKeyCatalogInterface):
     def __init__(
         self,
@@ -914,7 +931,7 @@ class TushareCyqChipsInterface(_ExplicitKeyCatalogInterface):
         )
 
     def supports_backfill(self) -> bool:
-        return self.supports_scheduled_sync()
+        return True
 
     def backfill_mode(self) -> str:
         return "date"
@@ -1041,7 +1058,26 @@ class TushareCyqChipsInterface(_ExplicitKeyCatalogInterface):
         return details
 
 
-class TushareBoxOfficeMonthlyInterface(_LatestOnlyCatalogInterface):
+def _sync_catalog_by_fund_codes(
+    iface: TushareCatalogInterface,
+    trade_date: date,
+    *,
+    request_date_param: str,
+) -> SyncResult:
+    try:
+        fund_codes = _get_fund_codes()
+    except Exception as exc:
+        return handle_tushare_sync_exception(logger, f"{iface.info.interface_key} code load", exc)
+
+    target = trade_date.strftime("%Y%m%d")
+    return _sync_catalog_by_entities(
+        iface,
+        fund_codes,
+        lambda fund_code: {"ts_code": fund_code, request_date_param: target},
+    )
+
+
+class TushareBoxOfficeMonthlyInterface(_OneShotDateCatalogInterface):
     def __init__(self):
         super().__init__(
             TushareCatalogSpec(
@@ -1050,17 +1086,15 @@ class TushareBoxOfficeMonthlyInterface(_LatestOnlyCatalogInterface):
                 api_name="bo_monthly",
                 target_table="bo_monthly",
                 sync_priority=820,
-            )
+            ),
+            request_date_param="date",
         )
 
     def _payload_key_fields(self) -> tuple[str, ...]:
         return tuple(dict.fromkeys(("date", "month", "movie_name", "name", "rank", *super()._payload_key_fields())))
 
-    def sync_date(self, trade_date: date) -> SyncResult:
-        return _sync_catalog_once(self)
 
-
-class TushareBoxOfficeWeeklyInterface(_LatestOnlyCatalogInterface):
+class TushareBoxOfficeWeeklyInterface(_OneShotDateCatalogInterface):
     def __init__(self):
         super().__init__(
             TushareCatalogSpec(
@@ -1069,7 +1103,8 @@ class TushareBoxOfficeWeeklyInterface(_LatestOnlyCatalogInterface):
                 api_name="bo_weekly",
                 target_table="bo_weekly",
                 sync_priority=821,
-            )
+            ),
+            request_date_param="date",
         )
 
     def _payload_key_fields(self) -> tuple[str, ...]:
@@ -1077,11 +1112,8 @@ class TushareBoxOfficeWeeklyInterface(_LatestOnlyCatalogInterface):
             dict.fromkeys(("date", "week", "week_date", "movie_name", "name", "rank", *super()._payload_key_fields()))
         )
 
-    def sync_date(self, trade_date: date) -> SyncResult:
-        return _sync_catalog_once(self)
 
-
-class TushareFundDivInterface(_LatestOnlyCatalogInterface):
+class TushareFundDivInterface(_ExplicitKeyCatalogInterface):
     def __init__(self):
         super().__init__(
             TushareCatalogSpec(
@@ -1110,15 +1142,17 @@ class TushareFundDivInterface(_LatestOnlyCatalogInterface):
             )
         )
 
+    def _schema_date_column(self) -> str | None:
+        return "ann_date"
+
+    def supports_backfill(self) -> bool:
+        return True
+
     def sync_date(self, trade_date: date) -> SyncResult:
-        try:
-            fund_codes = _get_fund_codes()
-        except Exception as exc:
-            return handle_tushare_sync_exception(logger, "fund_div code load", exc)
-        return _sync_catalog_by_entities(self, fund_codes, lambda fund_code: {"ts_code": fund_code})
+        return _sync_catalog_by_fund_codes(self, trade_date, request_date_param="ann_date")
 
 
-class TushareFundNavInterface(_LatestOnlyCatalogInterface):
+class TushareFundNavInterface(_ExplicitKeyCatalogInterface):
     def __init__(self):
         super().__init__(
             TushareCatalogSpec(
@@ -1132,20 +1166,19 @@ class TushareFundNavInterface(_LatestOnlyCatalogInterface):
         )
 
     def _payload_key_fields(self) -> tuple[str, ...]:
-        return tuple(dict.fromkeys(("ts_code", "fund_code", "end_date", "ann_date", *super()._payload_key_fields())))
+        return tuple(dict.fromkeys(("ts_code", "fund_code", "nav_date", "ann_date", *super()._payload_key_fields())))
 
     def _schema_date_column(self) -> str | None:
-        return "end_date"
+        return "nav_date"
+
+    def supports_backfill(self) -> bool:
+        return True
 
     def sync_date(self, trade_date: date) -> SyncResult:
-        try:
-            fund_codes = _get_fund_codes()
-        except Exception as exc:
-            return handle_tushare_sync_exception(logger, "fund_nav code load", exc)
-        return _sync_catalog_by_entities(self, fund_codes, lambda fund_code: {"ts_code": fund_code})
+        return _sync_catalog_by_fund_codes(self, trade_date, request_date_param="nav_date")
 
 
-class TushareFundPortfolioInterface(_LatestOnlyCatalogInterface):
+class TushareFundPortfolioInterface(_ExplicitKeyCatalogInterface):
     def __init__(self):
         super().__init__(
             TushareCatalogSpec(
@@ -1175,14 +1208,13 @@ class TushareFundPortfolioInterface(_LatestOnlyCatalogInterface):
         )
 
     def _schema_date_column(self) -> str | None:
-        return "end_date"
+        return "ann_date"
+
+    def supports_backfill(self) -> bool:
+        return True
 
     def sync_date(self, trade_date: date) -> SyncResult:
-        try:
-            fund_codes = _get_fund_codes()
-        except Exception as exc:
-            return handle_tushare_sync_exception(logger, "fund_portfolio code load", exc)
-        return _sync_catalog_by_entities(self, fund_codes, lambda fund_code: {"ts_code": fund_code})
+        return _sync_catalog_by_fund_codes(self, trade_date, request_date_param="ann_date")
 
 
 class TushareIndexWeightInterface(_ExplicitKeyCatalogInterface):
@@ -1446,11 +1478,11 @@ _PER_SYMBOL_DATE_CATALOG_CONFIG: dict[str, dict[str, tuple[str, ...] | str]] = {
     "fina_mainbz_vip": {"request_date_param": "end_date", "extra_key_fields": ("ann_date", "bz_item", "curr_type")},
     "income": {"request_date_param": "ann_date", "extra_key_fields": ("end_date", "report_type", "comp_type")},
     "income_vip": {"request_date_param": "ann_date", "extra_key_fields": ("end_date", "report_type", "comp_type")},
+    "stk_managers": {"request_date_param": "ann_date", "extra_key_fields": ("name", "title", "lev", "begin_date")},
+    "stk_rewards": {"request_date_param": "end_date", "extra_key_fields": ("ann_date", "name")},
 }
 
 _PER_SYMBOL_LATEST_CATALOG_CONFIG: dict[str, tuple[str, ...]] = {
-    "stk_managers": ("ann_date", "name", "title", "lev", "begin_date"),
-    "stk_rewards": ("ann_date", "end_date", "name"),
 }
 
 

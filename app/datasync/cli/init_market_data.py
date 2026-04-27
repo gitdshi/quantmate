@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Callable
+from functools import lru_cache
 import logging
 import sys
 from datetime import date, datetime
@@ -107,7 +108,6 @@ _INIT_STATUS_CONFIG = {
         'item_key': 'stock_basic',
         'database': 'tushare',
         'table': 'stock_basic',
-        'latest_only': True,
         'window': 'end',
     },
     'stock_company': {
@@ -115,7 +115,6 @@ _INIT_STATUS_CONFIG = {
         'item_key': 'stock_company',
         'database': 'tushare',
         'table': 'stock_company',
-        'latest_only': True,
         'window': 'end',
     },
     'new_share': {
@@ -513,6 +512,43 @@ def _get_init_status_config(phase: str) -> dict | None:
     return _INIT_STATUS_CONFIG.get(phase)
 
 
+@lru_cache(maxsize=64)
+def _get_init_status_sync_mode(source: str, item_key: str, window: str | None, has_date_column: bool) -> str:
+    from app.datasync.sync_mode import SYNC_MODE_BACKFILL, SYNC_MODE_LATEST_ONLY, normalize_sync_mode
+    from app.infrastructure.db.connections import get_quantmate_engine
+
+    try:
+        engine = get_quantmate_engine()
+        with engine.connect() as conn:
+            row = conn.execute(
+                text(
+                    "SELECT sync_mode FROM data_source_items "
+                    "WHERE source = :source AND item_key = :item_key LIMIT 1"
+                ),
+                {"source": source, "item_key": item_key},
+            ).fetchone()
+        if row is not None:
+            return normalize_sync_mode(row[0] if len(row) > 0 else None)
+    except Exception:
+        logger.warning("Failed to load sync_mode for init phase %s/%s", source, item_key, exc_info=True)
+
+    if window == 'end' and not has_date_column:
+        return SYNC_MODE_LATEST_ONLY
+    return SYNC_MODE_BACKFILL
+
+
+def _is_init_status_latest_only(config: dict) -> bool:
+    from app.datasync.sync_mode import sync_mode_supports_backfill
+
+    sync_mode = _get_init_status_sync_mode(
+        config['source'],
+        config['item_key'],
+        str(config.get('window') or ''),
+        bool(config.get('date_column')),
+    )
+    return not sync_mode_supports_backfill(sync_mode)
+
+
 def _iter_init_status_phases(*, skip_aux: bool) -> list[str]:
     phases = [
         'stock_basic',
@@ -614,7 +650,7 @@ def bootstrap_init_sync_status(start_date: str, daily_range_start: str, end_date
             end_date=window_end,
             reconcile_missing=True,
         )
-        if config.get('latest_only'):
+        if _is_init_status_latest_only(config):
             _ensure_pending_sync_status_rows(config['source'], config['item_key'], [window_end])
 
 
@@ -657,7 +693,7 @@ def finalize_init_phase_sync_status(phase: str, start_date: str, daily_range_sta
         return
 
     window_start, window_end = _resolve_phase_window(phase, start_date, daily_range_start, end_date)
-    if config.get('latest_only'):
+    if _is_init_status_latest_only(config):
         rows_synced = _get_table_row_count(config['database'], config['table'])
         result = _normalize_zero_row_success(
             iface,

@@ -8,6 +8,12 @@ from datetime import date, timedelta
 from sqlalchemy import text
 
 from app.datasync.registry import DataSourceRegistry
+from app.datasync.sync_mode import (
+    SYNC_MODE_BACKFILL,
+    infer_sync_mode_from_interface,
+    normalize_sync_mode,
+    sync_mode_supports_backfill,
+)
 from app.infrastructure.config import get_runtime_int
 from app.infrastructure.db.connections import get_quantmate_engine
 
@@ -113,6 +119,25 @@ def _get_source_initialized_bounds(source: str) -> tuple[date, date] | None:
         return None
 
     return initialized_from, initialized_to
+
+
+def _get_item_sync_mode(source: str, item_key: str) -> str:
+    engine = get_quantmate_engine()
+    with engine.connect() as conn:
+        try:
+            row = conn.execute(
+                text(
+                    "SELECT sync_mode FROM data_source_items "
+                    "WHERE source = :s AND item_key = :k LIMIT 1"
+                ),
+                {"s": source, "k": item_key},
+            ).fetchone()
+        except Exception as exc:
+            if "unknown column" in str(exc).lower():
+                return SYNC_MODE_BACKFILL
+            raise
+
+    return normalize_sync_mode(row[0] if row is not None and len(row) > 0 else None)
 
 
 def _resolve_reconcile_bounds(
@@ -316,15 +341,17 @@ def reconcile_sync_status_item(
     item_key: str,
     start_date: date | None = None,
     end_date: date | None = None,
+    sync_mode: str | None = None,
 ) -> dict[str, object] | None:
     iface = registry.get_interface(source, item_key)
     if iface is None:
         return None
 
-    use_trade_calendar = True
-    method = getattr(iface, "supports_backfill", None)
-    if callable(method) and not bool(method()):
-        use_trade_calendar = False
+    resolved_sync_mode = normalize_sync_mode(
+        sync_mode or _get_item_sync_mode(source, item_key),
+        default=infer_sync_mode_from_interface(iface),
+    )
+    use_trade_calendar = sync_mode_supports_backfill(resolved_sync_mode)
 
     item_start_date, item_end_date, inherited_bounds = _resolve_reconcile_bounds(
         source,
@@ -356,6 +383,7 @@ def reconcile_sync_status_item(
         "start_date": item_start_date.isoformat(),
         "end_date": item_end_date.isoformat(),
         "pending_records": pending_records,
+        "sync_mode": resolved_sync_mode,
         "supports_backfill": use_trade_calendar,
         "inherited_bounds": inherited_bounds,
     }
@@ -385,7 +413,7 @@ def reconcile_enabled_sync_status(
         params["item_key"] = item_key
 
     sql = (
-        "SELECT dsi.source, dsi.item_key, dsi.api_name, dsi.permission_points, dsi.requires_permission "
+        "SELECT dsi.source, dsi.item_key, dsi.api_name, dsi.permission_points, dsi.requires_permission, dsi.sync_mode "
         "FROM data_source_items dsi "
         "JOIN data_source_configs dsc ON dsi.source = dsc.source_key "
         f"WHERE {' AND '.join(clauses)} "
@@ -393,7 +421,7 @@ def reconcile_enabled_sync_status(
     )
 
     legacy_sql = (
-        "SELECT dsi.source, dsi.item_key, dsi.item_key AS api_name, 0 AS permission_points, dsi.requires_permission "
+        "SELECT dsi.source, dsi.item_key, dsi.item_key AS api_name, 0 AS permission_points, dsi.requires_permission, 'backfill' AS sync_mode "
         "FROM data_source_items dsi "
         "JOIN data_source_configs dsc ON dsi.source = dsc.source_key "
         f"WHERE {' AND '.join(clauses)} "
@@ -424,6 +452,7 @@ def reconcile_enabled_sync_status(
             "api_name": row[2] if len(row) > 2 else None,
             "permission_points": row[3] if len(row) > 3 else None,
             "requires_permission": row[4] if len(row) > 4 else None,
+            "sync_mode": row[5] if len(row) > 5 else None,
         }
         if not is_item_sync_supported(registry, item, source_configs=source_configs):
             skipped_unsupported.append({"source": source_key, "item_key": enabled_item_key})
@@ -440,6 +469,7 @@ def reconcile_enabled_sync_status(
             enabled_item_key,
             start_date=start_date,
             end_date=end_date,
+            sync_mode=item.get("sync_mode"),
         )
         if item_result is None:
             skipped_unsupported.append({"source": source_key, "item_key": enabled_item_key})

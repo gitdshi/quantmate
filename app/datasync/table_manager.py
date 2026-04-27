@@ -34,7 +34,7 @@ def _mark_table_created(database: str, table: str) -> None:
 
 
 def ensure_table(database: str, table: str, ddl: str) -> bool:
-    """Execute DDL if table does not yet exist. Returns True if created."""
+    """Create a static table or reconcile an older static schema in place."""
     engine = _get_engine(database)
     with engine.connect() as conn:
         # Check existence
@@ -45,8 +45,12 @@ def ensure_table(database: str, table: str, ddl: str) -> bool:
         exists = result.scalar() > 0
 
     if exists:
+        changed = _ensure_static_table_schema(database, table, ddl)
         _mark_table_created(database, table)
-        logger.debug("Table %s.%s already exists", database, table)
+        if changed:
+            logger.info("Synchronized static schema for %s.%s", database, table)
+        else:
+            logger.debug("Table %s.%s already exists", database, table)
         return False
 
     logger.info("Creating table %s.%s", database, table)
@@ -61,6 +65,40 @@ def ensure_table(database: str, table: str, ddl: str) -> bool:
     _mark_table_created(database, table)
 
     logger.info("Table %s.%s created successfully", database, table)
+    return True
+
+
+def _ensure_static_table_schema(database: str, table: str, ddl: str) -> bool:
+    column_specs, key_columns = _parse_static_table_schema(ddl)
+    if not column_specs:
+        return False
+
+    existing_columns = _get_existing_columns(database, table)
+    statements: list[str] = []
+
+    for column_spec in column_specs:
+        name = str(column_spec.get("name") or "").strip()
+        if not name:
+            continue
+
+        if name not in existing_columns:
+            statements.append(f"ALTER TABLE `{table}` ADD COLUMN {_static_column_ddl(column_spec)}")
+            continue
+
+        if _column_requires_widen(existing_columns[name], column_spec):
+            statements.append(f"ALTER TABLE `{table}` MODIFY COLUMN {_static_column_ddl(column_spec)}")
+            continue
+
+        if _static_column_allows_null(column_spec) and _column_requires_nullable_relax(existing_columns[name], name, key_columns):
+            statements.append(f"ALTER TABLE `{table}` MODIFY COLUMN {_static_column_ddl(column_spec)}")
+
+    if not statements:
+        return False
+
+    engine = _get_engine(database)
+    with engine.begin() as conn:
+        for statement in statements:
+            conn.execute(text(statement))
     return True
 
 
@@ -144,6 +182,78 @@ def _get_existing_columns(database: str, table: str) -> dict[str, dict[str, str]
         }
         for row in rows
     }
+
+
+def _parse_static_table_schema(ddl: str) -> tuple[list[dict[str, object]], tuple[str, ...]]:
+    column_specs: list[dict[str, object]] = []
+    key_columns: list[str] = []
+
+    for raw_line in ddl.splitlines():
+        line = raw_line.strip().rstrip(",")
+        if not line:
+            continue
+
+        upper_line = line.upper()
+        if upper_line.startswith("CREATE TABLE") or line.startswith(")"):
+            continue
+        if upper_line.startswith("PRIMARY KEY"):
+            key_columns.extend(_parse_index_columns(line))
+            continue
+        if upper_line.startswith("UNIQUE KEY") or upper_line.startswith("KEY ") or upper_line.startswith("INDEX "):
+            continue
+
+        match = re.match(r"`?([A-Za-z0-9_]+)`?\s+(.*)", line)
+        if not match:
+            continue
+
+        name = str(match.group(1)).strip()
+        definition = str(match.group(2)).strip()
+        if not name or not definition:
+            continue
+
+        if re.search(r"\bPRIMARY\s+KEY\b", definition, flags=re.IGNORECASE):
+            key_columns.append(name)
+            definition = re.sub(r"\bPRIMARY\s+KEY\b", "", definition, flags=re.IGNORECASE).strip()
+
+        sql_type = _extract_sql_type(definition)
+        column_specs.append(
+            {
+                "name": name,
+                "sql_type": sql_type,
+                "definition": definition,
+            }
+        )
+
+    return column_specs, tuple(dict.fromkeys(key_columns))
+
+
+def _parse_index_columns(line: str) -> list[str]:
+    match = re.search(r"\((.+)\)", line)
+    if not match:
+        return []
+    return [
+        column.strip().strip("`")
+        for column in match.group(1).split(",")
+        if column.strip()
+    ]
+
+
+def _extract_sql_type(definition: str) -> str:
+    match = re.match(r"([A-Za-z]+(?:\([^)]*\))?)", definition.strip(), flags=re.IGNORECASE)
+    if not match:
+        return definition.strip().split()[0]
+    return match.group(1)
+
+
+def _static_column_ddl(column_spec: dict[str, object]) -> str:
+    name = str(column_spec.get("name") or "").strip()
+    definition = str(column_spec.get("definition") or "").strip()
+    return f"`{name}` {definition}"
+
+
+def _static_column_allows_null(column_spec: dict[str, object]) -> bool:
+    definition = str(column_spec.get("definition") or "")
+    return "NOT NULL" not in definition.upper()
 
 
 def _column_requires_legacy_relax(
