@@ -23,6 +23,15 @@ WORKSPACE = Path(os.getenv("RDAGENT_WORKSPACE", "/tmp/rdagent_workspace"))
 WORKSPACE.mkdir(parents=True, exist_ok=True)
 
 
+def _build_rdagent_command(scenario: str, max_iterations: int) -> list[str]:
+    command = {
+        "fin_factor": "fin_factor",
+        "fin_model": "fin_model",
+        "fin_quant": "fin_quant",
+    }.get(scenario, "fin_factor")
+    return ["rdagent", command, "--step-n", str(max_iterations)]
+
+
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})
@@ -62,14 +71,7 @@ def mine():
         env["RDAGENT_WORKSPACE"] = str(run_dir)
         env["CHAT_MODEL"] = llm_model
 
-        # Build rdagent command
-        scenario_map = {
-            "fin_factor": "rdagent fin_factor",
-            "fin_model": "rdagent fin_model",
-            "fin_quant": "rdagent fin_factor_combined_with_model",
-        }
-        cmd = scenario_map.get(scenario, "rdagent fin_factor")
-        cmd_parts = cmd.split() + ["--step_n", str(max_iterations)]
+        cmd_parts = _build_rdagent_command(scenario, max_iterations)
 
         result = subprocess.run(
             cmd_parts,
