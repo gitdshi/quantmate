@@ -118,29 +118,29 @@ class TestScheduledFlows:
         mock_reconcile.assert_called_once()
         mock_daily.assert_called_once()
 
-    def test_startup_sequence_runs_daily_before_reconcile(self):
+    def test_startup_sequence_runs_init_before_daily(self):
         import app.datasync.scheduler as mod
 
         call_order: list[str] = []
 
+        def _record_init(**_kwargs):
+            call_order.append("init")
+
         def _record_daily(**_kwargs):
             call_order.append("daily")
 
-        def _record_reconcile(**_kwargs):
-            call_order.append("reconcile")
-
-        with patch(f"{_MOD}.run_daily_sync", side_effect=_record_daily), \
-             patch(f"{_MOD}.run_reconcile", side_effect=_record_reconcile), \
+        with patch(f"{_MOD}.run_init", side_effect=_record_init), \
+             patch(f"{_MOD}.run_daily_sync", side_effect=_record_daily), \
              patch.dict("os.environ", {}, clear=False):
             mod._run_startup_sequence(registry=MagicMock())
 
-        assert call_order == ["daily", "reconcile"]
+        assert call_order == ["init", "daily"]
 
     def test_startup_sequence_honors_skip_flags(self):
         import app.datasync.scheduler as mod
 
-        with patch(f"{_MOD}.run_daily_sync") as mock_daily, \
-             patch(f"{_MOD}.run_reconcile") as mock_reconcile, \
+        with patch(f"{_MOD}.run_init") as mock_init, \
+             patch(f"{_MOD}.run_daily_sync") as mock_daily, \
              patch.dict(
                  "os.environ",
                  {
@@ -151,8 +151,8 @@ class TestScheduledFlows:
              ):
             mod._run_startup_sequence(registry=MagicMock())
 
+        mock_init.assert_not_called()
         mock_daily.assert_not_called()
-        mock_reconcile.assert_not_called()
 
     def test_daemon_loop_starts_without_initial_backfill(self):
         import app.datasync.scheduler as mod
