@@ -3,6 +3,8 @@ import json
 import pytest
 from unittest.mock import patch, MagicMock, call
 
+import app.domains.factors.rdagent_service as rdagent_service_module
+
 from app.domains.factors.rdagent_service import (
     RDAgentService,
     RDAgentMiningConfig,
@@ -12,6 +14,14 @@ from app.domains.factors.rdagent_service import (
     save_discovered_factor,
     _serialize_json,
 )
+
+
+_REAL_ENSURE_RDAGENT_SCHEMA = rdagent_service_module._ensure_rdagent_schema
+
+
+@pytest.fixture(autouse=True)
+def _stub_schema_bootstrap(monkeypatch):
+    monkeypatch.setattr(rdagent_service_module, "_ensure_rdagent_schema", lambda conn: None)
 
 
 class TestRDAgentMiningConfig:
@@ -313,6 +323,25 @@ class TestRDAgentServiceImportFactor:
 
 
 class TestDBHelpers:
+
+    def test_ensure_rdagent_schema_bootstraps_once(self, monkeypatch):
+        mock_conn = MagicMock()
+
+        monkeypatch.setattr(rdagent_service_module, "_ensure_rdagent_schema", _REAL_ENSURE_RDAGENT_SCHEMA)
+        monkeypatch.setattr(rdagent_service_module, "_RDAGENT_SCHEMA_READY", False)
+
+        _REAL_ENSURE_RDAGENT_SCHEMA(mock_conn)
+
+        assert mock_conn.execute.call_count == len(rdagent_service_module._RDAGENT_SCHEMA_STATEMENTS)
+        mock_conn.commit.assert_called_once()
+
+        mock_conn.execute.reset_mock()
+        mock_conn.commit.reset_mock()
+
+        _REAL_ENSURE_RDAGENT_SCHEMA(mock_conn)
+
+        mock_conn.execute.assert_not_called()
+        mock_conn.commit.assert_not_called()
 
     @patch("app.domains.factors.rdagent_service.connection")
     def test_update_run_status(self, mock_conn_ctx):

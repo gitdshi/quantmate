@@ -3,6 +3,8 @@ import json
 import pytest
 from unittest.mock import patch, MagicMock, call
 
+import app.domains.factors.rdagent_service as rdagent_service_module
+
 from app.domains.factors.rdagent_service import (
     RDAgentService,
     RDAgentMiningConfig,
@@ -12,6 +14,11 @@ from app.domains.factors.rdagent_service import (
     save_discovered_factor,
     _serialize_json,
 )
+
+
+@pytest.fixture(autouse=True)
+def _stub_schema_bootstrap(monkeypatch):
+    monkeypatch.setattr(rdagent_service_module, "_ensure_rdagent_schema", lambda conn: None)
 
 
 class TestRDAgentMiningConfig:
