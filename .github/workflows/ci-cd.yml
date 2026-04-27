@@ -279,6 +279,7 @@ jobs:
             }
 
             IMAGE_SERVICES="api worker datasync datasync-backfill"
+            POST_API_SERVICES="worker datasync datasync-backfill"
             ALL_SERVICES="api worker datasync datasync-backfill rdagent-service"
 
             cleanup_docker_artifacts() {
@@ -293,9 +294,9 @@ jobs:
               docker restart quantmate_nginx >/dev/null
             }
 
-            restart_services() {
+            restart_post_api_services() {
               GITHUB_OWNER=$GITHUB_OWNER IMAGE_TAG=$IMAGE_TAG \
-                docker compose -f docker-compose.staging.yml up -d $IMAGE_SERVICES
+                docker compose -f docker-compose.staging.yml up -d $POST_API_SERVICES
 
               if [ "$REBUILD_RDAGENT" = "true" ]; then
                 echo "==> Rebuilding rdagent-service"
@@ -306,6 +307,32 @@ jobs:
                 GITHUB_OWNER=$GITHUB_OWNER IMAGE_TAG=$IMAGE_TAG \
                   docker compose -f docker-compose.staging.yml up -d rdagent-service
               fi
+            }
+
+            restart_services() {
+              echo "==> Starting api first so migrations land before datasync services restart"
+              GITHUB_OWNER=$GITHUB_OWNER IMAGE_TAG=$IMAGE_TAG \
+                docker compose -f docker-compose.staging.yml up -d api
+
+              echo "==> Waiting for direct API health before starting worker and datasync"
+              api_ok=0
+              for i in $(seq 1 24); do
+                if curl -sf http://localhost:8000/health >/dev/null; then
+                  api_ok=1
+                  break
+                fi
+                echo "Direct API health retry $i/24..."
+                sleep 5
+              done
+
+              if [ "$api_ok" -ne 1 ]; then
+                echo "API did not become healthy in time after api-first restart"
+                docker compose -f docker-compose.staging.yml ps
+                docker compose -f docker-compose.staging.yml logs --tail=200 api
+                exit 1
+              fi
+
+              restart_post_api_services
             }
 
             rebuild_env_from_example_if_needed
@@ -351,7 +378,7 @@ jobs:
               restart_services
             fi
 
-            echo "==> Waiting for API to become healthy"
+            echo "==> Waiting for API to remain healthy after full restart"
             ok=0
             for i in $(seq 1 24); do
               if curl -sf http://localhost:8000/health >/dev/null; then

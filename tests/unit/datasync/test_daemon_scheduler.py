@@ -440,6 +440,34 @@ class TestScheduler:
         run_init(run_backfill_flag=False)
         init_fn.assert_called_once()
 
+    def test_run_startup_sequence_runs_init_before_daily(self):
+        from app.datasync.scheduler import _run_startup_sequence
+
+        registry = MagicMock()
+        call_order: list[str] = []
+
+        with patch("app.datasync.scheduler._env_flag", return_value=False), \
+             patch("app.datasync.scheduler.run_init", side_effect=lambda **_: call_order.append("init")), \
+             patch("app.datasync.scheduler.run_daily_sync", side_effect=lambda **_: call_order.append("daily")):
+            _run_startup_sequence(registry)
+
+        assert call_order == ["init", "daily"]
+
+    def test_run_startup_sequence_skips_init_when_flag_set(self):
+        from app.datasync.scheduler import _run_startup_sequence
+
+        registry = MagicMock()
+
+        with patch(
+            "app.datasync.scheduler._env_flag",
+            side_effect=lambda name: name == "DATASYNC_SKIP_INITIAL_RECONCILE",
+        ), patch("app.datasync.scheduler.run_init") as mock_init, \
+             patch("app.datasync.scheduler.run_daily_sync") as mock_daily:
+            _run_startup_sequence(registry)
+
+        mock_init.assert_not_called()
+        mock_daily.assert_called_once_with(registry=registry)
+
     def test_build_registry(self):
         from app.datasync.scheduler import _build_registry
         from app.datasync.registry import DataSourceRegistry

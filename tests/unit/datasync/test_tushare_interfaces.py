@@ -629,6 +629,8 @@ class TestTushareCatalogInterface:
         [
             ("index_dailybasic", "index_dailybasic"),
             ("stk_factor_pro", "stk_factor_pro"),
+            ("fund_factor_pro", "fund_factor_pro"),
+            ("cb_factor_pro", "cb_factor_pro"),
         ],
     )
     def test_trade_date_catalog_items_are_scheduler_enabled(self, interface_key, api_name):
@@ -662,6 +664,8 @@ class TestTushareCatalogInterface:
     @pytest.mark.parametrize(
         ("interface_key", "api_name"),
         [
+            ("bo_cinema", "bo_cinema"),
+            ("bo_daily", "bo_daily"),
             ("pledge_detail", "pledge_detail"),
             ("fund_nav", "fund_nav"),
             ("fund_portfolio", "fund_portfolio"),

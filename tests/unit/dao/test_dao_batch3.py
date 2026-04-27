@@ -500,6 +500,44 @@ class TestTushareDao:
         assert seen["rows"].equals(df)
         assert seen["key_columns"] == ("ann_date", "ts_code")
 
+    def test_upsert_rows_skips_records_missing_key_columns(self, monkeypatch):
+        rows = [
+            {"ann_date": "20240105", "ts_code": "000001.SZ", "eps": 1.23},
+            {"ann_date": "20240106", "ts_code": None, "eps": 2.34},
+        ]
+        column_specs = [
+            {"name": "ann_date", "source_fields": ["ann_date"], "normalizer": "date"},
+            {"name": "ts_code", "source_fields": ["ts_code"], "normalizer": "clean"},
+            {"name": "eps", "source_fields": ["eps"], "normalizer": "float"},
+        ]
+
+        calls: list[tuple[object, object]] = []
+
+        class _Conn:
+            def execute(self, sql, params):
+                calls.append((sql, params))
+
+        class _BeginCtx:
+            def __enter__(self):
+                return _Conn()
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        monkeypatch.setattr(self.mod.engine, "begin", lambda: _BeginCtx())
+
+        result = self.mod.upsert_rows(
+            "report_rc",
+            rows,
+            column_specs=column_specs,
+            key_columns=("ann_date", "ts_code"),
+        )
+
+        assert result == 1
+        assert len(calls) == 1
+        assert len(calls[0][1]) == 1
+        assert calls[0][1][0]["ts_code"] == "000001.SZ"
+
     # ── upsert_stock_basic ─────────────────────────────────────
     def test_upsert_stock_basic_empty(self):
         import pandas as pd

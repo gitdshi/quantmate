@@ -194,7 +194,14 @@ def _scheduled_backfill():
 
 
 def _run_startup_sequence(registry) -> None:
-    startup_target_end_date = date.today()
+    if _env_flag("DATASYNC_SKIP_INITIAL_RECONCILE"):
+        logger.info("Skipping initial datasync init due to DATASYNC_SKIP_INITIAL_RECONCILE")
+    else:
+        logger.info("Running initial datasync init...")
+        try:
+            run_init(run_backfill_flag=False, registry=registry)
+        except Exception:
+            logger.exception("Initial datasync init failed")
 
     if _env_flag("DATASYNC_SKIP_INITIAL_DAILY"):
         logger.info("Skipping initial daily sync due to DATASYNC_SKIP_INITIAL_DAILY")
@@ -204,16 +211,6 @@ def _run_startup_sequence(registry) -> None:
             run_daily_sync(registry=registry)
         except Exception:
             logger.exception("Initial daily sync failed")
-
-    if _env_flag("DATASYNC_SKIP_INITIAL_RECONCILE"):
-        logger.info("Skipping initial sync-status reconciliation due to DATASYNC_SKIP_INITIAL_RECONCILE")
-        return
-
-    logger.info("Reconciling enabled sync status through %s...", startup_target_end_date)
-    try:
-        run_reconcile(target_end_date=startup_target_end_date, registry=registry)
-    except Exception:
-        logger.exception("Initial sync-status reconciliation failed")
 
 
 def daemon_loop():

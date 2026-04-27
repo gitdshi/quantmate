@@ -109,6 +109,8 @@ _TRADE_DATE_APIS = {
     "weekly",
     "monthly",
     "stk_factor_pro",
+    "fund_factor_pro",
+    "cb_factor_pro",
     "us_daily",
     "industry_daily",
     "industry_moneyflow",
@@ -187,6 +189,8 @@ _NONEMPTY_TRADING_DAY_APIS = {
     "fx_daily",
     "hk_daily",
     "stk_factor_pro",
+    "fund_factor_pro",
+    "cb_factor_pro",
     "us_daily",
     "industry_daily",
 }
@@ -196,6 +200,8 @@ _NONEMPTY_TRADING_DAY_APIS = {
 # replaces them with custom interfaces before runtime, but keep this guardrail so
 # an accidental generic registration does not execute the wrong request shape.
 _GENERIC_RUNTIME_UNSUPPORTED_INTERFACE_KEYS = {
+    "bo_cinema",
+    "bo_daily",
     "bo_monthly",
     "bo_weekly",
     "fund_div",

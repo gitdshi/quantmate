@@ -191,6 +191,30 @@ class TestBackfillRetryFiltering:
 
         assert filtered == [records[0], records[2]]
 
+    def test_keeps_latest_only_historical_quota_records_for_cleanup(self):
+        from app.datasync.service.sync_engine import _filter_backfill_retry_records
+
+        updated_at = datetime(2024, 1, 3, 12, 0, 0)
+        record = (
+            date(2024, 1, 3),
+            "tushare",
+            "us_daily",
+            0,
+            "抱歉，您每天最多访问该接口5次，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
+            "pending",
+            0,
+            updated_at,
+        )
+
+        filtered = _filter_backfill_retry_records(
+            [record],
+            now=updated_at + timedelta(minutes=30),
+            enabled_items={("tushare", "us_daily"): {"sync_mode": "latest_only"}},
+            window_end_date=date(2024, 1, 4),
+        )
+
+        assert filtered == [record]
+
 
 class TestBackfillHelpers:
     def test_groups_backfill_records_by_date(self):
@@ -948,6 +972,42 @@ class TestBackfillRetry:
         iface.sync_date.assert_not_called()
         mock_write.assert_called_once()
         assert result["akshare/stock_zh_index_spot@2024-01-03"]["skipped"] is True
+
+    def test_skips_historical_records_for_latest_only_sync_mode(self):
+        from app.datasync.base import SyncResult, SyncStatus
+        from app.datasync.service.sync_engine import backfill_retry
+
+        registry = MagicMock()
+        iface = MagicMock()
+        iface.sync_date.return_value = SyncResult(status=SyncStatus.SUCCESS, rows_synced=1)
+        registry.get_interface.return_value = iface
+
+        historical_date = date(2024, 1, 3)
+        latest_date = date(2024, 1, 4)
+
+        with patch(f"{_MOD}._resolve_backfill_window", return_value=(historical_date, latest_date)), \
+             patch(f"{_MOD}._get_enabled_backfill_keys", return_value={("tushare", "us_daily")}), \
+             patch(
+                 f"{_MOD}._get_enabled_items",
+                 return_value=[{"source": "tushare", "item_key": "us_daily", "sync_mode": "latest_only"}],
+             ), \
+             patch(
+                 f"{_MOD}._get_failed_records",
+                 return_value=[
+                     (historical_date, "tushare", "us_daily", 0),
+                     (latest_date, "tushare", "us_daily", 0),
+                 ],
+             ), \
+             patch(f"{_MOD}._write_status") as mock_write, \
+             patch("app.domains.extdata.dao.data_sync_status_dao.acquire_backfill_lock"), \
+             patch("app.domains.extdata.dao.data_sync_status_dao.release_backfill_lock"), \
+             patch("app.domains.extdata.dao.data_sync_status_dao.is_backfill_locked", return_value=False):
+            result = backfill_retry(registry, max_workers=1)
+
+        iface.sync_date.assert_called_once_with(latest_date)
+        assert result["tushare/us_daily@2024-01-03"]["skipped"] is True
+        assert result["tushare/us_daily@2024-01-04"]["status"] == SyncStatus.SUCCESS.value
+        assert mock_write.call_args_list[0].args[:3] == (historical_date, "tushare", "us_daily")
 
     def test_filters_out_non_enabled_records_before_backfill(self):
         from app.datasync.base import SyncResult, SyncStatus

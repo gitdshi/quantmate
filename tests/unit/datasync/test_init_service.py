@@ -463,11 +463,14 @@ class TestInitialize:
                patch(f"{_MOD}.ensure_sync_status_init_table"), \
                patch(f"{_MOD}.get_coverage_window", return_value={"env": "dev", "window_years": 1, "configured_start_date": date(2026, 4, 15), "env_floor_start_date": date(2025, 4, 15), "start_date": date(2025, 4, 15), "end_date": date(2026, 4, 15)}), \
                patch(f"{_MOD}._sync_registry_state", return_value={"items_normalized": 1, "tables_created": 2}), \
+               patch(f"{_MOD}._clear_inactive_status_rows", return_value=6) as clear_mock, \
                patch(f"{_MOD}._ensure_trade_calendar_window", return_value=([date(2026, 4, 15)], True)), \
                patch(f"{_MOD}._reconcile_pending_records", return_value={"pending_records": 0, "items_reconciled": 0, "skipped_unsupported": []}):
             result = initialize(registry, run_backfill=False)
+        clear_mock.assert_called_once_with(date(2025, 4, 15), date(2026, 4, 15))
         assert "env" in result
         assert result["items_normalized"] == 1
+        assert result["inactive_status_rows_cleared"] == 6
         assert "tables_created" in result
         assert result["trade_calendar_refreshed"] is True
 
@@ -485,8 +488,9 @@ class TestInitialize:
                patch(f"{_MOD}.ensure_tables"), \
                patch(f"{_MOD}.ensure_backfill_lock_table"), \
                patch(f"{_MOD}.ensure_sync_status_init_table"), \
-                         patch(f"{_MOD}.get_coverage_window", return_value={"env": "dev", "window_years": 1, "configured_start_date": date(2026, 4, 15), "env_floor_start_date": date(2025, 4, 15), "start_date": date(2025, 4, 15), "end_date": date(2026, 4, 15)}), \
+             patch(f"{_MOD}.get_coverage_window", return_value={"env": "dev", "window_years": 1, "configured_start_date": date(2026, 4, 15), "env_floor_start_date": date(2025, 4, 15), "start_date": date(2025, 4, 15), "end_date": date(2026, 4, 15)}), \
              patch(f"{_MOD}._sync_registry_state", return_value={"items_normalized": 0, "tables_created": 0}), \
+             patch(f"{_MOD}._clear_inactive_status_rows", return_value=0), \
              patch(f"{_MOD}._ensure_trade_calendar_window", return_value=([date(2026, 4, 15)], False)), \
                patch(f"{_MOD}._reconcile_pending_records", return_value={"pending_records": 0, "items_reconciled": 0, "skipped_unsupported": []}), \
              patch("app.datasync.service.sync_engine.backfill_retry", return_value={"step": {"status": "success"}}):
@@ -517,12 +521,15 @@ class TestRuntimeReconcile:
              patch(f"{_MOD}.ensure_sync_status_init_table"), \
              patch(f"{_MOD}.get_coverage_window", return_value=coverage_window), \
              patch(f"{_MOD}._sync_registry_state", return_value={"items_normalized": 0, "tables_created": 3}), \
+             patch(f"{_MOD}._clear_inactive_status_rows", return_value=4) as clear_mock, \
              patch(f"{_MOD}._ensure_trade_calendar_window", return_value=([date(2026, 4, 15)], True)), \
              patch(f"{_MOD}._reconcile_pending_records", return_value={"pending_records": 4, "items_reconciled": 3, "skipped_unsupported": []}):
             result = reconcile_runtime_state(registry)
 
+        clear_mock.assert_called_once_with(date(2016, 4, 17), date(2026, 4, 15))
         assert result["env"] == "staging"
         assert result["tables_created"] == 3
+        assert result["inactive_status_rows_cleared"] == 4
         assert result["pending_records"] == 4
         assert result["trade_calendar_days"] == 1
         assert result["trade_calendar_refreshed"] is True

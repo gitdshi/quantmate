@@ -273,6 +273,51 @@ def _build_calendar_dates(start_date: date, end_date: date) -> list[date]:
     return [start_date + timedelta(days=offset) for offset in range(total_days)]
 
 
+def _clear_runtime_unsupported_status_rows(
+    source: str,
+    item_key: str,
+    *,
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> int:
+    resolved_start_date, resolved_end_date = _resolve_default_sync_window(end_date)
+    if start_date is not None:
+        resolved_start_date = start_date
+    if end_date is not None:
+        resolved_end_date = end_date
+    if resolved_start_date > resolved_end_date:
+        resolved_start_date = resolved_end_date
+
+    engine = get_quantmate_engine()
+    with engine.begin() as conn:
+        result = conn.execute(
+            text(
+                "DELETE FROM data_sync_status "
+                "WHERE source = :source AND interface_key = :item_key "
+                "AND sync_date BETWEEN :start_date AND :end_date "
+                "AND status IN ('pending', 'error', 'partial', 'running')"
+            ),
+            {
+                "source": source,
+                "item_key": item_key,
+                "start_date": resolved_start_date,
+                "end_date": resolved_end_date,
+            },
+        )
+
+    cleared = int(getattr(result, "rowcount", 0) or 0)
+    if cleared:
+        logger.info(
+            "Cleared %d non-success sync status rows for unsupported interface %s/%s in window %s -> %s",
+            cleared,
+            source,
+            item_key,
+            resolved_start_date,
+            resolved_end_date,
+        )
+    return cleared
+
+
 def initialize_sync_status(
     source: str,
     item_key: str,
@@ -456,11 +501,23 @@ def reconcile_enabled_sync_status(
             "sync_mode": row[5] if len(row) > 5 else None,
         }
         if not is_item_sync_supported(registry, item, source_configs=source_configs):
+            _clear_runtime_unsupported_status_rows(
+                source_key,
+                enabled_item_key,
+                start_date=start_date,
+                end_date=end_date,
+            )
             skipped_unsupported.append({"source": source_key, "item_key": enabled_item_key})
             continue
 
         iface = registry.get_interface(source_key, enabled_item_key)
         if iface is None:
+            _clear_runtime_unsupported_status_rows(
+                source_key,
+                enabled_item_key,
+                start_date=start_date,
+                end_date=end_date,
+            )
             skipped_unsupported.append({"source": source_key, "item_key": enabled_item_key})
             continue
 
@@ -473,6 +530,12 @@ def reconcile_enabled_sync_status(
             sync_mode=item.get("sync_mode"),
         )
         if item_result is None:
+            _clear_runtime_unsupported_status_rows(
+                source_key,
+                enabled_item_key,
+                start_date=start_date,
+                end_date=end_date,
+            )
             skipped_unsupported.append({"source": source_key, "item_key": enabled_item_key})
             continue
 

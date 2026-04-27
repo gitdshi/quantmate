@@ -263,3 +263,12 @@ def test_sync_mode_migration_uses_mysql_compatible_column_guard():
     assert "information_schema.columns" in sql
     assert "PREPARE stmt_add_sync_mode" in sql
     assert "ADD COLUMN IF NOT EXISTS sync_mode" not in sql
+
+
+def test_us_daily_latest_only_migration_exists():
+    migration_path = Path(__file__).resolve().parents[3] / "mysql" / "migrations" / "041_make_us_daily_latest_only.sql"
+
+    sql = migration_path.read_text(encoding="utf-8")
+
+    assert "item_key = 'us_daily'" in sql
+    assert "sync_mode = 'latest_only'" in sql

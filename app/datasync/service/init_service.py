@@ -421,6 +421,34 @@ def _ensure_trade_calendar_window(start_date: date, end_date: date) -> tuple[lis
     return trade_dates, refreshed
 
 
+def _clear_inactive_status_rows(start_date: date, end_date: date) -> int:
+    engine = get_quantmate_engine()
+    with engine.begin() as conn:
+        result = conn.execute(
+            text(
+                "DELETE dss FROM data_sync_status dss "
+                "JOIN data_source_items dsi "
+                "  ON BINARY dss.source = BINARY dsi.source "
+                " AND BINARY dss.interface_key = BINARY dsi.item_key "
+                "LEFT JOIN data_source_configs dsc ON BINARY dsi.source = BINARY dsc.source_key "
+                "WHERE dss.sync_date BETWEEN :start_date AND :end_date "
+                "AND dss.status IN ('pending', 'error', 'partial', 'running') "
+                "AND (dsi.enabled = 0 OR COALESCE(dsc.enabled, 0) = 0)"
+            ),
+            {"start_date": start_date, "end_date": end_date},
+        )
+
+    cleared = int(getattr(result, "rowcount", 0) or 0)
+    if cleared:
+        logger.info(
+            "Cleared %d stale non-success sync status rows for inactive items in window %s -> %s",
+            cleared,
+            start_date,
+            end_date,
+        )
+    return cleared
+
+
 def reconcile_runtime_state(
     registry: DataSourceRegistry,
     target_end_date: date | None = None,
@@ -445,6 +473,7 @@ def reconcile_runtime_state(
     ensure_sync_status_init_table()
 
     registry_state = _sync_registry_state(engine, registry)
+    inactive_status_rows_cleared = _clear_inactive_status_rows(start_date, end_date)
     trade_dates, trade_calendar_refreshed = _ensure_trade_calendar_window(start_date, end_date)
     pending_result = _reconcile_pending_records(registry, start_date=start_date, end_date=end_date)
 
@@ -455,6 +484,7 @@ def reconcile_runtime_state(
         "env_floor_start_date": coverage_window["env_floor_start_date"],
         "start_date": start_date,
         "end_date": end_date,
+        "inactive_status_rows_cleared": inactive_status_rows_cleared,
         "trade_calendar_days": len(trade_dates),
         "trade_calendar_refreshed": trade_calendar_refreshed,
         **registry_state,
@@ -494,6 +524,10 @@ def initialize(registry: DataSourceRegistry, run_backfill: bool = False) -> dict
     ensure_sync_status_init_table()
 
     registry_state = _sync_registry_state(engine, registry)
+    inactive_status_rows_cleared = _clear_inactive_status_rows(
+        coverage_window["start_date"],
+        coverage_window["end_date"],
+    )
     trade_dates, trade_calendar_refreshed = _ensure_trade_calendar_window(
         coverage_window["start_date"],
         coverage_window["end_date"],
@@ -511,6 +545,7 @@ def initialize(registry: DataSourceRegistry, run_backfill: bool = False) -> dict
         "env_floor_start_date": coverage_window["env_floor_start_date"],
         "start_date": coverage_window["start_date"],
         "end_date": coverage_window["end_date"],
+        "inactive_status_rows_cleared": inactive_status_rows_cleared,
         "trade_calendar_days": len(trade_dates),
         "trade_calendar_refreshed": trade_calendar_refreshed,
         **registry_state,

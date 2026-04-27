@@ -1000,6 +1000,15 @@ def upsert_rows(
         for record in records
     ]
 
+    if key_column_set:
+        params_list = [
+            params
+            for params in params_list
+            if all(params.get(key_column) is not None for key_column in key_column_set)
+        ]
+        if not params_list:
+            return 0
+
     with engine.begin() as conn:
         conn.execute(insert_sql, params_list)
     return len(params_list)

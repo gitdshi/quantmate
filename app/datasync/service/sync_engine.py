@@ -310,13 +310,39 @@ def _is_quota_pending_record(record: tuple[object, ...]) -> bool:
     return status == SyncStatus.PENDING.value and _parse_quota_retry_after_seconds(error_message) is not None
 
 
-def _filter_backfill_retry_records(records: list[tuple[object, ...]], now: datetime | None = None) -> list[tuple[object, ...]]:
+def _should_bypass_quota_filters(
+    record: tuple[object, ...],
+    enabled_items: dict[tuple[str, str], dict] | None,
+    window_end_date: date | None,
+) -> bool:
+    if enabled_items is None or window_end_date is None:
+        return False
+
+    sync_date, source, iface_key = record[:3]
+    item = enabled_items.get((str(source), str(iface_key)))
+    if item is None:
+        return False
+
+    sync_mode = normalize_sync_mode(item.get("sync_mode"))
+    return not sync_mode_supports_backfill(sync_mode) and sync_date != window_end_date
+
+
+def _filter_backfill_retry_records(
+    records: list[tuple[object, ...]],
+    now: datetime | None = None,
+    *,
+    enabled_items: dict[tuple[str, str], dict] | None = None,
+    window_end_date: date | None = None,
+) -> list[tuple[object, ...]]:
     filtered: list[tuple[object, ...]] = []
     current_time = now or datetime.now()
     seen_quota_interfaces: set[tuple[str, str]] = set()
 
     for record in records:
         if _is_quota_cooldown_record(record, now=current_time):
+            if _should_bypass_quota_filters(record, enabled_items, window_end_date):
+                filtered.append(record)
+                continue
             sync_date, source, iface_key = record[:3]
             logger.info(
                 "Skipping backfill retry for quota-cooled record %s/%s@%s until cooldown expires",
@@ -329,6 +355,9 @@ def _filter_backfill_retry_records(records: list[tuple[object, ...]], now: datet
         if _is_quota_pending_record(record):
             source = str(record[1])
             iface_key = str(record[2])
+            if _should_bypass_quota_filters(record, enabled_items, window_end_date):
+                filtered.append(record)
+                continue
             quota_key = (source, iface_key)
             if quota_key in seen_quota_interfaces:
                 logger.info(
@@ -1017,7 +1046,11 @@ def backfill_retry(
             }
         failed = [
             record
-            for record in _filter_backfill_retry_records(_get_failed_records(window_start_date, window_end_date))
+            for record in _filter_backfill_retry_records(
+                _get_failed_records(window_start_date, window_end_date),
+                enabled_items=enabled_items,
+                window_end_date=window_end_date,
+            )
             if (record[1], record[2]) in enabled_backfill_keys
         ]
         pending_range_records: dict[tuple[str, str], dict[str, object]] = {}

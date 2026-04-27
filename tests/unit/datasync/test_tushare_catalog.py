@@ -236,6 +236,7 @@ class TestReconcileEnabledSyncStatus:
         with patch(f"{_INIT_MOD}.ensure_sync_status_init_table"), \
              patch(f"{_INIT_MOD}.get_quantmate_engine", return_value=engine), \
              patch("app.datasync.capabilities.load_source_config_map", return_value={"tushare": {"config_json": {"token_points": 2000}}}), \
+             patch(f"{_INIT_MOD}._clear_runtime_unsupported_status_rows") as mock_clear, \
              patch(f"{_INIT_MOD}.initialize_sync_status") as mock_init:
             result = reconcile_enabled_sync_status(
                 registry,
@@ -246,6 +247,12 @@ class TestReconcileEnabledSyncStatus:
         assert result["pending_records"] == 0
         assert result["items_reconciled"] == 0
         assert result["skipped_unsupported"] == [{"source": "tushare", "item_key": "bak_daily"}]
+        mock_clear.assert_called_once_with(
+            "tushare",
+            "bak_daily",
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 1, 5),
+        )
         mock_init.assert_not_called()
 
 
