@@ -11,8 +11,9 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import Iterator, Literal
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Connection
+from sqlalchemy.exc import OperationalError
 
 from app.infrastructure.config import get_settings
 
@@ -79,6 +80,22 @@ def get_mysql_server_engine():
     return _mysql_server_engine
 
 
+def _is_unknown_database_error(exc: OperationalError, db_name: str) -> bool:
+    message = str(getattr(exc, "orig", exc)).lower()
+    return "unknown database" in message and db_name.lower() in message
+
+
+def _ensure_database_exists(db_name: str) -> None:
+    admin_engine = get_mysql_server_engine()
+    with admin_engine.begin() as conn:
+        conn.execute(
+            text(
+                f"CREATE DATABASE IF NOT EXISTS `{db_name}` "
+                "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+            )
+        )
+
+
 def get_quantmate_connection() -> Connection:
     """Return a `quantmate` DB connection (was previously `get_db_connection`)."""
     engine = get_quantmate_engine()
@@ -101,7 +118,14 @@ def get_akshare_connection() -> Connection:
 
 def get_qlib_connection() -> Connection:
     engine = get_qlib_engine()
-    return engine.connect()
+    try:
+        return engine.connect()
+    except OperationalError as exc:
+        if not _is_unknown_database_error(exc, "qlib"):
+            raise
+
+        _ensure_database_exists("qlib")
+        return engine.connect()
 
 
 @contextmanager
