@@ -1,5 +1,7 @@
 """RD-Agent Auto Pilot routes — autonomous factor mining via RD-Agent."""
 
+from datetime import date, timedelta
+
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field
 
@@ -17,6 +19,14 @@ from app.domains.factors.rdagent_service import (
 router = APIRouter(prefix="/rdagent", tags=["RD-Agent Auto Pilot"])
 
 
+def _default_end_date() -> str:
+    return date.today().isoformat()
+
+
+def _default_start_date() -> str:
+    return (date.today() - timedelta(days=365)).isoformat()
+
+
 # ── Request / Response models ────────────────────────────────────────
 
 
@@ -26,8 +36,8 @@ class MiningStartRequest(BaseModel):
     llm_model: str = Field(default_factory=get_default_rdagent_llm_model)
     universe: str = "csi300"
     feature_columns: list[str] = Field(default_factory=list)
-    start_date: str = "2018-01-01"
-    end_date: str = "2024-12-31"
+    start_date: str = Field(default_factory=_default_start_date)
+    end_date: str = Field(default_factory=_default_end_date)
 
 
 class ImportFactorRequest(BaseModel):
