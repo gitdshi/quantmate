@@ -28,6 +28,7 @@ _FACTOR_DATA_DIR = "git_ignore_folder/factor_implementation_source_data"
 _FACTOR_DATA_DEBUG_DIR = "git_ignore_folder/factor_implementation_source_data_debug"
 _OLLAMA_CHAT_MODEL = "ollama/mistral:7b"
 _OLLAMA_EMBEDDING_MODEL = "ollama/nomic-embed-text:latest"
+_TIMEOUT_PER_ITERATION_SECONDS = int(os.getenv("RDAGENT_TIMEOUT_PER_ITERATION_SECONDS", "900"))
 _SEEDED_FACTOR_COLUMNS = {
     "$open": [10.0, 11.2, 10.8, 11.5],
     "$high": [10.4, 11.5, 11.1, 11.8],
@@ -174,7 +175,7 @@ def mine():
             env=env,
             capture_output=True,
             text=True,
-            timeout=max_iterations * 300,  # 5 min per iteration max
+            timeout=max_iterations * _TIMEOUT_PER_ITERATION_SECONDS,
         )
 
         logger.info("rdagent exited with code %d", result.returncode)
