@@ -52,6 +52,7 @@ def test_build_rdagent_env_prefers_local_ollama_without_openai_key(monkeypatch, 
     assert env["CHAT_MODEL"] == "ollama/mistral:7b"
     assert env["EMBEDDING_MODEL"] == "ollama/nomic-embed-text:latest"
     assert env["LITELLM_CHAT_STREAM"] == "false"
+    assert env["LITELLM_ENABLE_RESPONSE_SCHEMA"] == "false"
     assert env["CONDA_DEFAULT_ENV"] == "base"
     assert env["FACTOR_CoSTEER_python_bin"] == sys.executable
 

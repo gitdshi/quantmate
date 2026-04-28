@@ -40,7 +40,6 @@ def _daemon_fixtures(monkeypatch):
     monkeypatch.setattr(mod, "get_adj_factor_count_for_date", lambda d: 5000)
     monkeypatch.setattr(mod, "get_cached_trade_dates", lambda *a, **kw: [])
     monkeypatch.setattr(mod, "upsert_trade_dates", lambda *a, **kw: None)
-    monkeypatch.setattr(mod, "truncate_trade_cal", lambda: None)
     monkeypatch.setattr(mod, "get_failed_steps", lambda *a, **kw: [])
     monkeypatch.setattr(mod, "is_backfill_locked", lambda: False)
     monkeypatch.setattr(mod, "acquire_backfill_lock", lambda: True)

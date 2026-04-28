@@ -321,7 +321,7 @@ CREATE TABLE IF NOT EXISTS dividend (
     div_stock DECIMAL(20,2),
     bonus_ratio DECIMAL(10,2),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE INDEX ux_dividend_ts_ann (ts_code, ann_date),
+    UNIQUE KEY ux_dividend_ts_ann (ts_code, ann_date),
     INDEX idx_div_ts_ann (ts_code, ann_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 """

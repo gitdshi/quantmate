@@ -557,27 +557,26 @@ class TestRefreshTradeCalendar:
         mock_ak = MagicMock()
         mock_ak.tool_trade_date_hist_sina.return_value = df
         monkeypatch.setattr(_dsd, "ak", mock_ak)
-        monkeypatch.setattr(_dsd, "truncate_trade_cal", lambda: None)
         monkeypatch.setattr(_dsd, "upsert_trade_dates", lambda x: None)
-        _dsd.refresh_trade_calendar()
+        assert _dsd.refresh_trade_calendar() is True
 
     def test_no_akshare(self, monkeypatch):
         monkeypatch.setattr(_dsd, "AKSHARE_AVAILABLE", False)
-        _dsd.refresh_trade_calendar()  # Should not raise
+        assert _dsd.refresh_trade_calendar() is False
 
     def test_empty_result(self, monkeypatch):
         monkeypatch.setattr(_dsd, "AKSHARE_AVAILABLE", True)
         mock_ak = MagicMock()
         mock_ak.tool_trade_date_hist_sina.return_value = pd.DataFrame()
         monkeypatch.setattr(_dsd, "ak", mock_ak)
-        _dsd.refresh_trade_calendar()
+        assert _dsd.refresh_trade_calendar() is False
 
     def test_exception(self, monkeypatch):
         monkeypatch.setattr(_dsd, "AKSHARE_AVAILABLE", True)
         mock_ak = MagicMock()
         mock_ak.tool_trade_date_hist_sina.side_effect = Exception("api error")
         monkeypatch.setattr(_dsd, "ak", mock_ak)
-        _dsd.refresh_trade_calendar()  # Should not raise
+        assert _dsd.refresh_trade_calendar() is False
 
 
 @pytest.mark.unit

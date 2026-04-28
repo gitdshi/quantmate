@@ -69,11 +69,12 @@ def ensure_table(database: str, table: str, ddl: str) -> bool:
 
 
 def _ensure_static_table_schema(database: str, table: str, ddl: str) -> bool:
-    column_specs, key_columns = _parse_static_table_schema(ddl)
+    column_specs, key_columns, index_specs = _parse_static_table_schema(ddl)
     if not column_specs:
         return False
 
     existing_columns = _get_existing_columns(database, table)
+    existing_indexes = _get_existing_indexes(database, table)
     statements: list[str] = []
 
     for column_spec in column_specs:
@@ -91,6 +92,11 @@ def _ensure_static_table_schema(database: str, table: str, ddl: str) -> bool:
 
         if _static_column_allows_null(column_spec) and _column_requires_nullable_relax(existing_columns[name], name, key_columns):
             statements.append(f"ALTER TABLE `{table}` MODIFY COLUMN {_static_column_ddl(column_spec)}")
+
+    for index_spec in index_specs:
+        if _has_matching_index(existing_indexes, index_spec):
+            continue
+        statements.append(_build_add_index_statement(table, index_spec))
 
     if not statements:
         return False
@@ -184,9 +190,42 @@ def _get_existing_columns(database: str, table: str) -> dict[str, dict[str, str]
     }
 
 
-def _parse_static_table_schema(ddl: str) -> tuple[list[dict[str, object]], tuple[str, ...]]:
+def _get_existing_indexes(database: str, table: str) -> list[dict[str, object]]:
+    engine = _get_engine(database)
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT index_name, non_unique, seq_in_index, column_name "
+                "FROM information_schema.statistics "
+                "WHERE table_schema = :db AND table_name = :tbl "
+                "ORDER BY index_name ASC, seq_in_index ASC"
+            ),
+            {"db": database, "tbl": table},
+        ).fetchall()
+
+    indexes: dict[str, dict[str, object]] = {}
+    for index_name, non_unique, _seq_in_index, column_name in rows:
+        normalized_name = str(index_name or "").strip()
+        if not normalized_name or normalized_name.upper() == "PRIMARY":
+            continue
+        entry = indexes.setdefault(
+            normalized_name,
+            {
+                "name": normalized_name,
+                "unique": int(non_unique or 0) == 0,
+                "columns": [],
+            },
+        )
+        entry["columns"].append(str(column_name))
+    return list(indexes.values())
+
+
+def _parse_static_table_schema(ddl: str) -> tuple[list[dict[str, object]], tuple[str, ...], list[dict[str, object]]]:
     column_specs: list[dict[str, object]] = []
     key_columns: list[str] = []
+    index_specs: list[dict[str, object]] = []
+    seen_columns: set[str] = set()
+    seen_indexes: set[tuple[str, bool, tuple[str, ...]]] = set()
 
     for raw_line in ddl.splitlines():
         line = raw_line.strip().rstrip(",")
@@ -199,7 +238,17 @@ def _parse_static_table_schema(ddl: str) -> tuple[list[dict[str, object]], tuple
         if upper_line.startswith("PRIMARY KEY"):
             key_columns.extend(_parse_index_columns(line))
             continue
-        if upper_line.startswith("UNIQUE KEY") or upper_line.startswith("KEY ") or upper_line.startswith("INDEX "):
+        if upper_line.startswith("UNIQUE KEY") or upper_line.startswith("UNIQUE INDEX") or upper_line.startswith("KEY ") or upper_line.startswith("INDEX "):
+            index_spec = _parse_index_definition(line)
+            if index_spec is not None:
+                signature = (
+                    str(index_spec["name"]),
+                    bool(index_spec["unique"]),
+                    tuple(str(column) for column in index_spec["columns"]),
+                )
+                if signature not in seen_indexes:
+                    seen_indexes.add(signature)
+                    index_specs.append(index_spec)
             continue
 
         match = re.match(r"`?([A-Za-z0-9_]+)`?\s+(.*)", line)
@@ -210,12 +259,15 @@ def _parse_static_table_schema(ddl: str) -> tuple[list[dict[str, object]], tuple
         definition = str(match.group(2)).strip()
         if not name or not definition:
             continue
+        if name in seen_columns:
+            continue
 
         if re.search(r"\bPRIMARY\s+KEY\b", definition, flags=re.IGNORECASE):
             key_columns.append(name)
             definition = re.sub(r"\bPRIMARY\s+KEY\b", "", definition, flags=re.IGNORECASE).strip()
 
         sql_type = _extract_sql_type(definition)
+        seen_columns.add(name)
         column_specs.append(
             {
                 "name": name,
@@ -224,7 +276,35 @@ def _parse_static_table_schema(ddl: str) -> tuple[list[dict[str, object]], tuple
             }
         )
 
-    return column_specs, tuple(dict.fromkeys(key_columns))
+    return column_specs, tuple(dict.fromkeys(key_columns)), index_specs
+
+
+def _parse_index_definition(line: str) -> dict[str, object] | None:
+    normalized = line.strip().rstrip(",")
+    upper_line = normalized.upper()
+
+    unique = upper_line.startswith("UNIQUE ")
+    if unique:
+        body = re.sub(r"^UNIQUE\s+(?:KEY|INDEX)\s+", "", normalized, flags=re.IGNORECASE)
+    elif upper_line.startswith("KEY ") or upper_line.startswith("INDEX "):
+        body = re.sub(r"^(?:KEY|INDEX)\s+", "", normalized, flags=re.IGNORECASE)
+    else:
+        return None
+
+    match = re.match(r"`?([A-Za-z0-9_]+)`?\s*\((.+)\)$", body)
+    if not match:
+        return None
+
+    name = str(match.group(1)).strip()
+    columns = tuple(_parse_index_columns(f"({match.group(2)})"))
+    if not name or not columns:
+        return None
+
+    return {
+        "name": name,
+        "unique": unique,
+        "columns": columns,
+    }
 
 
 def _parse_index_columns(line: str) -> list[str]:
@@ -254,6 +334,31 @@ def _static_column_ddl(column_spec: dict[str, object]) -> str:
 def _static_column_allows_null(column_spec: dict[str, object]) -> bool:
     definition = str(column_spec.get("definition") or "")
     return "NOT NULL" not in definition.upper()
+
+
+def _has_matching_index(existing_indexes: list[dict[str, object]], index_spec: dict[str, object]) -> bool:
+    expected_name = str(index_spec.get("name") or "").strip()
+    expected_unique = bool(index_spec.get("unique"))
+    expected_columns = tuple(str(column) for column in (index_spec.get("columns") or ()))
+    if not expected_name or not expected_columns:
+        return True
+
+    for existing in existing_indexes:
+        existing_name = str(existing.get("name") or "").strip()
+        existing_unique = bool(existing.get("unique"))
+        existing_columns = tuple(str(column) for column in (existing.get("columns") or ()))
+        if existing_name == expected_name:
+            return True
+        if existing_unique == expected_unique and existing_columns == expected_columns:
+            return True
+    return False
+
+
+def _build_add_index_statement(table: str, index_spec: dict[str, object]) -> str:
+    key_ddl = "UNIQUE KEY" if bool(index_spec.get("unique")) else "KEY"
+    name = str(index_spec.get("name") or "").strip()
+    joined_columns = ", ".join(f"`{column}`" for column in (index_spec.get("columns") or ()))
+    return f"ALTER TABLE `{table}` ADD {key_ddl} `{name}` ({joined_columns})"
 
 
 def _column_requires_legacy_relax(

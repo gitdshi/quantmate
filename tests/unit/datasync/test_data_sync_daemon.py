@@ -624,16 +624,15 @@ class TestRefreshTradeCalendar:
         df = pd.DataFrame({"trade_date": [pd.Timestamp("2024-01-03")]})
         with patch(f"{_MOD}.AKSHARE_AVAILABLE", True), \
              patch(f"{_MOD}.ak") as mock_ak, \
-             patch(f"{_MOD}.truncate_trade_cal"), \
              patch(f"{_MOD}.upsert_trade_dates") as mock_upsert:
             mock_ak.tool_trade_date_hist_sina.return_value = df
-            refresh_trade_calendar()
+            assert refresh_trade_calendar() is True
             mock_upsert.assert_called_once()
 
     def test_akshare_not_available(self):
         from app.datasync.service.data_sync_daemon import refresh_trade_calendar
         with patch(f"{_MOD}.AKSHARE_AVAILABLE", False):
-            refresh_trade_calendar()  # should skip
+            assert refresh_trade_calendar() is False
 
 
 # ── get_trade_days ───────────────────────────────────────────────

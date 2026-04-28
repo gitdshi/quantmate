@@ -68,7 +68,6 @@ from app.domains.extdata.dao.data_sync_status_dao import (
     upsert_trade_dates,
     get_stock_basic_count,
     get_adj_factor_count_for_date,
-    truncate_trade_cal,
     get_stock_daily_counts,
     get_bak_daily_counts,
     get_moneyflow_counts,
@@ -310,25 +309,25 @@ def get_previous_trade_date(offset: int = 1) -> date:
     return date.today() - timedelta(days=offset)
 
 
-def refresh_trade_calendar():
-    """Refresh cached trade calendar from AkShare (call monthly)."""
+def refresh_trade_calendar() -> bool:
+    """Refresh cached trade calendar from AkShare without destructive table rewrites."""
     if not AKSHARE_AVAILABLE:
         logger.warning("AkShare not available, cannot refresh trade calendar")
-        return
+        return False
 
     try:
         df = ak.tool_trade_date_hist_sina()
         if df is None or df.empty:
             logger.warning("AkShare returned no trade dates")
-            return
+            return False
 
         df["trade_date"] = pd.to_datetime(df["trade_date"])
-        # Truncate and re-insert
-        truncate_trade_cal()
         upsert_trade_dates([td.date() for td in df["trade_date"]])
         logger.info("Refreshed trade calendar: %d dates cached", len(df))
+        return True
     except Exception as e:
         logger.exception("Failed to refresh trade calendar: %s", e)
+        return False
 
 
 # =========================================================================

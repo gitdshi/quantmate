@@ -412,8 +412,7 @@ def _ensure_trade_calendar_window(start_date: date, end_date: date) -> tuple[lis
     refreshed = False
     if not cached_dates or cached_dates[0] > start_date or cached_dates[-1] < end_date:
         try:
-            refresh_trade_calendar()
-            refreshed = True
+            refreshed = bool(refresh_trade_calendar())
         except Exception:
             logger.exception("Failed to refresh trade calendar before reconciliation")
 
