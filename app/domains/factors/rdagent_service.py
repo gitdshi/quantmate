@@ -144,6 +144,7 @@ class RDAgentService:
                     "created_at": now,
                 },
             )
+            conn.commit()
 
         logger.info("[rdagent] Created run %s for user %d", run_id, user_id)
         return {"run_id": run_id, "status": RunStatus.QUEUED.value}
@@ -279,6 +280,7 @@ class RDAgentService:
                 ),
                 {"fid": factor_id},
             )
+            conn.commit()
 
         logger.info("[rdagent] Imported factor %d from run %s", factor_id, run_id)
         return created
@@ -316,6 +318,7 @@ def _update_run_status(
             ),
             {"rid": run_id, "status": status, "err": error_message},
         )
+        conn.commit()
 
 
 def save_iteration(
@@ -347,6 +350,7 @@ def save_iteration(
                 "st": status,
             },
         )
+        conn.commit()
         return result.lastrowid  # type: ignore[return-value]
 
 
@@ -379,6 +383,7 @@ def save_discovered_factor(
                 "sharpe": sharpe,
             },
         )
+        conn.commit()
         return result.lastrowid  # type: ignore[return-value]
 
 

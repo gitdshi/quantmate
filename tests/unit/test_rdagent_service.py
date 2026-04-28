@@ -91,6 +91,7 @@ class TestRDAgentServiceStartMining:
         assert len(result["run_id"]) == 36  # UUID format
         mock_conn_ctx.assert_called_once_with("qlib")
         mock_conn.execute.assert_called_once()
+        mock_conn.commit.assert_called_once()
 
 
 class TestRDAgentServiceGetRun:
@@ -295,6 +296,7 @@ class TestRDAgentServiceImportFactor:
         result = svc.import_factor(user_id=1, run_id="r1", factor_id=42)
         assert result["id"] == 100
         assert mock_conn_ctx.call_args_list == [call("qlib"), call("qlib")]
+        mock_conn.commit.assert_called_once()
 
     @patch("app.domains.factors.rdagent_service.RDAgentService.get_run")
     def test_import_factor_run_not_found(self, mock_get):
@@ -352,6 +354,7 @@ class TestDBHelpers:
         _update_run_status("run-1", "running")
         mock_conn_ctx.assert_called_once_with("qlib")
         mock_conn.execute.assert_called_once()
+        mock_conn.commit.assert_called_once()
 
     @patch("app.domains.factors.rdagent_service.connection")
     def test_update_run_status_with_error(self, mock_conn_ctx):
@@ -362,6 +365,7 @@ class TestDBHelpers:
         _update_run_status("run-1", "failed", "Something went wrong")
         mock_conn_ctx.assert_called_once_with("qlib")
         mock_conn.execute.assert_called_once()
+        mock_conn.commit.assert_called_once()
 
     @patch("app.domains.factors.rdagent_service.connection")
     def test_save_iteration(self, mock_conn_ctx):
@@ -382,6 +386,7 @@ class TestDBHelpers:
         assert result == 42
         mock_conn_ctx.assert_called_once_with("qlib")
         mock_conn.execute.assert_called_once()
+        mock_conn.commit.assert_called_once()
 
     @patch("app.domains.factors.rdagent_service.connection")
     def test_save_discovered_factor(self, mock_conn_ctx):
@@ -403,6 +408,7 @@ class TestDBHelpers:
         )
         assert result == 7
         mock_conn_ctx.assert_called_once_with("qlib")
+        mock_conn.commit.assert_called_once()
 
 
 class TestSerializeJson:
