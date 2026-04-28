@@ -69,6 +69,14 @@ def test_build_rdagent_env_preserves_openai_model_when_key_present(monkeypatch, 
     assert "EMBEDDING_MODEL" not in env or env["EMBEDDING_MODEL"] != "ollama/nomic-embed-text:latest"
 
 
+def test_sidecar_uses_longer_default_timeout_when_env_missing(monkeypatch):
+    monkeypatch.delenv("RDAGENT_TIMEOUT_PER_ITERATION_SECONDS", raising=False)
+
+    module = _load_sidecar_module()
+
+    assert module._TIMEOUT_PER_ITERATION_SECONDS == 1800
+
+
 def test_build_seed_factor_frame_shapes():
     module = _load_sidecar_module()
 
