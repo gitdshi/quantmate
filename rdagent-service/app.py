@@ -123,6 +123,7 @@ def _build_rdagent_env(run_dir: Path, llm_model: str) -> dict[str, str]:
         env["EMBEDDING_MODEL"] = env.get("EMBEDDING_MODEL") or env.get(
             "RDAGENT_OLLAMA_EMBEDDING_MODEL", _OLLAMA_EMBEDDING_MODEL
         )
+        env["LITELLM_CHAT_STREAM"] = env.get("LITELLM_CHAT_STREAM") or "false"
 
     env["CHAT_MODEL"] = _resolve_chat_model(env, llm_model)
     return env

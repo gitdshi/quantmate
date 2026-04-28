@@ -25,6 +25,7 @@ services:
       - TUSHARE_GRANTED_API_NAMES=${TUSHARE_GRANTED_API_NAMES:-}
       - SYNC_INIT_DEFAULT_START_DATE=${SYNC_INIT_DEFAULT_START_DATE:-}
       - TUSHARE_DATABASE=tushare
+      - RDAGENT_LLM_MODEL=${RDAGENT_LLM_MODEL:-ollama/mistral:7b}
       - RDAGENT_SIDECAR_URL=http://rdagent-service:8001
       # Redis Settings
       - REDIS_HOST=redis
@@ -150,6 +151,7 @@ services:
       - OLLAMA_API_BASE=${OLLAMA_API_BASE:-http://172.17.0.1:11434}
       - RDAGENT_OLLAMA_CHAT_MODEL=${RDAGENT_OLLAMA_CHAT_MODEL:-ollama/mistral:7b}
       - RDAGENT_OLLAMA_EMBEDDING_MODEL=${RDAGENT_OLLAMA_EMBEDDING_MODEL:-ollama/nomic-embed-text:latest}
+      - LITELLM_CHAT_STREAM=${LITELLM_CHAT_STREAM:-false}
       - CONDA_DEFAULT_ENV=${CONDA_DEFAULT_ENV:-base}
       - RDAGENT_SERVICE_PORT=8001
     volumes:
