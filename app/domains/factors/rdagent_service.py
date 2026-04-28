@@ -15,6 +15,7 @@ from typing import Any, Optional
 
 from sqlalchemy import text
 
+from app.infrastructure.config import get_runtime_str
 from app.infrastructure.db.connections import connection
 
 logger = logging.getLogger(__name__)
@@ -98,13 +99,21 @@ class RunStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+def get_default_rdagent_llm_model() -> str:
+    return get_runtime_str(
+        env_keys="RDAGENT_LLM_MODEL",
+        db_key="rdagent.llm_model",
+        default="gpt-4o-mini",
+    )
+
+
 @dataclass
 class RDAgentMiningConfig:
     """Configuration for an RD-Agent mining run."""
 
     scenario: str = "fin_factor"
     max_iterations: int = 10
-    llm_model: str = "gpt-4o-mini"
+    llm_model: str = field(default_factory=get_default_rdagent_llm_model)
     universe: str = "csi300"
     feature_columns: list[str] = field(default_factory=list)
     start_date: str = "2018-01-01"

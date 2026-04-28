@@ -8,7 +8,11 @@ from app.api.services.auth_service import get_current_user
 from app.api.models.user import TokenData
 from app.api.errors import ErrorCode
 from app.api.exception_handlers import APIError
-from app.domains.factors.rdagent_service import RDAgentService, RDAgentMiningConfig
+from app.domains.factors.rdagent_service import (
+    RDAgentService,
+    RDAgentMiningConfig,
+    get_default_rdagent_llm_model,
+)
 
 router = APIRouter(prefix="/rdagent", tags=["RD-Agent Auto Pilot"])
 
@@ -19,7 +23,7 @@ router = APIRouter(prefix="/rdagent", tags=["RD-Agent Auto Pilot"])
 class MiningStartRequest(BaseModel):
     scenario: str = Field("fin_factor", pattern="^(fin_factor|fin_model|fin_quant)$")
     max_iterations: int = Field(10, ge=1, le=100)
-    llm_model: str = "gpt-4o-mini"
+    llm_model: str = Field(default_factory=get_default_rdagent_llm_model)
     universe: str = "csi300"
     feature_columns: list[str] = Field(default_factory=list)
     start_date: str = "2018-01-01"

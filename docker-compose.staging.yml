@@ -105,6 +105,7 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - DEBUG=false
+      - RDAGENT_LLM_MODEL=${RDAGENT_LLM_MODEL:-ollama/mistral:7b}
     command: ["python", "-m", "app.datasync.scheduler", "--daemon"]
     networks:
       - quantmate_network
@@ -146,6 +147,10 @@ services:
       - RDAGENT_WORKSPACE=/tmp/rdagent_workspace
       - CHAT_MODEL=${RDAGENT_LLM_MODEL:-gpt-4o-mini}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OLLAMA_API_BASE=${OLLAMA_API_BASE:-http://172.17.0.1:11434}
+      - RDAGENT_OLLAMA_CHAT_MODEL=${RDAGENT_OLLAMA_CHAT_MODEL:-ollama/mistral:7b}
+      - RDAGENT_OLLAMA_EMBEDDING_MODEL=${RDAGENT_OLLAMA_EMBEDDING_MODEL:-ollama/nomic-embed-text:latest}
+      - CONDA_DEFAULT_ENV=${CONDA_DEFAULT_ENV:-base}
       - RDAGENT_SERVICE_PORT=8001
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
