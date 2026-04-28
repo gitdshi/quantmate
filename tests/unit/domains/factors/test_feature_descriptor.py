@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from app.domains.factors.feature_descriptor import (
     _CATEGORY_DESCRIPTIONS,
+    _PROMPT_CONTEXT_FIELD_SAMPLE_LIMIT,
     build_feature_descriptor,
     build_prompt_context,
 )
@@ -134,6 +135,23 @@ class TestBuildPromptContext:
         ctx = build_prompt_context()
         # Should contain the description text from _CATEGORY_DESCRIPTIONS
         assert "Description:" in ctx
+
+    @patch("app.domains.factors.feature_descriptor.get_catalog_summary")
+    def test_truncates_large_field_lists(self, mock_summary):
+        mock_summary.return_value = {
+            "categories": {
+                "price": [f"field_{index:02d}" for index in range(_PROMPT_CONTEXT_FIELD_SAMPLE_LIMIT + 3)],
+            },
+            "total_fields": _PROMPT_CONTEXT_FIELD_SAMPLE_LIMIT + 3,
+            "sources": ["tushare"],
+        }
+
+        ctx = build_prompt_context()
+
+        assert "Sample fields:" in ctx
+        assert "Additional fields omitted from prompt: 3" in ctx
+        assert f"field_{_PROMPT_CONTEXT_FIELD_SAMPLE_LIMIT - 1:02d}" in ctx
+        assert f"field_{_PROMPT_CONTEXT_FIELD_SAMPLE_LIMIT:02d}" not in ctx
 
     @patch("app.domains.factors.feature_descriptor.get_catalog_summary")
     def test_empty_catalog(self, mock_summary):

@@ -13,6 +13,8 @@ from app.domains.factors.data_catalog import get_catalog_summary
 
 logger = logging.getLogger(__name__)
 
+_PROMPT_CONTEXT_FIELD_SAMPLE_LIMIT = 8
+
 # Human-readable descriptions for each category
 _CATEGORY_DESCRIPTIONS: dict[str, str] = {
     "price": "Stock price data including open, high, low, close, pre_close, and price change metrics",
@@ -58,15 +60,26 @@ def build_prompt_context() -> str:
     Returns a multi-line string describing available data fields.
     """
     desc = build_feature_descriptor(include_descriptions=True)
-    lines = ["Available data fields for factor mining:", ""]
+    lines = [
+        "Available data fields for factor mining:",
+        "Use the category counts as the full inventory. Sample fields below are representative only.",
+        "",
+    ]
 
     features = desc.get("available_features", {})
     for cat_name, info in sorted(features.items()):
         fields = info.get("fields", [])
         description = info.get("description", "")
-        lines.append(f"  {cat_name} ({len(fields)} fields): {', '.join(fields)}")
+        sample_fields = fields[:_PROMPT_CONTEXT_FIELD_SAMPLE_LIMIT]
+        omitted_count = max(len(fields) - len(sample_fields), 0)
+
+        lines.append(f"  {cat_name} ({len(fields)} fields)")
         if description:
             lines.append(f"    Description: {description}")
+        if sample_fields:
+            lines.append(f"    Sample fields: {', '.join(sample_fields)}")
+        if omitted_count:
+            lines.append(f"    Additional fields omitted from prompt: {omitted_count}")
         lines.append("")
 
     total = desc.get("total_fields", 0)
