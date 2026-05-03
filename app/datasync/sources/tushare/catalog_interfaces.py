@@ -458,10 +458,18 @@ def build_catalog_interfaces(existing_keys: set[str] | None = None) -> list[Base
             continue
         seen.add(spec.interface_key)
 
-        # Override requires_permission for interfaces that are known to need
-        # higher Tushare points or custom params not yet implemented.
-        if spec.interface_key in _PERMISSION_REQUIRED_CATALOG_KEYS:
-            spec.requires_permission = "1"
+        # For interfaces that need higher Tushare points or custom params
+        # not yet implemented, override requires_permission so failures
+        # are treated as non-retryable PARTIAL instead of ERROR.
+        if spec.interface_key in _PERMISSION_REQUIRED_CATALOG_KEYS and spec.requires_permission == "0":
+            spec = TushareCatalogSpec(
+                interface_key=spec.interface_key,
+                display_name=spec.display_name,
+                api_name=spec.api_name,
+                target_table=spec.target_table,
+                sync_priority=spec.sync_priority,
+                requires_permission="1",
+            )
 
         specialized = build_specialized_catalog_interface(spec)
         if specialized is not None:
