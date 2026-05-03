@@ -592,7 +592,7 @@ def _is_numeric_value(value) -> bool:
 
 
 def _varchar_bucket(max_length: int) -> int:
-    for bucket in (16, 32, 64, 128, 255, 512):
+    for bucket in (64, 128, 255, 512):
         if max_length <= bucket:
             return bucket
     return 1024

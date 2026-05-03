@@ -14,7 +14,13 @@ def is_permission_error(error_message: str | None) -> bool:
         "没有接口访问权限" in raw_message
         or ("没有接口" in raw_message and "访问权限" in raw_message)
         or "permission" in normalized
+        or "请指定正确的接口名" in raw_message
     )
+
+
+def is_param_error(error_message: str | None) -> bool:
+    raw_message = str(error_message or "")
+    return "参数校验失败" in raw_message or "必填参数" in raw_message
 
 
 def is_quota_pause_result(result: SyncResult) -> bool:
@@ -60,12 +66,12 @@ def handle_tushare_sync_exception(
         return build_quota_pending_result(exc)
 
     error_message = str(exc)
-    if allow_permission_partial and is_permission_error(error_message):
-        logger.info("%s skipped due to permission: %s", context, error_message)
+    if allow_permission_partial and (is_permission_error(error_message) or is_param_error(error_message)):
+        logger.info("%s skipped due to permission/param: %s", context, error_message)
         return SyncResult(
             SyncStatus.PARTIAL,
             0,
-            "Permission denied",
+            "Permission or parameter error — interface unavailable",
             details={"permission_denied": True},
         )
 

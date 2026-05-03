@@ -5,7 +5,7 @@ import re
 
 import pandas as pd
 
-from app.infrastructure.config import get_runtime_bool, get_runtime_int, get_runtime_str
+from app.infrastructure.config import get_runtime_bool, get_runtime_float, get_runtime_int, get_runtime_str
 
 try:
     import tushare as ts
@@ -75,8 +75,13 @@ from app.domains.extdata.dao.tushare_dao import (
 )
 
 # Tushare pro API — wrapped so import succeeds in test/CI environments without a valid token
+_TUSHARE_API_TIMEOUT = get_runtime_float(
+    env_keys="TUSHARE_API_TIMEOUT",
+    db_key="datasync.tushare_api_timeout",
+    default=60.0,
+)
 try:
-    pro = ts.pro_api(TS_TOKEN) if TS_TOKEN else ts.pro_api()
+    pro = ts.pro_api(TS_TOKEN, timeout=_TUSHARE_API_TIMEOUT) if TS_TOKEN else ts.pro_api(timeout=_TUSHARE_API_TIMEOUT)
 except Exception:
     pro = None  # API calls will raise at runtime; tests patch this via unittest.mock
 
