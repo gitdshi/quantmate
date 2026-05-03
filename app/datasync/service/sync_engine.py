@@ -210,6 +210,24 @@ def _get_status_snapshot(sync_date: date, source: str, interface_key: str) -> tu
         return row[0], normalized_rows
 
 
+def _is_permanent_partial_error(error_message: str | None) -> bool:
+    """Return True if the error indicates a permission or parameter problem that
+    retrying will never fix (e.g. wrong API name, missing Tushare points, or
+    an endpoint that requires a mandatory parameter the code does not supply)."""
+    if not error_message:
+        return False
+    permanent_markers = [
+        "interface unavailable",
+        "请指定正确的接口名",
+        "没有接口访问权限",
+        "Permission denied",
+        "permission_denied",
+        "参数校验失败",
+        "必填参数",
+    ]
+    return any(marker in error_message for marker in permanent_markers)
+
+
 def _get_failed_records(
     start_date: date | None = None,
     end_date: date | None = None,
@@ -1059,6 +1077,15 @@ def backfill_retry(
         for record in failed:
             sync_date, source, iface_key, retry_count = record[:4]
             label = f"{source}/{iface_key}@{sync_date}"
+            error_message = record[4] if len(record) > 4 else None
+            record_status = record[5] if len(record) > 5 else None
+
+            # Skip permanently-failing partials — permission-denied and
+            # parameter-error interfaces will never succeed on retry.
+            if record_status == SyncStatus.PARTIAL.value and _is_permanent_partial_error(error_message):
+                logger.debug("Skipping %s: permanent partial (permission/param)", label)
+                continue
+
             effective_retry_count = _effective_retry_count(record)
             item = enabled_items.get((source, iface_key), {})
 
