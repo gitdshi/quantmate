@@ -777,6 +777,13 @@ def call_pro(api_name: str, max_retries: int = None, backoff_base: int = 5, **kw
                 except Exception:
                     logging.exception("metrics hook failed for %s", api_name)
             error_msg = str(e)
+            # Never retry permission or parameter errors — they won't succeed.
+            from app.datasync.sources.tushare.sync_error_handling import is_permission_error, is_param_error
+
+            if is_permission_error(error_msg) or is_param_error(error_msg):
+                logging.info("call_pro %s failed with permission/param error; not retrying: %s", api_name, error_msg[:120])
+                raise
+
             parsed_wait = parse_retry_after(error_msg)
             rate_limit_scope = parse_rate_limit_scope(error_msg)
             if _is_rate_limit_error(error_msg) and rate_limit_scope in {"hour", "day"}:
