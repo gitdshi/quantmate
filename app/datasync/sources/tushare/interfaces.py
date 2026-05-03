@@ -1480,7 +1480,38 @@ _PER_SYMBOL_DATE_CATALOG_CONFIG: dict[str, dict[str, tuple[str, ...] | str]] = {
     "income_vip": {"request_date_param": "ann_date", "extra_key_fields": ("end_date", "report_type", "comp_type")},
     "stk_managers": {"request_date_param": "ann_date", "extra_key_fields": ("name", "title", "lev", "begin_date")},
     "stk_rewards": {"request_date_param": "end_date", "extra_key_fields": ("ann_date", "name")},
+    # Added: interfaces that need per-symbol iteration with a date param
+    "cb_rating": {"request_date_param": "ann_date", "extra_key_fields": ("end_date", "rating_agency")},
+    "idx_factor_pro": {"request_date_param": "trade_date", "extra_key_fields": ()},
 }
+
+# Catalog interfaces that need a single date parameter (not per-symbol)
+# Maps interface_key → date parameter name for Tushare API
+_ONE_SHOT_DATE_CATALOG_KEYS: dict[str, str] = {
+    "top_list": "trade_date",
+    "top_inst": "trade_date",
+    "moneyflow_hsgt": "trade_date",
+    "ggt_top10": "trade_date",
+}
+
+# Catalog interfaces that are permanently unavailable with free/low-point tokens.
+# These are valid Tushare APIs but require higher permission levels than the
+# current staging token provides. Marked as requiring permission so the sync
+# engine treats failures as non-retryable PARTIAL instead of ERROR.
+_PERMISSION_REQUIRED_CATALOG_KEYS: frozenset[str] = frozenset({
+    "bo_weekly",
+    "bo_monthly",
+    "realtime_list",
+    "realtime_quote",
+    "realtime_tick",
+    "film_record",
+    # These require non-standard params (freq, item) that need custom implementations
+    "stk_weekly_monthly",
+    "stk_week_month_adj",
+    "fut_weekly_monthly",
+    "tmt_twincome",
+    "tmt_twincomedetail",
+})
 
 _PER_SYMBOL_LATEST_CATALOG_CONFIG: dict[str, tuple[str, ...]] = {
 }
@@ -1505,6 +1536,10 @@ def build_specialized_catalog_interface(spec: TushareCatalogSpec) -> BaseIngestI
         return TushareIndexWeightInterface()
     if key == "pledge_detail":
         return TusharePledgeDetailInterface()
+
+    one_shot_date_param = _ONE_SHOT_DATE_CATALOG_KEYS.get(key)
+    if one_shot_date_param is not None:
+        return _OneShotDateCatalogInterface(spec, request_date_param=one_shot_date_param)
 
     date_config = _PER_SYMBOL_DATE_CATALOG_CONFIG.get(key)
     if date_config is not None:

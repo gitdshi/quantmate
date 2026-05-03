@@ -446,7 +446,10 @@ def _load_catalog_specs() -> tuple[TushareCatalogSpec, ...]:
 
 
 def build_catalog_interfaces(existing_keys: set[str] | None = None) -> list[BaseIngestInterface]:
-    from app.datasync.sources.tushare.interfaces import build_specialized_catalog_interface
+    from app.datasync.sources.tushare.interfaces import (
+        build_specialized_catalog_interface,
+        _PERMISSION_REQUIRED_CATALOG_KEYS,
+    )
 
     seen = set(existing_keys or set())
     interfaces: list[BaseIngestInterface] = []
@@ -454,6 +457,12 @@ def build_catalog_interfaces(existing_keys: set[str] | None = None) -> list[Base
         if spec.interface_key in seen:
             continue
         seen.add(spec.interface_key)
+
+        # Override requires_permission for interfaces that are known to need
+        # higher Tushare points or custom params not yet implemented.
+        if spec.interface_key in _PERMISSION_REQUIRED_CATALOG_KEYS:
+            spec.requires_permission = "1"
+
         specialized = build_specialized_catalog_interface(spec)
         if specialized is not None:
             interfaces.append(specialized)
