@@ -220,7 +220,7 @@ class TestTushareInterfacesCoverage:
         ):
             result = TushareDividendInterface().sync_date(date(2024, 1, 15))
             assert result.status == SyncStatus.PARTIAL
-            assert "Permission denied" in (result.error_message or "")
+            assert "Permission or parameter error" in (result.error_message or "")
 
     def test_top10_holders_partial(self):
         from app.datasync.sources.tushare.interfaces import TushareTop10HoldersInterface, SyncStatus

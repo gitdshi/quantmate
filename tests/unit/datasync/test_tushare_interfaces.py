@@ -234,7 +234,7 @@ class TestTushareDynamicCatalogSchema:
         assert schema["key_columns"] == ("ann_date", "ts_code")
         assert "UNIQUE KEY" in schema["ddl"]
         assert "`ann_date` DATE NOT NULL" in schema["ddl"]
-        assert "`ts_code` VARCHAR(32) NOT NULL" in schema["ddl"]
+        assert "`ts_code` VARCHAR(64) NOT NULL" in schema["ddl"]
 
     def test_infer_dynamic_table_schema_uses_deterministic_date_priority_without_preference(self):
         from app.datasync.sources.tushare import ddl
