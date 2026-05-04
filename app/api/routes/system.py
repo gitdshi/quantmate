@@ -202,23 +202,37 @@ def _format_sse_event(event: str, payload: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(payload)}\n\n"
 
 
+def _close_log_stream(log_stream: Any) -> None:
+    close = getattr(log_stream, "close", None)
+    if callable(close):
+        try:
+            close()
+        except Exception:
+            logger.debug("Failed to close Docker log stream", exc_info=True)
+
+
 def create_log_stream(module: str, tail: int = 200) -> Iterator[str]:
     spec = _get_log_module_spec(module)
     client = _get_docker_client()
     container = _resolve_log_container(client, spec)
     message_queue: Queue[tuple[str, dict[str, Any] | None]] = Queue()
     stop_event = Event()
+    log_stream_ref: dict[str, Any] = {"stream": None}
 
     def pump_logs() -> None:
+        log_stream = None
         try:
-            for raw_line in container.logs(
+            log_stream = container.logs(
                 stream=True,
                 follow=True,
                 tail=tail,
                 timestamps=True,
                 stdout=True,
                 stderr=True,
-            ):
+            )
+            log_stream_ref["stream"] = log_stream
+
+            for raw_line in log_stream:
                 if stop_event.is_set():
                     break
                 line = raw_line.decode("utf-8", errors="replace").rstrip()
@@ -250,23 +264,25 @@ def create_log_stream(module: str, tail: int = 200) -> Iterator[str]:
                     )
                 )
         finally:
+            log_stream_ref["stream"] = None
+            _close_log_stream(log_stream)
             message_queue.put(("eof", None))
 
     log_thread = Thread(target=pump_logs, name=f"system-log-stream-{spec.key}", daemon=True)
     log_thread.start()
 
     def event_stream() -> Iterator[str]:
-        yield _format_sse_event(
-            "meta",
-            {
-                "type": "meta",
-                "module": spec.key,
-                "container": str(getattr(container, "name", "")),
-                "tail": tail,
-            },
-        )
-
         try:
+            yield _format_sse_event(
+                "meta",
+                {
+                    "type": "meta",
+                    "module": spec.key,
+                    "container": str(getattr(container, "name", "")),
+                    "tail": tail,
+                },
+            )
+
             while True:
                 try:
                     event_name, payload = message_queue.get(timeout=LOG_STREAM_HEARTBEAT_SECONDS)
@@ -287,6 +303,7 @@ def create_log_stream(module: str, tail: int = 200) -> Iterator[str]:
                     yield _format_sse_event(event_name, payload)
         finally:
             stop_event.set()
+            _close_log_stream(log_stream_ref.get("stream"))
             try:
                 client.close()
             except Exception:

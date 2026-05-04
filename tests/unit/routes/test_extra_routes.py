@@ -460,3 +460,38 @@ class TestSystemRoutes:
     def test_stream_logs_rejects_unknown_module(self, sys_client):
         r = sys_client.get("/api/v1/system/logs/stream?module=unknown")
         assert r.status_code == 400
+
+    def test_create_log_stream_closes_docker_stream_on_disconnect(self):
+        from threading import Event
+
+        from app.api.routes import system
+
+        close_called = Event()
+        release_stream = Event()
+
+        class BlockingLogStream:
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                release_stream.wait(timeout=1)
+                raise StopIteration
+
+            def close(self):
+                close_called.set()
+                release_stream.set()
+
+        client = MagicMock()
+        container = MagicMock()
+        container.name = "quantmate-api-1"
+        container.logs.return_value = BlockingLogStream()
+
+        with patch(f"{_SYS}._get_docker_client", return_value=client), patch(
+            f"{_SYS}._resolve_log_container", return_value=container
+        ):
+            stream = system.create_log_stream("api", tail=5)
+            assert 'event: meta' in next(stream)
+            stream.close()
+
+        assert close_called.wait(timeout=1)
+        client.close.assert_called_once()
