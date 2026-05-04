@@ -1175,8 +1175,23 @@ class TushareFundDivInterface(_ExplicitKeyCatalogInterface):
     def supports_backfill(self) -> bool:
         return True
 
+    def backfill_mode(self) -> str:
+        return "range"
+
     def sync_date(self, trade_date: date) -> SyncResult:
         return _sync_catalog_by_fund_codes(self, trade_date, request_date_param="ann_date")
+
+    def sync_range(self, start: date, end: date) -> SyncResult:
+        try:
+            fund_codes = _get_fund_codes()
+        except Exception as exc:
+            return handle_tushare_sync_exception(logger, f"{self.info.interface_key} code load", exc)
+        start_str = start.strftime("%Y%m%d")
+        end_str = end.strftime("%Y%m%d")
+        return _sync_catalog_by_entities(
+            self, fund_codes,
+            lambda code: {"ts_code": code, "start_date": start_str, "end_date": end_str},
+        )
 
 
 class TushareFundNavInterface(_ExplicitKeyCatalogInterface):
@@ -1201,8 +1216,23 @@ class TushareFundNavInterface(_ExplicitKeyCatalogInterface):
     def supports_backfill(self) -> bool:
         return True
 
+    def backfill_mode(self) -> str:
+        return "range"
+
     def sync_date(self, trade_date: date) -> SyncResult:
         return _sync_catalog_by_fund_codes(self, trade_date, request_date_param="nav_date")
+
+    def sync_range(self, start: date, end: date) -> SyncResult:
+        try:
+            fund_codes = _get_fund_codes()
+        except Exception as exc:
+            return handle_tushare_sync_exception(logger, f"{self.info.interface_key} code load", exc)
+        start_str = start.strftime("%Y%m%d")
+        end_str = end.strftime("%Y%m%d")
+        return _sync_catalog_by_entities(
+            self, fund_codes,
+            lambda code: {"ts_code": code, "start_date": start_str, "end_date": end_str},
+        )
 
 
 class TushareFundPortfolioInterface(_ExplicitKeyCatalogInterface):
@@ -1240,8 +1270,23 @@ class TushareFundPortfolioInterface(_ExplicitKeyCatalogInterface):
     def supports_backfill(self) -> bool:
         return True
 
+    def backfill_mode(self) -> str:
+        return "range"
+
     def sync_date(self, trade_date: date) -> SyncResult:
         return _sync_catalog_by_fund_codes(self, trade_date, request_date_param="ann_date")
+
+    def sync_range(self, start: date, end: date) -> SyncResult:
+        try:
+            fund_codes = _get_fund_codes()
+        except Exception as exc:
+            return handle_tushare_sync_exception(logger, f"{self.info.interface_key} code load", exc)
+        start_str = start.strftime("%Y%m%d")
+        end_str = end.strftime("%Y%m%d")
+        return _sync_catalog_by_entities(
+            self, fund_codes,
+            lambda code: {"ts_code": code, "start_date": start_str, "end_date": end_str},
+        )
 
 
 class TushareIndexWeightInterface(_ExplicitKeyCatalogInterface):

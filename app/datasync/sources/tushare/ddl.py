@@ -416,6 +416,20 @@ CREATE TABLE IF NOT EXISTS index_weekly (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 """
 
+CB_RATE_DDL = """
+CREATE TABLE IF NOT EXISTS cb_rate (
+    ts_code       VARCHAR(32) NOT NULL,
+    rate_freq     DECIMAL(10,4) DEFAULT NULL,
+    rate          DECIMAL(10,6) DEFAULT NULL,
+    maturity      DECIMAL(10,4) DEFAULT NULL,
+    issue_date    DATE DEFAULT NULL,
+    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY ux_cb_rate_ts_code_issue_date (ts_code, issue_date),
+    INDEX idx_cb_rate_ts_code (ts_code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+"""
+
 INDEX_BASIC_DDL = """
 CREATE TABLE IF NOT EXISTS index_basic (
     index_code VARCHAR(32) NOT NULL PRIMARY KEY,
@@ -826,4 +840,5 @@ _CATALOG_DDL_MAP = {
     "index_basic": INDEX_BASIC_DDL,
     "index_daily": INDEX_DAILY_DDL,
     "index_weekly": INDEX_WEEKLY_DDL,
+    "cb_rate": CB_RATE_DDL,
 }
