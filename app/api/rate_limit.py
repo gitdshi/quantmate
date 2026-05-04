@@ -93,6 +93,9 @@ _PATH_LIMITS: dict[str, int] = {
     "/api/v1/auth/login": 10,
     "/api/v1/auth/register": 10,
 }
+_SKIP_PATH_PREFIXES: tuple[str, ...] = (
+    "/api/v1/system/logs/stream",
+)
 _DEFAULT_LIMIT = 60
 
 
@@ -143,6 +146,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # Skip non-API paths (docs, health, root)
         path = request.url.path
         if not path.startswith("/api/"):
+            return await call_next(request)
+        if path.startswith(_SKIP_PATH_PREFIXES):
             return await call_next(request)
 
         try:
