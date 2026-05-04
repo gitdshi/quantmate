@@ -1551,11 +1551,11 @@ _PER_SYMBOL_DATE_CATALOG_CONFIG: dict[str, dict[str, tuple[str, ...] | str | boo
     "fina_mainbz_vip": {"request_date_param": "end_date", "extra_key_fields": ("ann_date", "bz_item", "curr_type"), "supports_range": True},
     "income": {"request_date_param": "ann_date", "extra_key_fields": ("end_date", "report_type", "comp_type"), "supports_range": True},
     "income_vip": {"request_date_param": "ann_date", "extra_key_fields": ("end_date", "report_type", "comp_type"), "supports_range": True},
-    # Non-financial per-symbol — single-date only (no start_date/end_date support).
-    "stk_managers": {"request_date_param": "ann_date", "extra_key_fields": ("name", "title", "lev", "begin_date"), "supports_range": False},
-    "stk_rewards": {"request_date_param": "end_date", "extra_key_fields": ("ann_date", "name"), "supports_range": False},
-    "cb_rating": {"request_date_param": "ann_date", "extra_key_fields": ("end_date", "rating_agency"), "supports_range": False},
-    "idx_factor_pro": {"request_date_param": "trade_date", "extra_key_fields": (), "supports_range": False},
+    # Non-financial per-symbol — Tushare supports start_date/end_date range queries.
+    "stk_managers": {"request_date_param": "ann_date", "extra_key_fields": ("name", "title", "lev", "begin_date"), "supports_range": True},
+    "stk_rewards": {"request_date_param": "end_date", "extra_key_fields": ("ann_date", "name"), "supports_range": True},
+    "cb_rating": {"request_date_param": "ann_date", "extra_key_fields": ("end_date", "rating_agency"), "supports_range": True},
+    "idx_factor_pro": {"request_date_param": "trade_date", "extra_key_fields": (), "supports_range": True},
 }
 
 # Catalog interfaces that need a single date parameter (not per-symbol)
