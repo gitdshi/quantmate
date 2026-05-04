@@ -848,13 +848,18 @@ class TusharePerSymbolDateCatalogInterface(_ExplicitKeyCatalogInterface):
         *,
         request_date_param: str,
         extra_key_fields: tuple[str, ...] = (),
+        supports_range: bool = True,
     ):
         super().__init__(spec)
         self._request_date_param = request_date_param
         self._extra_key_fields = tuple(field for field in extra_key_fields if field)
+        self._supports_range = supports_range
 
     def supports_backfill(self) -> bool:
         return True
+
+    def backfill_mode(self) -> str:
+        return "range" if self._supports_range else "date"
 
     def _schema_date_column(self) -> str | None:
         return self._request_date_param
@@ -883,6 +888,28 @@ class TusharePerSymbolDateCatalogInterface(_ExplicitKeyCatalogInterface):
             self,
             ts_codes,
             lambda ts_code: {"ts_code": ts_code, self._request_date_param: target},
+        )
+
+    def sync_range(self, start: date, end: date) -> SyncResult:
+        """Fetch a full date range per symbol.  This reduces API calls from
+        (dates × symbols) to (symbols) by passing start_date/end_date to
+        the Tushare endpoint for each symbol."""
+        try:
+            ts_codes = _get_stock_codes()
+        except Exception as exc:
+            return handle_tushare_sync_exception(logger, f"{self.info.interface_key} symbol load", exc)
+
+        start_str = start.strftime("%Y%m%d")
+        end_str = end.strftime("%Y%m%d")
+
+        return _sync_catalog_by_entities(
+            self,
+            ts_codes,
+            lambda ts_code: {
+                "ts_code": ts_code,
+                "start_date": start_str,
+                "end_date": end_str,
+            },
         )
 
 
@@ -1466,23 +1493,24 @@ class TushareIndexWeeklyInterface(BaseIngestInterface):
         return SyncResult(SyncStatus.SUCCESS, total_rows, details={"symbols": list(INDEX_CODES)})
 
 
-_PER_SYMBOL_DATE_CATALOG_CONFIG: dict[str, dict[str, tuple[str, ...] | str]] = {
-    "balancesheet": {"request_date_param": "ann_date", "extra_key_fields": ("end_date", "report_type", "comp_type")},
-    "balancesheet_vip": {"request_date_param": "ann_date", "extra_key_fields": ("end_date", "report_type", "comp_type")},
-    "cashflow": {"request_date_param": "ann_date", "extra_key_fields": ("end_date", "report_type", "comp_type")},
-    "cashflow_vip": {"request_date_param": "ann_date", "extra_key_fields": ("end_date", "report_type", "comp_type")},
-    "fina_audit": {"request_date_param": "ann_date", "extra_key_fields": ("end_date", "audit_agency", "audit_sign")},
-    "fina_indicator": {"request_date_param": "ann_date", "extra_key_fields": ("end_date",)},
-    "fina_indicator_vip": {"request_date_param": "ann_date", "extra_key_fields": ("end_date",)},
-    "fina_mainbz": {"request_date_param": "end_date", "extra_key_fields": ("ann_date", "bz_item", "curr_type")},
-    "fina_mainbz_vip": {"request_date_param": "end_date", "extra_key_fields": ("ann_date", "bz_item", "curr_type")},
-    "income": {"request_date_param": "ann_date", "extra_key_fields": ("end_date", "report_type", "comp_type")},
-    "income_vip": {"request_date_param": "ann_date", "extra_key_fields": ("end_date", "report_type", "comp_type")},
-    "stk_managers": {"request_date_param": "ann_date", "extra_key_fields": ("name", "title", "lev", "begin_date")},
-    "stk_rewards": {"request_date_param": "end_date", "extra_key_fields": ("ann_date", "name")},
-    # Added: interfaces that need per-symbol iteration with a date param
-    "cb_rating": {"request_date_param": "ann_date", "extra_key_fields": ("end_date", "rating_agency")},
-    "idx_factor_pro": {"request_date_param": "trade_date", "extra_key_fields": ()},
+_PER_SYMBOL_DATE_CATALOG_CONFIG: dict[str, dict[str, tuple[str, ...] | str | bool]] = {
+    # Financial statements — Tushare supports start_date/end_date range queries.
+    "balancesheet": {"request_date_param": "ann_date", "extra_key_fields": ("end_date", "report_type", "comp_type"), "supports_range": True},
+    "balancesheet_vip": {"request_date_param": "ann_date", "extra_key_fields": ("end_date", "report_type", "comp_type"), "supports_range": True},
+    "cashflow": {"request_date_param": "ann_date", "extra_key_fields": ("end_date", "report_type", "comp_type"), "supports_range": True},
+    "cashflow_vip": {"request_date_param": "ann_date", "extra_key_fields": ("end_date", "report_type", "comp_type"), "supports_range": True},
+    "fina_audit": {"request_date_param": "ann_date", "extra_key_fields": ("end_date", "audit_agency", "audit_sign"), "supports_range": True},
+    "fina_indicator": {"request_date_param": "ann_date", "extra_key_fields": ("end_date",), "supports_range": True},
+    "fina_indicator_vip": {"request_date_param": "ann_date", "extra_key_fields": ("end_date",), "supports_range": True},
+    "fina_mainbz": {"request_date_param": "end_date", "extra_key_fields": ("ann_date", "bz_item", "curr_type"), "supports_range": True},
+    "fina_mainbz_vip": {"request_date_param": "end_date", "extra_key_fields": ("ann_date", "bz_item", "curr_type"), "supports_range": True},
+    "income": {"request_date_param": "ann_date", "extra_key_fields": ("end_date", "report_type", "comp_type"), "supports_range": True},
+    "income_vip": {"request_date_param": "ann_date", "extra_key_fields": ("end_date", "report_type", "comp_type"), "supports_range": True},
+    # Non-financial per-symbol — single-date only (no start_date/end_date support).
+    "stk_managers": {"request_date_param": "ann_date", "extra_key_fields": ("name", "title", "lev", "begin_date"), "supports_range": False},
+    "stk_rewards": {"request_date_param": "end_date", "extra_key_fields": ("ann_date", "name"), "supports_range": False},
+    "cb_rating": {"request_date_param": "ann_date", "extra_key_fields": ("end_date", "rating_agency"), "supports_range": False},
+    "idx_factor_pro": {"request_date_param": "trade_date", "extra_key_fields": (), "supports_range": False},
 }
 
 # Catalog interfaces that need a single date parameter (not per-symbol)
@@ -1547,6 +1575,7 @@ def build_specialized_catalog_interface(spec: TushareCatalogSpec) -> BaseIngestI
             spec,
             request_date_param=str(date_config["request_date_param"]),
             extra_key_fields=tuple(date_config.get("extra_key_fields", ())),
+            supports_range=bool(date_config.get("supports_range", False)),
         )
 
     latest_key_fields = _PER_SYMBOL_LATEST_CATALOG_CONFIG.get(key)

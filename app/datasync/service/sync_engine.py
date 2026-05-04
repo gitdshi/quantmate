@@ -48,7 +48,7 @@ def _backfill_workers() -> int:
     return get_runtime_int(
         env_keys="BACKFILL_WORKERS",
         db_key="datasync.backfill_workers",
-        default=10,
+        default=20,
     )
 
 _FORCE_RETRY_ERROR_SIGNATURES: dict[tuple[str, str], tuple[str, ...]] = {
@@ -69,7 +69,7 @@ def _source_concurrency_overrides() -> dict[str, int]:
         "tushare": get_runtime_int(
             env_keys="TUSHARE_CONCURRENCY",
             db_key="datasync.source_concurrency.tushare",
-            default=3,
+            default=8,
         ),
     }
 
