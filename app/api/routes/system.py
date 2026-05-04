@@ -4,6 +4,8 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from queue import Empty, Queue
+from threading import Event, Thread
 from typing import Any, Dict, Iterator
 
 from fastapi import APIRouter, Depends, Query
@@ -22,6 +24,7 @@ router = APIRouter(prefix="/system", tags=["system"])
 settings = get_settings()
 DEFAULT_BUILD_TIME = datetime.now(timezone.utc).isoformat()
 logger = logging.getLogger(__name__)
+LOG_STREAM_HEARTBEAT_SECONDS = 15
 
 
 @dataclass(frozen=True)
@@ -86,7 +89,7 @@ LOG_MODULE_SPECS: dict[str, LogModuleSpec] = {
 }
 
 LOG_STREAM_HEADERS = {
-    "Cache-Control": "no-cache",
+    "Cache-Control": "no-cache, no-transform",
     "Connection": "keep-alive",
     "X-Accel-Buffering": "no",
 }
@@ -203,6 +206,54 @@ def create_log_stream(module: str, tail: int = 200) -> Iterator[str]:
     spec = _get_log_module_spec(module)
     client = _get_docker_client()
     container = _resolve_log_container(client, spec)
+    message_queue: Queue[tuple[str, dict[str, Any] | None]] = Queue()
+    stop_event = Event()
+
+    def pump_logs() -> None:
+        try:
+            for raw_line in container.logs(
+                stream=True,
+                follow=True,
+                tail=tail,
+                timestamps=True,
+                stdout=True,
+                stderr=True,
+            ):
+                if stop_event.is_set():
+                    break
+                line = raw_line.decode("utf-8", errors="replace").rstrip()
+                if not line or not _log_line_matches_spec(spec, line):
+                    continue
+                message_queue.put(
+                    (
+                        "log",
+                        {
+                            "type": "log",
+                            "module": spec.key,
+                            "container": str(getattr(container, "name", "")),
+                            "line": line,
+                        },
+                    )
+                )
+        except Exception as exc:
+            if not stop_event.is_set():
+                logger.warning("Log streaming for %s failed: %s", spec.key, exc, exc_info=True)
+                message_queue.put(
+                    (
+                        "error",
+                        {
+                            "type": "error",
+                            "module": spec.key,
+                            "container": str(getattr(container, "name", "")),
+                            "message": str(exc),
+                        },
+                    )
+                )
+        finally:
+            message_queue.put(("eof", None))
+
+    log_thread = Thread(target=pump_logs, name=f"system-log-stream-{spec.key}", daemon=True)
+    log_thread.start()
 
     def event_stream() -> Iterator[str]:
         yield _format_sse_event(
@@ -216,42 +267,31 @@ def create_log_stream(module: str, tail: int = 200) -> Iterator[str]:
         )
 
         try:
-            for raw_line in container.logs(
-                stream=True,
-                follow=True,
-                tail=tail,
-                timestamps=True,
-                stdout=True,
-                stderr=True,
-            ):
-                line = raw_line.decode("utf-8", errors="replace").rstrip()
-                if not line or not _log_line_matches_spec(spec, line):
+            while True:
+                try:
+                    event_name, payload = message_queue.get(timeout=LOG_STREAM_HEARTBEAT_SECONDS)
+                except Empty:
+                    yield _format_sse_event(
+                        "heartbeat",
+                        {
+                            "type": "heartbeat",
+                            "module": spec.key,
+                            "container": str(getattr(container, "name", "")),
+                        },
+                    )
                     continue
-                yield _format_sse_event(
-                    "log",
-                    {
-                        "type": "log",
-                        "module": spec.key,
-                        "container": str(getattr(container, "name", "")),
-                        "line": line,
-                    },
-                )
-        except Exception as exc:
-            logger.warning("Log streaming for %s failed: %s", spec.key, exc, exc_info=True)
-            yield _format_sse_event(
-                "error",
-                {
-                    "type": "error",
-                    "module": spec.key,
-                    "container": str(getattr(container, "name", "")),
-                    "message": str(exc),
-                },
-            )
+
+                if event_name == "eof":
+                    break
+                if payload is not None:
+                    yield _format_sse_event(event_name, payload)
         finally:
+            stop_event.set()
             try:
                 client.close()
             except Exception:
                 logger.debug("Failed to close Docker client for log stream", exc_info=True)
+            log_thread.join(timeout=1)
 
     return event_stream()
 
