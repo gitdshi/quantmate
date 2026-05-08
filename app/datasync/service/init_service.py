@@ -345,6 +345,21 @@ def _sync_registry_state(engine, registry: DataSourceRegistry) -> dict[str, int]
     }
 
 
+def _has_prior_runtime_state(conn) -> bool:
+    probes = (
+        "SELECT 1 FROM sync_status_init LIMIT 1",
+        "SELECT 1 FROM data_sync_status LIMIT 1",
+        "SELECT 1 FROM data_source_items WHERE COALESCE(table_created, 0) = 1 LIMIT 1",
+    )
+    for probe_sql in probes:
+        try:
+            if conn.execute(text(probe_sql)).fetchone() is not None:
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def _is_bootstrap_item_enablement_pending(engine) -> bool:
     try:
         with engine.connect() as conn:
@@ -355,6 +370,8 @@ def _is_bootstrap_item_enablement_pending(engine) -> bool:
                     "LIMIT 1"
                 )
             ).fetchone()
+            if row is None and _has_prior_runtime_state(conn):
+                return False
     except Exception as exc:
         logger.warning("Unable to inspect init_progress for bootstrap enablement sync: %s", exc)
         return True

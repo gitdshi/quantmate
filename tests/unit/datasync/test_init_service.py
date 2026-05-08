@@ -616,6 +616,9 @@ class TestBootstrapItemEnablement:
         engine, conn = _engine_ctx()
         conn.execute.side_effect = [
             MagicMock(fetchone=MagicMock(return_value=None)),
+            MagicMock(fetchone=MagicMock(return_value=None)),
+            MagicMock(fetchone=MagicMock(return_value=None)),
+            MagicMock(fetchone=MagicMock(return_value=None)),
             MagicMock(
                 fetchall=MagicMock(
                     return_value=[
@@ -648,6 +651,20 @@ class TestBootstrapItemEnablement:
             tuple(sorted({"source": "tushare", "item_key": "bak_daily", "enabled": 0}.items())),
             tuple(sorted({"source": "tushare", "item_key": "rt_daily", "enabled": 0}.items())),
         }
+
+    def test_skips_legacy_initialized_environment_without_finished_checkpoint(self):
+        from app.datasync.service.init_service import _sync_bootstrap_item_enablement
+
+        engine, conn = _engine_ctx()
+        conn.execute.side_effect = [
+            MagicMock(fetchone=MagicMock(return_value=None)),
+            MagicMock(fetchone=MagicMock(return_value=(1,))),
+        ]
+
+        updated = _sync_bootstrap_item_enablement(engine, MagicMock())
+
+        assert updated == 0
+        assert conn.execute.call_count == 2
 
     def test_skips_after_bootstrap_completion(self):
         from app.datasync.service.init_service import _sync_bootstrap_item_enablement
