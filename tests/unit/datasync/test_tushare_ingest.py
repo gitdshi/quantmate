@@ -127,12 +127,15 @@ class TestCallPro:
         with patch(f"{_MOD}.time.sleep"), \
              patch(f"{_MOD}.random.uniform", return_value=0), \
              patch(f"{_MOD}.logging.warning") as mock_warning, \
+             patch(f"{_MOD}.logging.error") as mock_error, \
              patch(f"{_MOD}.logging.exception") as mock_exception, \
              pytest.raises(self.mod.TushareQuotaExceededError):
             self.mod.call_pro("daily", max_retries=2, backoff_base=0)
 
         assert mock_exception.call_count == 0
+        assert mock_error.call_count == 0
         assert any("rate limited" in str(call.args[0]) for call in mock_warning.call_args_list)
+        assert any("exhausted retries due to rate limiting" in str(call.args[0]) for call in mock_warning.call_args_list)
 
 
 class TestSetMetricsHook:

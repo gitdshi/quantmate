@@ -805,7 +805,10 @@ def call_pro(api_name: str, max_retries: int = None, backoff_base: int = 5, **kw
             else:
                 logging.exception("call_pro %s attempt %d failed: %s", api_name, attempt, e)
             if attempt >= max_retries:
-                logging.error("call_pro %s exhausted retries", api_name)
+                if _is_rate_limit_error(error_msg):
+                    logging.warning("call_pro %s exhausted retries due to rate limiting", api_name)
+                else:
+                    logging.error("call_pro %s exhausted retries", api_name)
                 if _is_rate_limit_error(error_msg) and rate_limit_scope == "minute":
                     raise TushareQuotaExceededError(
                         api_name,
