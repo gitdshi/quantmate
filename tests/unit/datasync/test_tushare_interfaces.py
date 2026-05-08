@@ -741,6 +741,37 @@ class TestTushareCatalogInterface:
         assert result.status == SyncStatus.SUCCESS
         mock_call.assert_called_once_with(interface_key, **expected_call)
 
+    def test_range_catalog_sync_merges_default_freq_params(self):
+        from app.datasync.sources.tushare.interfaces import TusharePerSymbolDateCatalogInterface
+
+        iface = TusharePerSymbolDateCatalogInterface(
+            _catalog_spec(
+                "hk_mins",
+                supports_backfill=True,
+                backfill_mode="range",
+                input_params="ts_code, freq, start_date, end_date",
+                analysis_date_params="start_date, end_date",
+            ),
+            request_date_param="trade_date",
+            supports_range=True,
+            entity_loader=lambda: ["000001.HK"],
+        )
+
+        df = pd.DataFrame({"ts_code": ["000001.HK"], "trade_time": ["2024-05-07 09:30:00"]})
+        with patch("app.datasync.service.tushare_ingest.call_pro", return_value=df) as mock_call, \
+             patch("app.domains.extdata.dao.tushare_dao.insert_catalog_rows", return_value=1), \
+             patch.object(iface, "_ensure_inferred_table", return_value=None):
+            result = iface.sync_range(date(2024, 5, 1), date(2024, 5, 7))
+
+        assert result.status == SyncStatus.SUCCESS
+        mock_call.assert_called_once_with(
+            "hk_mins",
+            ts_code="000001.HK",
+            freq="1min",
+            start_date="20240501",
+            end_date="20240507",
+        )
+
     def test_generic_catalog_interface_sync_other_ignores_anchor_date(self):
         from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface
 

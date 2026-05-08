@@ -220,6 +220,11 @@ _REQUEST_DATE_OVERRIDES = {
 
 _DEFAULT_API_PARAMS = {
     "stock_basic": {"list_status": "L"},
+    "ft_mins": {"freq": "1min"},
+    "hk_mins": {"freq": "1min"},
+    "idx_mins": {"freq": "1min"},
+    "opt_mins": {"freq": "1min"},
+    "stk_mins": {"freq": "1min"},
     # Realtime code-mode interfaces need a concrete request shape at runtime.
     "rt_etf_k": {"topic": "HQ_FND_TICK"},
     "rt_fut_min": {"freq": "1MIN"},
