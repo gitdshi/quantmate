@@ -4225,7 +4225,7 @@ CREATE TEMPORARY TABLE IF NOT EXISTS `_tmp_backfill_analysis_seed` (
         `input_param_details` TEXT DEFAULT NULL,
         `analysis_date_params` TEXT DEFAULT NULL,
         PRIMARY KEY (`source`, `item_key`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 DELETE FROM `_tmp_backfill_analysis_seed`;
 
