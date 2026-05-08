@@ -21,8 +21,8 @@ def test_get_interface_coverage_deduplicates_duplicate_item_rows():
     from app.domains.extdata.service import DataSyncDashboardService
 
     item_rows = [
-        ("tushare", "Tushare Pro", "stock_daily", "Stock Daily", 1, "daily", 120, "0"),
-        ("tushare", "Tushare Pro", "stock_daily", "Stock Daily", 2, "daily", 120, "0"),
+        ("tushare", "Tushare Pro", "stock_daily", "Stock Daily", 1, "daily", 120, "0", "backfill", "date"),
+        ("tushare", "Tushare Pro", "stock_daily", "Stock Daily", 2, "daily", 120, "0", "backfill", "date"),
     ]
     status_rows = [
         ("tushare", "stock_daily", 70, 5, 5, 0, 0, 80, date(2026, 4, 22)),
@@ -54,3 +54,4 @@ def test_get_interface_coverage_deduplicates_duplicate_item_rows():
     assert len(result["items"]) == 1
     assert result["summary"]["items"] == 1
     assert result["items"][0]["item_key"] == "stock_daily"
+    assert result["items"][0]["backfill_mode"] == "date"
