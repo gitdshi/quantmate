@@ -371,6 +371,65 @@ def _sync_catalog_by_entities(
     return SyncResult(SyncStatus.SUCCESS, total_rows, details=details)
 
 
+def _merge_sync_results_by_variant(results: list[tuple[str, SyncResult]]) -> SyncResult:
+    if not results:
+        return SyncResult(SyncStatus.SUCCESS, 0, details={"variant_count": 0})
+
+    total_rows = sum(result.rows_synced for _variant, result in results)
+    error_messages = [result.error_message for _variant, result in results if result.error_message]
+    variant_statuses = {variant: result.status.value for variant, result in results}
+    details: dict[str, object] = {
+        "variant_count": len(results),
+        "variants": [variant for variant, _result in results],
+        "variant_statuses": variant_statuses,
+    }
+
+    entity_count = 0
+    processed_count = 0
+    failure_count = 0
+    quota_exceeded = False
+    permission_denied = False
+    quota_retry_after: str | None = None
+    failed_entities: list[str] = []
+
+    for _variant, result in results:
+        current_details = result.details or {}
+        entity_count = max(entity_count, int(current_details.get("entity_count") or 0))
+        processed_count += int(current_details.get("processed_count") or 0)
+        failure_count += int(current_details.get("failure_count") or 0)
+        quota_exceeded = quota_exceeded or bool(current_details.get("quota_exceeded"))
+        permission_denied = permission_denied or bool(current_details.get("permission_denied"))
+        quota_retry_after = quota_retry_after or (str(current_details.get("quota_retry_after")) if current_details.get("quota_retry_after") is not None else None)
+        failed_entities.extend(str(entity) for entity in (current_details.get("failed_entities") or ()))
+
+    if entity_count:
+        details["entity_count"] = entity_count
+    if processed_count:
+        details["processed_count"] = processed_count
+    if failure_count:
+        details["failure_count"] = failure_count
+    if failed_entities:
+        details["failed_entities"] = failed_entities[:20]
+    if quota_exceeded:
+        details["quota_exceeded"] = True
+    if quota_retry_after is not None:
+        details["quota_retry_after"] = quota_retry_after
+    if permission_denied:
+        details["permission_denied"] = True
+
+    message = "; ".join(dict.fromkeys(error_messages[:5])) if error_messages else None
+    statuses = [result.status for _variant, result in results]
+    if any(status == SyncStatus.PENDING for status in statuses):
+        return SyncResult(SyncStatus.PENDING, total_rows, message, details=details)
+    if any(status == SyncStatus.ERROR for status in statuses):
+        if total_rows > 0:
+            return SyncResult(SyncStatus.PARTIAL, total_rows, message, details=details)
+        return SyncResult(SyncStatus.ERROR, 0, message, details=details)
+    if any(status == SyncStatus.PARTIAL for status in statuses):
+        return SyncResult(SyncStatus.PARTIAL, total_rows, message, details=details)
+    return SyncResult(SyncStatus.SUCCESS, total_rows, message, details=details)
+
+
 def _get_table_rows_by_date(table_name: str, date_column: str, start: date, end: date) -> dict[date, int]:
     engine = get_tushare_engine()
     with engine.connect() as conn:
@@ -1007,6 +1066,78 @@ class TusharePerSymbolDateCatalogInterface(_ExplicitKeyCatalogInterface):
                 "end_date": end_str,
             },
         )
+
+
+class TusharePerSymbolMultiFreqDateCatalogInterface(TusharePerSymbolDateCatalogInterface):
+    def __init__(
+        self,
+        spec: TushareCatalogSpec,
+        *,
+        request_date_param: str,
+        frequencies: tuple[str, ...] = ("week", "month"),
+        extra_key_fields: tuple[str, ...] = (),
+        supports_range: bool = True,
+        entity_param_name: str = "ts_code",
+        entity_loader=None,
+        backfill_mode: str | None = None,
+    ):
+        super().__init__(
+            spec,
+            request_date_param=request_date_param,
+            extra_key_fields=extra_key_fields,
+            supports_range=supports_range,
+            entity_param_name=entity_param_name,
+            entity_loader=entity_loader,
+            backfill_mode=backfill_mode,
+        )
+        self._frequencies = tuple(dict.fromkeys(str(freq).strip() for freq in frequencies if str(freq).strip()))
+
+    def sync_date(self, trade_date: date) -> SyncResult:
+        try:
+            entities = self._entity_loader()
+        except Exception as exc:
+            return handle_tushare_sync_exception(logger, f"{self.info.interface_key} symbol load", exc)
+
+        target = trade_date.strftime("%Y%m%d")
+        return self._sync_for_frequencies(
+            entities,
+            lambda entity, freq: {
+                self._entity_param_name: entity,
+                self._request_date_param: target,
+                "freq": freq,
+            },
+        )
+
+    def sync_range(self, start: date, end: date) -> SyncResult:
+        try:
+            entities = self._entity_loader()
+        except Exception as exc:
+            return handle_tushare_sync_exception(logger, f"{self.info.interface_key} symbol load", exc)
+
+        start_str = start.strftime("%Y%m%d")
+        end_str = end.strftime("%Y%m%d")
+        return self._sync_for_frequencies(
+            entities,
+            lambda entity, freq: {
+                self._entity_param_name: entity,
+                "start_date": start_str,
+                "end_date": end_str,
+                "freq": freq,
+            },
+        )
+
+    def _sync_for_frequencies(self, entities: list[str], params_builder) -> SyncResult:
+        results: list[tuple[str, SyncResult]] = []
+        for freq in self._frequencies:
+            result = _sync_catalog_by_entities(
+                self,
+                entities,
+                lambda entity, _freq=freq: params_builder(entity, _freq),
+            )
+            results.append((freq, result))
+            if result.status in {SyncStatus.PENDING, SyncStatus.ERROR}:
+                break
+        return _merge_sync_results_by_variant(results)
 
 
 class TusharePerSymbolLatestCatalogInterface(_LatestOnlyCatalogInterface):
@@ -1697,6 +1828,30 @@ _PERMISSION_REQUIRED_CATALOG_KEYS: frozenset[str] = frozenset({
     "tmt_twincomedetail",
 })
 
+_MULTI_FREQ_DATE_CATALOG_CONFIG: dict[str, dict[str, object]] = {
+    "fut_weekly_monthly": {
+        "request_date_param": "trade_date",
+        "frequencies": ("week", "month"),
+        "entity_param_name": "ts_code",
+        "entity_loader": _get_fut_codes,
+        "supports_range": True,
+    },
+    "stk_week_month_adj": {
+        "request_date_param": "trade_date",
+        "frequencies": ("week", "month"),
+        "entity_param_name": "ts_code",
+        "entity_loader": _get_stock_codes,
+        "supports_range": True,
+    },
+    "stk_weekly_monthly": {
+        "request_date_param": "trade_date",
+        "frequencies": ("week", "month"),
+        "entity_param_name": "ts_code",
+        "entity_loader": _get_stock_codes,
+        "supports_range": True,
+    },
+}
+
 _PER_SYMBOL_LATEST_CATALOG_CONFIG: dict[str, tuple[str, ...]] = {
 }
 
@@ -1724,6 +1879,19 @@ def build_specialized_catalog_interface(spec: TushareCatalogSpec) -> BaseIngestI
     one_shot_date_param = _ONE_SHOT_DATE_CATALOG_KEYS.get(key)
     if one_shot_date_param is not None:
         return _OneShotDateCatalogInterface(spec, request_date_param=one_shot_date_param)
+
+    multi_freq_config = _MULTI_FREQ_DATE_CATALOG_CONFIG.get(key)
+    if multi_freq_config is not None:
+        return TusharePerSymbolMultiFreqDateCatalogInterface(
+            spec,
+            request_date_param=str(multi_freq_config["request_date_param"]),
+            frequencies=tuple(str(freq) for freq in (multi_freq_config.get("frequencies") or ())),
+            extra_key_fields=tuple(multi_freq_config.get("extra_key_fields", ())),
+            supports_range=bool(multi_freq_config.get("supports_range", False)),
+            entity_param_name=str(multi_freq_config.get("entity_param_name") or "ts_code"),
+            entity_loader=multi_freq_config.get("entity_loader"),
+            backfill_mode=spec.backfill_mode,
+        )
 
     date_config = _PER_SYMBOL_DATE_CATALOG_CONFIG.get(key)
     if date_config is not None:

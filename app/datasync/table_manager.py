@@ -17,6 +17,11 @@ _ENGINE_MAP = {
 }
 
 
+def _is_duplicate_key_name_error(exc: Exception) -> bool:
+    message = str(exc)
+    return "Duplicate key name" in message or "(1061" in message
+
+
 def _get_engine(database: str):
     factory = _ENGINE_MAP.get(database)
     if factory is None:
@@ -104,7 +109,13 @@ def _ensure_static_table_schema(database: str, table: str, ddl: str) -> bool:
     engine = _get_engine(database)
     with engine.begin() as conn:
         for statement in statements:
-            conn.execute(text(statement))
+            try:
+                conn.execute(text(statement))
+            except Exception as exc:
+                if _is_duplicate_key_name_error(exc):
+                    logger.debug("Ignoring concurrent duplicate index creation for %s.%s: %s", database, table, exc)
+                    continue
+                raise
     return True
 
 
@@ -131,6 +142,7 @@ def ensure_inferred_table(database: str, table: str, schema: dict[str, object]) 
     key_columns = tuple(str(column) for column in (schema.get("key_columns") or ()))
     unique_index_name = str(schema.get("unique_index_name") or "")
     existing_columns = _get_existing_columns(database, table)
+    existing_indexes = _get_existing_indexes(database, table)
     statements: list[str] = []
 
     for column_spec in column_specs:
@@ -153,7 +165,12 @@ def ensure_inferred_table(database: str, table: str, schema: dict[str, object]) 
     if _column_requires_legacy_relax(existing_columns, "data", expected_type="json"):
         statements.append(f"ALTER TABLE `{table}` MODIFY COLUMN `data` JSON NULL")
 
-    if key_columns and unique_index_name and not _has_unique_index(database, table, key_columns):
+    has_named_index = any(str(index.get("name") or "") == unique_index_name for index in existing_indexes)
+    has_matching_unique_index = any(
+        bool(index.get("unique")) and tuple(str(column) for column in (index.get("columns") or ())) == key_columns
+        for index in existing_indexes
+    )
+    if key_columns and unique_index_name and not has_named_index and not has_matching_unique_index:
         joined_columns = ", ".join(f"`{column}`" for column in key_columns)
         statements.append(f"ALTER TABLE `{table}` ADD UNIQUE KEY `{unique_index_name}` ({joined_columns})")
 
@@ -163,7 +180,13 @@ def ensure_inferred_table(database: str, table: str, schema: dict[str, object]) 
 
     with engine.begin() as conn:
         for statement in statements:
-            conn.execute(text(statement))
+            try:
+                conn.execute(text(statement))
+            except Exception as exc:
+                if _is_duplicate_key_name_error(exc):
+                    logger.debug("Ignoring concurrent duplicate index creation for %s.%s: %s", database, table, exc)
+                    continue
+                raise
 
     _mark_table_created(database, table)
     logger.info("Synchronized inferred schema for %s.%s", database, table)

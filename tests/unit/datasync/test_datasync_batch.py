@@ -888,6 +888,46 @@ CREATE TABLE `stock_company` (
         assert mock_begin_conn.execute.call_count == 1
         assert "MODIFY COLUMN `title` varchar(32) NULL" in str(mock_begin_conn.execute.call_args.args[0])
 
+    def test_ensure_inferred_table_ignores_concurrent_duplicate_index_creation(self, monkeypatch):
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.scalar.return_value = 1
+        mock_eng = MagicMock()
+        mock_eng.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_eng.connect.return_value.__exit__ = MagicMock(return_value=False)
+        mock_begin_conn = MagicMock()
+        mock_begin_conn.execute.side_effect = Exception(
+            '(pymysql.err.OperationalError) (1061, "Duplicate key name \'ux_margin_detail_trade_date_ts_code\'")'
+        )
+        mock_eng.begin.return_value.__enter__ = MagicMock(return_value=mock_begin_conn)
+        mock_eng.begin.return_value.__exit__ = MagicMock(return_value=False)
+
+        monkeypatch.setattr(_tm, "_get_engine", lambda db: mock_eng)
+        monkeypatch.setattr(_tm, "_mark_table_created", lambda db, tbl: None)
+        monkeypatch.setattr(
+            _tm,
+            "_get_existing_columns",
+            lambda db, tbl: {
+                "trade_date": {"is_nullable": "NO", "column_type": "varchar(8)"},
+                "ts_code": {"is_nullable": "NO", "column_type": "varchar(16)"},
+            },
+        )
+        monkeypatch.setattr(_tm, "_get_existing_indexes", lambda db, tbl: [])
+
+        schema = {
+            "ddl": "CREATE TABLE ignored",
+            "column_specs": [
+                {"name": "trade_date", "sql_type": "VARCHAR(8)"},
+                {"name": "ts_code", "sql_type": "VARCHAR(16)"},
+            ],
+            "key_columns": ("trade_date", "ts_code"),
+            "unique_index_name": "ux_margin_detail_trade_date_ts_code",
+        }
+
+        result = _tm.ensure_inferred_table("tushare", "margin_detail", schema)
+
+        assert result is True
+        mock_begin_conn.execute.assert_called_once()
+
 
 # =====================================================================
 # scheduler

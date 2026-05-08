@@ -1542,6 +1542,66 @@ class TestTushareCatalogInterface:
         assert iface.supports_backfill() is True
         assert iface.backfill_mode() == "date"
 
+    def test_build_specialized_catalog_interface_uses_multi_freq_handler_for_stock_week_month_interfaces(self):
+        from app.datasync.sources.tushare.interfaces import (
+            TusharePerSymbolMultiFreqDateCatalogInterface,
+            build_specialized_catalog_interface,
+        )
+
+        iface = build_specialized_catalog_interface(
+            _catalog_spec(
+                "stk_weekly_monthly",
+                supports_backfill=True,
+                backfill_mode="range",
+                input_params="ts_code, trade_date, start_date, end_date, freq",
+                analysis_date_params="trade_date, start_date, end_date",
+            )
+        )
+
+        assert isinstance(iface, TusharePerSymbolMultiFreqDateCatalogInterface)
+        assert iface.supports_backfill() is True
+        assert iface.backfill_mode() == "range"
+
+    def test_multi_freq_catalog_sync_range_fetches_week_and_month_variants(self):
+        from app.datasync.sources.tushare.interfaces import TusharePerSymbolMultiFreqDateCatalogInterface
+
+        iface = TusharePerSymbolMultiFreqDateCatalogInterface(
+            _catalog_spec(
+                "stk_weekly_monthly",
+                supports_backfill=True,
+                backfill_mode="range",
+                input_params="ts_code, trade_date, start_date, end_date, freq",
+                analysis_date_params="trade_date, start_date, end_date",
+            ),
+            request_date_param="trade_date",
+            frequencies=("week", "month"),
+            entity_loader=lambda: ["600000.SH"],
+        )
+
+        df = pd.DataFrame({"ts_code": ["600000.SH"], "trade_date": ["20240507"]})
+        with patch("app.datasync.service.tushare_ingest.call_pro", side_effect=[df, df]) as mock_call, \
+             patch("app.domains.extdata.dao.tushare_dao.insert_catalog_rows", return_value=1), \
+             patch.object(iface, "_ensure_inferred_table", return_value=None):
+            result = iface.sync_range(date(2024, 5, 1), date(2024, 5, 7))
+
+        assert result.status == SyncStatus.SUCCESS
+        assert result.rows_synced == 2
+        assert result.details["variant_statuses"] == {"week": "success", "month": "success"}
+        mock_call.assert_any_call(
+            "stk_weekly_monthly",
+            ts_code="600000.SH",
+            start_date="20240501",
+            end_date="20240507",
+            freq="week",
+        )
+        mock_call.assert_any_call(
+            "stk_weekly_monthly",
+            ts_code="600000.SH",
+            start_date="20240501",
+            end_date="20240507",
+            freq="month",
+        )
+
     def test_build_catalog_interfaces_skips_existing_keys(self):
         from app.datasync.sources.tushare.catalog_interfaces import build_catalog_interfaces
 
