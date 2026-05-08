@@ -4471,7 +4471,7 @@ VALUES
     ('tushare', 'us_trycr', 1, 'range', 'date, start_date, end_date, fields', 'date(日期 （YYYYMMDD格式，下同）)；start_date(开始日期)；end_date(结束日期)；fields(指定输出字段)', 'date, start_date, end_date'),
     ('tushare', 'us_tycr', 1, 'range', 'date, start_date, end_date, fields', 'date(日期 （YYYYMMDD格式，下同）)；start_date(开始日期)；end_date(结束日期)；fields(指定输出字段（e.g. fields=''m1,y1''）)', 'date, start_date, end_date'),
     ('tushare', 'wz_index', 1, 'range', 'date, start_date, end_date', 'date(日期)；start_date(开始日期)；end_date(结束日期)', 'date, start_date, end_date'),
-    ('tushare', 'yc_cb', 1, 'range', 'ts_code, curve_type, trade_date, start_date, end_date, curve_term', 'ts_code(收益率曲线编码：1001.CB-国债收益率曲线)；curve_type(曲线类型：0-到期，1-即期)；trade_date(交易日期)；start_date(查询起始日期)；end_date(查询结束日期)；curve_term(期限)', 'trade_date, start_date, end_date')
+    ('tushare', 'yc_cb', 1, 'range', 'ts_code, curve_type, trade_date, start_date, end_date, curve_term', 'ts_code(收益率曲线编码：1001.CB-国债收益率曲线)；curve_type(曲线类型：0-到期，1-即期)；trade_date(交易日期)；start_date(查询起始日期)；end_date(查询结束日期)；curve_term(期限)', 'trade_date, start_date, end_date');
 
 UPDATE `quantmate`.`data_source_items` dsi
 JOIN `_tmp_backfill_analysis_seed` seed ON seed.source = dsi.source AND seed.item_key = dsi.item_key

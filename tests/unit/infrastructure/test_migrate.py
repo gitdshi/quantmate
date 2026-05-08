@@ -286,6 +286,7 @@ def test_backfill_analysis_columns_migration_uses_mysql_compatible_column_guards
     assert "ADD COLUMN IF NOT EXISTS supports_backfill" not in sql
     assert "CREATE TEMPORARY TABLE IF NOT EXISTS `_tmp_backfill_analysis_seed`" in sql
     assert "JOIN `_tmp_backfill_analysis_seed` seed ON seed.source = dsi.source AND seed.item_key = dsi.item_key" in sql
+    assert "trade_date, start_date, end_date');\n\nUPDATE `data_source_items` dsi" in sql
     assert "JSON_ARRAY()" in sql
     assert "('tushare', 'ann_corpus', 1, 'other'" in sql
 
@@ -301,6 +302,7 @@ def test_quantmate_init_includes_post_catalog_sync_mode_updates():
     assert "'us_daily'" in sql
     assert "sync_mode = 'latest_only'" in sql
     assert "CREATE TEMPORARY TABLE IF NOT EXISTS `_tmp_backfill_analysis_seed`" in sql
+    assert "trade_date, start_date, end_date');\n\nUPDATE `quantmate`.`data_source_items` dsi" in sql
     assert "JSON_ARRAY()" in sql
     assert "('tushare', 'ann_corpus', 1, 'other'" in sql
 
