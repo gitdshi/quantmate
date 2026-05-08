@@ -10,7 +10,14 @@ from sqlalchemy import text
 
 from app.datasync.registry import DataSourceRegistry
 from app.datasync.service.sync_init_service import ensure_sync_status_init_table, reconcile_enabled_sync_status
-from app.datasync.sync_mode import infer_sync_mode_from_interface, normalize_sync_mode, sync_mode_supports_backfill
+from app.datasync.sync_mode import (
+    backfill_mode_uses_trade_calendar,
+    infer_backfill_mode_from_interface,
+    infer_sync_mode_from_interface,
+    normalize_backfill_mode,
+    normalize_sync_mode,
+    sync_mode_supports_backfill,
+)
 from app.datasync.table_manager import ensure_table
 from app.domains.extdata.dao.data_sync_status_dao import ensure_backfill_lock_table, ensure_tables
 from app.infrastructure.config import get_runtime_str
@@ -19,7 +26,9 @@ from app.infrastructure.db.connections import get_quantmate_engine
 logger = logging.getLogger(__name__)
 
 _ENABLED_ITEM_METADATA_SQL = (
-    "SELECT dsi.source, dsi.item_key, dsi.api_name, dsi.permission_points, dsi.requires_permission, dsi.sync_mode "
+    "SELECT dsi.source, dsi.item_key, dsi.api_name, dsi.permission_points, dsi.requires_permission, dsi.sync_mode, "
+    "dsi.supports_backfill, dsi.backfill_mode, dsi.input_params, dsi.input_param_details, "
+    "dsi.analysis_date_params, dsi.input_params_meta "
     "FROM data_source_items dsi "
     "JOIN data_source_configs dsc ON dsi.source = dsc.source_key "
     "WHERE dsi.enabled = 1 AND dsc.enabled = 1 "
@@ -27,7 +36,9 @@ _ENABLED_ITEM_METADATA_SQL = (
 )
 
 _ENABLED_ITEM_METADATA_LEGACY_SQL = (
-    "SELECT dsi.source, dsi.item_key, dsi.item_key AS api_name, 0 AS permission_points, dsi.requires_permission, 'backfill' AS sync_mode "
+    "SELECT dsi.source, dsi.item_key, dsi.item_key AS api_name, 0 AS permission_points, dsi.requires_permission, 'backfill' AS sync_mode, "
+    "NULL AS supports_backfill, NULL AS backfill_mode, NULL AS input_params, NULL AS input_param_details, "
+    "NULL AS analysis_date_params, NULL AS input_params_meta "
     "FROM data_source_items dsi "
     "JOIN data_source_configs dsc ON dsi.source = dsc.source_key "
     "WHERE dsi.enabled = 1 AND dsc.enabled = 1 "
@@ -35,14 +46,17 @@ _ENABLED_ITEM_METADATA_LEGACY_SQL = (
 )
 
 _TUSHARE_ITEM_METADATA_SQL = (
-    "SELECT source, item_key, enabled, api_name, permission_points, requires_permission, sync_mode "
+    "SELECT source, item_key, enabled, api_name, permission_points, requires_permission, sync_mode, "
+    "supports_backfill, backfill_mode, input_params, input_param_details, analysis_date_params, input_params_meta "
     "FROM data_source_items "
     "WHERE source = 'tushare' "
     "ORDER BY sync_priority, item_key"
 )
 
 _TUSHARE_ITEM_METADATA_LEGACY_SQL = (
-    "SELECT source, item_key, enabled, item_key AS api_name, 0 AS permission_points, requires_permission, 'backfill' AS sync_mode "
+    "SELECT source, item_key, enabled, item_key AS api_name, 0 AS permission_points, requires_permission, 'backfill' AS sync_mode, "
+    "NULL AS supports_backfill, NULL AS backfill_mode, NULL AS input_params, NULL AS input_param_details, "
+    "NULL AS analysis_date_params, NULL AS input_params_meta "
     "FROM data_source_items "
     "WHERE source = 'tushare' "
     "ORDER BY sync_priority, item_key"
@@ -214,6 +228,12 @@ def _get_sync_status_coverage_state() -> dict[str, object]:
             "permission_points": row[3] if len(row) > 3 else None,
             "requires_permission": row[4] if len(row) > 4 else None,
             "sync_mode": row[5] if len(row) > 5 else None,
+            "supports_backfill": row[6] if len(row) > 6 else None,
+            "backfill_mode": row[7] if len(row) > 7 else None,
+            "input_params": row[8] if len(row) > 8 else None,
+            "input_param_details": row[9] if len(row) > 9 else None,
+            "analysis_date_params": row[10] if len(row) > 10 else None,
+            "input_params_meta": row[11] if len(row) > 11 else None,
         }
         if not is_item_sync_supported(registry, item, source_configs=source_configs):
             unsupported_items.append({"source": source, "item_key": item_key})
@@ -227,6 +247,11 @@ def _get_sync_status_coverage_state() -> dict[str, object]:
         enabled_sync_items += 1
         sync_mode = normalize_sync_mode(item.get("sync_mode"), default=infer_sync_mode_from_interface(iface))
         supports_backfill = sync_mode_supports_backfill(sync_mode)
+        backfill_mode = normalize_backfill_mode(
+            item.get("backfill_mode"),
+            default=infer_backfill_mode_from_interface(iface),
+        )
+        use_trade_calendar = supports_backfill and backfill_mode_uses_trade_calendar(backfill_mode)
 
         init_bounds = init_map.get((source, item_key))
         if init_bounds is None:
@@ -234,7 +259,7 @@ def _get_sync_status_coverage_state() -> dict[str, object]:
             continue
 
         initialized_from, initialized_to = init_bounds
-        if supports_backfill:
+        if use_trade_calendar:
             window_count = window_count_map.get((source, item_key), 0)
             if initialized_from > start_date or initialized_to < end_date or window_count != expected_trade_days:
                 incomplete_items.append(
@@ -368,6 +393,13 @@ def _sync_bootstrap_item_enablement(engine, registry: DataSourceRegistry) -> int
             "api_name": row[3],
             "permission_points": row[4],
             "requires_permission": row[5],
+            "sync_mode": row[6] if len(row) > 6 else None,
+            "supports_backfill": row[7] if len(row) > 7 else None,
+            "backfill_mode": row[8] if len(row) > 8 else None,
+            "input_params": row[9] if len(row) > 9 else None,
+            "input_param_details": row[10] if len(row) > 10 else None,
+            "analysis_date_params": row[11] if len(row) > 11 else None,
+            "input_params_meta": row[12] if len(row) > 12 else None,
         }
         desired_enabled = int(is_item_sync_supported(registry, item, source_configs=source_configs))
         current_enabled = int(row[2] or 0)

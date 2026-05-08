@@ -10,6 +10,7 @@ mysql/data
 .data
 .data_bak
 .ruff_cache
+tmp
 
 # Data sync daemon (removed)
 *.log

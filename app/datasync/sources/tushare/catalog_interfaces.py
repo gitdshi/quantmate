@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 import logging
 
@@ -22,7 +22,13 @@ SELECT
     COALESCE(NULLIF(TRIM(api_name), ''), item_key) AS api_name,
     COALESCE(NULLIF(TRIM(target_table), ''), item_key) AS target_table,
     sync_priority,
-    requires_permission
+    requires_permission,
+    supports_backfill,
+    backfill_mode,
+    input_params,
+    input_param_details,
+    analysis_date_params,
+    input_params_meta
 FROM data_source_items
 WHERE source = 'tushare'
 ORDER BY sync_priority, item_key
@@ -35,7 +41,13 @@ SELECT
     item_key AS api_name,
     item_key AS target_table,
     sync_priority,
-    requires_permission
+    requires_permission,
+    NULL AS supports_backfill,
+    NULL AS backfill_mode,
+    NULL AS input_params,
+    NULL AS input_param_details,
+    NULL AS analysis_date_params,
+    NULL AS input_params_meta
 FROM data_source_items
 WHERE source = 'tushare'
 ORDER BY sync_priority, item_key
@@ -77,6 +89,14 @@ _FALLBACK_CATALOG_ROWS = (
 _TRADE_DATE_APIS = {
     "daily",
     "bak_daily",
+    "bak_basic",
+    "cctv_news",
+    "ci_daily",
+    "dc_concept",
+    "dc_concept_cons",
+    "dc_daily",
+    "dc_hot",
+    "dc_index",
     "hsgt_top10",
     "hsgt_stk_hold",
     "hsgt_cash_flow",
@@ -117,10 +137,29 @@ _TRADE_DATE_APIS = {
     "capital_flow",
     "daily_info",
     "block_trade",
+    "hk_adjfactor",
+    "kpl_list",
+    "limit_list_ths",
+    "moneyflow_dc",
+    "moneyflow_mkt_dc",
+    "moneyflow_ths",
+    "research_report",
     "stock_st",
+    "stk_auction",
+    "stk_auction_c",
+    "stk_auction_o",
+    "stk_week_month_adj",
+    "stk_weekly_monthly",
+    "sw_daily",
+    "tdx_daily",
+    "tdx_index",
+    "ths_daily",
+    "ths_hot",
+    "us_adjfactor",
 }
 
 _ANN_DATE_APIS = {
+    "cb_call",
     "income",
     "income_vip",
     "balancesheet",
@@ -142,14 +181,28 @@ _END_DATE_APIS = {
 }
 
 _RANGE_APIS = {
+    "ci_daily",
+    "dc_daily",
+    "dc_index",
+    "hibor",
+    "kpl_list",
+    "libor",
+    "limit_list_ths",
+    "moneyflow_mkt_dc",
     "new_share",
     "ipo",
     "ft_mins",
     "namechange",
+    "shibor",
+    "shibor_lpr",
+    "shibor_quote",
     "stk_account",
     "stk_account_old",
     "stk_holdertrade",
+    "sw_daily",
+    "ths_daily",
     "stock_st",
+    "us_tradecal",
 }
 
 _KEY_DATE_OVERRIDES = {
@@ -167,6 +220,12 @@ _REQUEST_DATE_OVERRIDES = {
 
 _DEFAULT_API_PARAMS = {
     "stock_basic": {"list_status": "L"},
+    # Realtime code-mode interfaces need a concrete request shape at runtime.
+    "rt_etf_k": {"topic": "HQ_FND_TICK"},
+    "rt_fut_min": {"freq": "1MIN"},
+    "rt_idx_min": {"freq": "1MIN"},
+    "rt_min": {"freq": "1MIN"},
+    "rt_min_daily": {"freq": "1MIN"},
 }
 
 _NONEMPTY_TRADING_DAY_APIS = {
@@ -226,6 +285,12 @@ class TushareCatalogSpec:
     target_table: str
     sync_priority: int
     requires_permission: str | None = None
+    supports_backfill: bool | None = None
+    backfill_mode: str | None = None
+    input_params: str | None = None
+    input_param_details: str | None = None
+    analysis_date_params: str | None = None
+    input_params_meta: object | None = None
 
 
 class TushareCatalogInterface(BaseIngestInterface):
@@ -256,9 +321,13 @@ class TushareCatalogInterface(BaseIngestInterface):
         return not ddl.uses_sample_inferred_schema(self.info.target_table)
 
     def supports_backfill(self) -> bool:
+        if self._spec.supports_backfill is not None:
+            return self._spec.supports_backfill
         return self._date_param() is not None or self._range_params() is not None
 
     def backfill_mode(self) -> str:
+        if self._spec.backfill_mode is not None:
+            return self._spec.backfill_mode
         if self._range_params() is not None:
             return "range"
         return "date"
@@ -277,6 +346,10 @@ class TushareCatalogInterface(BaseIngestInterface):
         if range_params is None:
             return super().sync_range(start, end)
         return self._sync_with_params(self._build_params(start, end))
+
+    def sync_other(self, anchor_date: date) -> SyncResult:
+        del anchor_date
+        return self._sync_with_params(dict(_DEFAULT_API_PARAMS.get(self._spec.api_name, {})))
 
     def _date_param(self) -> str | None:
         api_name = self._spec.api_name
@@ -383,6 +456,28 @@ def _normalize_permission(raw: str | None) -> str | None:
     return "0"
 
 
+def _normalize_optional_bool(raw: object) -> bool | None:
+    if raw is None:
+        return None
+    if isinstance(raw, bool):
+        return raw
+    normalized = str(raw).strip().lower()
+    if normalized in {"1", "true", "yes", "y", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "n", "off"}:
+        return False
+    return None
+
+
+def _normalize_backfill_mode(raw: object) -> str | None:
+    if raw is None:
+        return None
+    normalized = str(raw).strip().lower()
+    if normalized in {"range", "date", "code", "code_date", "other"}:
+        return normalized
+    return None
+
+
 def _is_unknown_data_source_items_column_error(exc: Exception) -> bool:
     return "unknown column" in str(exc or "").lower()
 
@@ -391,7 +486,8 @@ def _build_specs(rows: list[tuple]) -> tuple[TushareCatalogSpec, ...]:
     specs: list[TushareCatalogSpec] = []
     seen: set[str] = set()
 
-    for item_key, display_name, api_name, target_table, sync_priority, requires_permission in rows:
+    for row in rows:
+        item_key, display_name, api_name, target_table, sync_priority, requires_permission = row[:6]
         normalized_key = str(item_key or "").strip()
         if not normalized_key or normalized_key in seen:
             continue
@@ -405,6 +501,12 @@ def _build_specs(rows: list[tuple]) -> tuple[TushareCatalogSpec, ...]:
                 target_table=target_table,
                 sync_priority=sync_priority,
                 requires_permission=_normalize_permission(requires_permission),
+                supports_backfill=_normalize_optional_bool(row[6] if len(row) > 6 else None),
+                backfill_mode=_normalize_backfill_mode(row[7] if len(row) > 7 else None),
+                input_params=row[8] if len(row) > 8 else None,
+                input_param_details=row[9] if len(row) > 9 else None,
+                analysis_date_params=row[10] if len(row) > 10 else None,
+                input_params_meta=row[11] if len(row) > 11 else None,
             )
         )
 
@@ -429,6 +531,12 @@ def _fetch_catalog_rows() -> list[tuple]:
             row[3],
             int(row[4] or 100),
             row[5],
+            row[6] if len(row) > 6 else None,
+            row[7] if len(row) > 7 else None,
+            row[8] if len(row) > 8 else None,
+            row[9] if len(row) > 9 else None,
+            row[10] if len(row) > 10 else None,
+            row[11] if len(row) > 11 else None,
         )
         for row in result
     ]
@@ -462,14 +570,7 @@ def build_catalog_interfaces(existing_keys: set[str] | None = None) -> list[Base
         # not yet implemented, override requires_permission so failures
         # are treated as non-retryable PARTIAL instead of ERROR.
         if spec.interface_key in _PERMISSION_REQUIRED_CATALOG_KEYS and spec.requires_permission == "0":
-            spec = TushareCatalogSpec(
-                interface_key=spec.interface_key,
-                display_name=spec.display_name,
-                api_name=spec.api_name,
-                target_table=spec.target_table,
-                sync_priority=spec.sync_priority,
-                requires_permission="1",
-            )
+            spec = replace(spec, requires_permission="1")
 
         specialized = build_specialized_catalog_interface(spec)
         if specialized is not None:

@@ -76,8 +76,20 @@ class BaseIngestInterface(ABC):
         return True
 
     def backfill_mode(self) -> str:
-        """Backfill execution mode: `date` or `range`."""
+        """Backfill execution mode: `range`, `date`, `code`, `code_date`, or `other`."""
         return "date"
+
+    def sync_code(self, anchor_date: date) -> SyncResult:
+        """Sync data for code-driven interfaces using the current anchor date."""
+        return self.sync_date(anchor_date)
+
+    def sync_code_date(self, anchor_date: date) -> SyncResult:
+        """Sync data for interfaces that require both code and date parameters."""
+        return self.sync_date(anchor_date)
+
+    def sync_other(self, anchor_date: date) -> SyncResult:
+        """Sync data for interfaces that need custom, non-date/non-code execution."""
+        return self.sync_date(anchor_date)
 
     def get_backfill_rows_by_date(self, start: date, end: date) -> dict[date, int]:
         """Return optional per-date row counts for range backfills."""

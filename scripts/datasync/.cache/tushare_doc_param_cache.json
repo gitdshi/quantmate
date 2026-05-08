@@ -1,0 +1,7168 @@
+{
+  "adj_factor": {
+    "doc_id": "199",
+    "doc_url": "https://tushare.pro/document/2?doc_id=199",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "TS基金代码（支持多只基金输入）"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（格式：yyyymmdd，下同）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "offset",
+        "type": "str",
+        "required": "N",
+        "description": "开始行数"
+      },
+      {
+        "name": "limit",
+        "type": "str",
+        "required": "N",
+        "description": "最大行数"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "ann_corpus": {
+    "doc_id": "",
+    "doc_url": "",
+    "params": [],
+    "basis": "runtime_fallback"
+  },
+  "anns_d": {
+    "doc_id": "176",
+    "doc_url": "https://tushare.pro/document/2?doc_id=176",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "ann_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告日期（yyyymmdd格式，下同）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "bak_basic": {
+    "doc_id": "262",
+    "doc_url": "https://tushare.pro/document/2?doc_id=262",
+    "params": [
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期"
+      },
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "bak_daily": {
+    "doc_id": "255",
+    "doc_url": "https://tushare.pro/document/2?doc_id=255",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "offset",
+        "type": "str",
+        "required": "N",
+        "description": "开始行数"
+      },
+      {
+        "name": "limit",
+        "type": "str",
+        "required": "N",
+        "description": "最大行数"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "balancesheet": {
+    "doc_id": "36",
+    "doc_url": "https://tushare.pro/document/2?doc_id=36",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "股票代码"
+      },
+      {
+        "name": "ann_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告日期(YYYYMMDD格式，下同)"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告日开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告日结束日期"
+      },
+      {
+        "name": "period",
+        "type": "str",
+        "required": "N",
+        "description": "报告期(每个季度最后一天的日期，比如20171231表示年报，20170630半年报，20170930三季报)"
+      },
+      {
+        "name": "report_type",
+        "type": "str",
+        "required": "N",
+        "description": "报告类型：见下方详细说明"
+      },
+      {
+        "name": "comp_type",
+        "type": "str",
+        "required": "N",
+        "description": "公司类型：1一般工商业 2银行 3保险 4证券"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "bc_bestotcqt": {
+    "doc_id": "323",
+    "doc_url": "https://tushare.pro/document/2?doc_id=323",
+    "params": [
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "报价日期(YYYYMMDD格式，下同)"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "TS代码"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "bc_otcqt": {
+    "doc_id": "322",
+    "doc_url": "https://tushare.pro/document/2?doc_id=322",
+    "params": [
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期(YYYYMMDD格式，下同)"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "TS代码"
+      },
+      {
+        "name": "bank",
+        "type": "str",
+        "required": "N",
+        "description": "报价机构"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "block_trade": {
+    "doc_id": "161",
+    "doc_url": "https://tushare.pro/document/2?doc_id=161",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "TS代码（股票代码和日期至少输入一个参数）"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（格式：YYYYMMDD，下同）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "bo_cinema": {
+    "doc_id": "116",
+    "doc_url": "https://tushare.pro/document/2?doc_id=116",
+    "params": [
+      {
+        "name": "date",
+        "type": "str",
+        "required": "Y",
+        "description": "日期(格式:YYYYMMDD)"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "bo_daily": {
+    "doc_id": "115",
+    "doc_url": "https://tushare.pro/document/2?doc_id=115",
+    "params": [
+      {
+        "name": "date",
+        "type": "str",
+        "required": "Y",
+        "description": "日期 （格式YYYYMMDD）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "bo_monthly": {
+    "doc_id": "113",
+    "doc_url": "https://tushare.pro/document/2?doc_id=113",
+    "params": [
+      {
+        "name": "date",
+        "type": "str",
+        "required": "Y",
+        "description": "日期（每月1号，格式YYYYMMDD）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "bo_weekly": {
+    "doc_id": "114",
+    "doc_url": "https://tushare.pro/document/2?doc_id=114",
+    "params": [
+      {
+        "name": "date",
+        "type": "str",
+        "required": "Y",
+        "description": "日期（每周一日期，格式YYYYMMDD）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "bond_blk": {
+    "doc_id": "271",
+    "doc_url": "https://tushare.pro/document/2?doc_id=271",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "债券代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（YYYYMMDD格式，下同）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "bond_blk_detail": {
+    "doc_id": "272",
+    "doc_url": "https://tushare.pro/document/2?doc_id=272",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "债券代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（YYYYMMDD格式，下同）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "broker_recommend": {
+    "doc_id": "267",
+    "doc_url": "https://tushare.pro/document/2?doc_id=267",
+    "params": [
+      {
+        "name": "month",
+        "type": "str",
+        "required": "Y",
+        "description": "月度（YYYYMM）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "bse_mapping": {
+    "doc_id": "375",
+    "doc_url": "https://tushare.pro/document/2?doc_id=375",
+    "params": [
+      {
+        "name": "o_code",
+        "type": "str",
+        "required": "N",
+        "description": "旧代码"
+      },
+      {
+        "name": "n_code",
+        "type": "str",
+        "required": "N",
+        "description": "新代码"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "cashflow": {
+    "doc_id": "44",
+    "doc_url": "https://tushare.pro/document/2?doc_id=44",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "股票代码"
+      },
+      {
+        "name": "ann_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告日期（YYYYMMDD格式，下同）"
+      },
+      {
+        "name": "f_ann_date",
+        "type": "str",
+        "required": "N",
+        "description": "实际公告日期"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告日开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告日结束日期"
+      },
+      {
+        "name": "period",
+        "type": "str",
+        "required": "N",
+        "description": "报告期(每个季度最后一天的日期，比如20171231表示年报，20170630半年报，20170930三季报)"
+      },
+      {
+        "name": "report_type",
+        "type": "str",
+        "required": "N",
+        "description": "报告类型：见下方详细说明"
+      },
+      {
+        "name": "comp_type",
+        "type": "str",
+        "required": "N",
+        "description": "公司类型：1一般工商业 2银行 3保险 4证券"
+      },
+      {
+        "name": "is_calc",
+        "type": "int",
+        "required": "N",
+        "description": "是否计算报表"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "cb_basic": {
+    "doc_id": "185",
+    "doc_url": "https://tushare.pro/document/2?doc_id=185",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "转债代码"
+      },
+      {
+        "name": "list_date",
+        "type": "str",
+        "required": "N",
+        "description": "上市日期"
+      },
+      {
+        "name": "exchange",
+        "type": "str",
+        "required": "N",
+        "description": "上市交易所"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "cb_call": {
+    "doc_id": "269",
+    "doc_url": "https://tushare.pro/document/2?doc_id=269",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "转债代码，支持多值输入"
+      },
+      {
+        "name": "ann_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告日期(YYYYMMDD格式，下同)"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "cb_daily": {
+    "doc_id": "458",
+    "doc_url": "https://tushare.pro/document/2?doc_id=458",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "转债代码，支持多值输入"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "cb_factor_pro": {
+    "doc_id": "392",
+    "doc_url": "https://tushare.pro/document/2?doc_id=392",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "可转债代码"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "cb_issue": {
+    "doc_id": "186",
+    "doc_url": "https://tushare.pro/document/2?doc_id=186",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "TS代码"
+      },
+      {
+        "name": "ann_date",
+        "type": "str",
+        "required": "N",
+        "description": "发行公告日"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "cb_price_chg": {
+    "doc_id": "246",
+    "doc_url": "https://tushare.pro/document/2?doc_id=246",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "转债代码，支持多值输入"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "cb_rate": {
+    "doc_id": "305",
+    "doc_url": "https://tushare.pro/document/2?doc_id=305",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "转债代码，支持多值输入"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "cb_rating": {
+    "doc_id": "458",
+    "doc_url": "https://tushare.pro/document/2?doc_id=458",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "转债代码，支持多值输入"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "cb_share": {
+    "doc_id": "247",
+    "doc_url": "https://tushare.pro/document/2?doc_id=247",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "转债代码，支持多值输入"
+      },
+      {
+        "name": "ann_date",
+        "type": "str",
+        "required": "Y",
+        "description": "公告日期（YYYYMMDD格式，下同）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "ccass_hold": {
+    "doc_id": "274",
+    "doc_url": "https://tushare.pro/document/2?doc_id=274",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码 (e.g. 605009.SH)"
+      },
+      {
+        "name": "hk_code",
+        "type": "str",
+        "required": "N",
+        "description": "港交所代码 （e.g. 95009）"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期(YYYYMMDD格式，下同)"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "ccass_hold_detail": {
+    "doc_id": "274",
+    "doc_url": "https://tushare.pro/document/2?doc_id=274",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码 (e.g. 605009.SH)"
+      },
+      {
+        "name": "hk_code",
+        "type": "str",
+        "required": "N",
+        "description": "港交所代码 （e.g. 95009）"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期(YYYYMMDD格式，下同)"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "cctv_news": {
+    "doc_id": "154",
+    "doc_url": "https://tushare.pro/document/2?doc_id=154",
+    "params": [
+      {
+        "name": "date",
+        "type": "str",
+        "required": "Y",
+        "description": "日期（输入格式：YYYYMMDD 比如：20181211）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "ci_daily": {
+    "doc_id": "308",
+    "doc_url": "https://tushare.pro/document/2?doc_id=308",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "行业代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（YYYYMMDD格式，下同）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "ci_index_member": {
+    "doc_id": "373",
+    "doc_url": "https://tushare.pro/document/2?doc_id=373",
+    "params": [
+      {
+        "name": "l1_code",
+        "type": "str",
+        "required": "N",
+        "description": "一级行业代码"
+      },
+      {
+        "name": "l2_code",
+        "type": "str",
+        "required": "N",
+        "description": "二级行业代码"
+      },
+      {
+        "name": "l3_code",
+        "type": "str",
+        "required": "N",
+        "description": "三级行业代码"
+      },
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "is_new",
+        "type": "str",
+        "required": "N",
+        "description": "是否最新（默认为“Y是”）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "cn_cpi": {
+    "doc_id": "228",
+    "doc_url": "https://tushare.pro/document/2?doc_id=228",
+    "params": [
+      {
+        "name": "m",
+        "type": "str",
+        "required": "N",
+        "description": "月份（YYYYMM，下同），支持多个月份同时输入，逗号分隔"
+      },
+      {
+        "name": "start_m",
+        "type": "str",
+        "required": "N",
+        "description": "开始月份"
+      },
+      {
+        "name": "end_m",
+        "type": "str",
+        "required": "N",
+        "description": "结束月份"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "cn_gdp": {
+    "doc_id": "227",
+    "doc_url": "https://tushare.pro/document/2?doc_id=227",
+    "params": [
+      {
+        "name": "q",
+        "type": "str",
+        "required": "N",
+        "description": "季度（2019Q1表示，2019年第一季度）"
+      },
+      {
+        "name": "start_q",
+        "type": "str",
+        "required": "N",
+        "description": "开始季度"
+      },
+      {
+        "name": "end_q",
+        "type": "str",
+        "required": "N",
+        "description": "结束季度"
+      },
+      {
+        "name": "fields",
+        "type": "str",
+        "required": "N",
+        "description": "指定输出字段（e.g. fields='quarter,gdp,gdp_yoy'）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "cn_m": {
+    "doc_id": "242",
+    "doc_url": "https://tushare.pro/document/2?doc_id=242",
+    "params": [
+      {
+        "name": "m",
+        "type": "str",
+        "required": "N",
+        "description": "月度（202001表示，2020年1月）"
+      },
+      {
+        "name": "start_m",
+        "type": "str",
+        "required": "N",
+        "description": "开始月度"
+      },
+      {
+        "name": "end_m",
+        "type": "str",
+        "required": "N",
+        "description": "结束月度"
+      },
+      {
+        "name": "fields",
+        "type": "str",
+        "required": "N",
+        "description": "指定输出字段（e.g. fields='month,m0,m1,m2'）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "cn_pmi": {
+    "doc_id": "325",
+    "doc_url": "https://tushare.pro/document/2?doc_id=325",
+    "params": [
+      {
+        "name": "m",
+        "type": "str",
+        "required": "N",
+        "description": "月度（202401表示，2024年1月）"
+      },
+      {
+        "name": "start_m",
+        "type": "str",
+        "required": "N",
+        "description": "开始月度"
+      },
+      {
+        "name": "end_m",
+        "type": "str",
+        "required": "N",
+        "description": "结束月度（e.g. fields='month,pmi010000,pmi010400'）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "cn_ppi": {
+    "doc_id": "245",
+    "doc_url": "https://tushare.pro/document/2?doc_id=245",
+    "params": [
+      {
+        "name": "m",
+        "type": "str",
+        "required": "N",
+        "description": "月份（YYYYMM，下同），支持多个月份同时输入，逗号分隔"
+      },
+      {
+        "name": "start_m",
+        "type": "str",
+        "required": "N",
+        "description": "开始月份"
+      },
+      {
+        "name": "end_m",
+        "type": "str",
+        "required": "N",
+        "description": "结束月份"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "concept_corpus": {
+    "doc_id": "",
+    "doc_url": "",
+    "params": [],
+    "basis": "runtime_fallback"
+  },
+  "cyq_chips": {
+    "doc_id": "294",
+    "doc_url": "https://tushare.pro/document/2?doc_id=294",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "股票代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（YYYYMMDD）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "cyq_perf": {
+    "doc_id": "293",
+    "doc_url": "https://tushare.pro/document/2?doc_id=293",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "股票代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（YYYYMMDD）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "daily_basic": {
+    "doc_id": "32",
+    "doc_url": "https://tushare.pro/document/2?doc_id=32",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "股票代码（二选一）"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期 （二选一）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期(YYYYMMDD)"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期(YYYYMMDD)"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "daily_info": {
+    "doc_id": "215",
+    "doc_url": "https://tushare.pro/document/2?doc_id=215",
+    "params": [
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（YYYYMMDD格式，下同）"
+      },
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "板块代码（请参阅下方列表）"
+      },
+      {
+        "name": "exchange",
+        "type": "str",
+        "required": "N",
+        "description": "股票市场（SH上交所 SZ深交所）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "fields",
+        "type": "str",
+        "required": "N",
+        "description": "指定提取字段"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "dc_concept": {
+    "doc_id": "421",
+    "doc_url": "https://tushare.pro/document/2?doc_id=421",
+    "params": [
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期"
+      },
+      {
+        "name": "theme_code",
+        "type": "str",
+        "required": "N",
+        "description": "题材代码(xxxxxx.DC格式)"
+      },
+      {
+        "name": "name",
+        "type": "str",
+        "required": "N",
+        "description": "题材名称"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "dc_concept_cons": {
+    "doc_id": "422",
+    "doc_url": "https://tushare.pro/document/2?doc_id=422",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期"
+      },
+      {
+        "name": "theme_code",
+        "type": "str",
+        "required": "N",
+        "description": "题材代码"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "dc_daily": {
+    "doc_id": "382",
+    "doc_url": "https://tushare.pro/document/2?doc_id=382",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "板块代码（格式：xxxxx.DC)"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期(格式：YYYYMMDD下同）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "idx_type",
+        "type": "str",
+        "required": "N",
+        "description": "板块类型： 概念板块、行业板块、地域板块"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "dc_hot": {
+    "doc_id": "321",
+    "doc_url": "https://tushare.pro/document/2?doc_id=321",
+    "params": [
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期"
+      },
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "TS代码"
+      },
+      {
+        "name": "market",
+        "type": "str",
+        "required": "N",
+        "description": "类型(A股市场、ETF基金、港股市场、美股市场)"
+      },
+      {
+        "name": "hot_type",
+        "type": "str",
+        "required": "N",
+        "description": "热点类型(人气榜、飙升榜)"
+      },
+      {
+        "name": "is_new",
+        "type": "str",
+        "required": "N",
+        "description": "是否最新（默认Y，如果为N则为盘中和盘后阶段采集，具体时间可参考rank_time字段，状态N每小时更新一次，状态Y更新时间为22：30）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "dc_index": {
+    "doc_id": "362",
+    "doc_url": "https://tushare.pro/document/2?doc_id=362",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "指数代码（支持多个代码同时输入，用逗号分隔）"
+      },
+      {
+        "name": "name",
+        "type": "str",
+        "required": "N",
+        "description": "板块名称（例如：人形机器人）"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（YYYYMMDD格式，下同）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "idx_type",
+        "type": "str",
+        "required": "Y",
+        "description": "板块类型(行业板块、概念板块、地域板块)"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "dc_member": {
+    "doc_id": "363",
+    "doc_url": "https://tushare.pro/document/2?doc_id=363",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "板块指数代码"
+      },
+      {
+        "name": "con_code",
+        "type": "str",
+        "required": "N",
+        "description": "成分股票代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（YYYYMMDD格式）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期（YYYYMMDD格式）"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期（YYYYMMDD格式）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "disclosure_date": {
+    "doc_id": "162",
+    "doc_url": "https://tushare.pro/document/2?doc_id=162",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "TS股票代码"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "财报周期（每个季度最后一天的日期，比如20181231表示2018年年报，20180630表示中报)"
+      },
+      {
+        "name": "pre_date",
+        "type": "str",
+        "required": "N",
+        "description": "计划披露日期"
+      },
+      {
+        "name": "ann_date",
+        "type": "str",
+        "required": "N",
+        "description": "最新披露公告日"
+      },
+      {
+        "name": "actual_date",
+        "type": "str",
+        "required": "N",
+        "description": "实际披露日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "dividend": {
+    "doc_id": "103",
+    "doc_url": "https://tushare.pro/document/2?doc_id=103",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "TS代码"
+      },
+      {
+        "name": "ann_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告日"
+      },
+      {
+        "name": "record_date",
+        "type": "str",
+        "required": "N",
+        "description": "股权登记日期"
+      },
+      {
+        "name": "ex_date",
+        "type": "str",
+        "required": "N",
+        "description": "除权除息日"
+      },
+      {
+        "name": "imp_ann_date",
+        "type": "str",
+        "required": "N",
+        "description": "实施公告日"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "eco_cal": {
+    "doc_id": "233",
+    "doc_url": "https://tushare.pro/document/2?doc_id=233",
+    "params": [
+      {
+        "name": "date",
+        "type": "str",
+        "required": "N",
+        "description": "日期（YYYYMMDD格式）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "currency",
+        "type": "str",
+        "required": "N",
+        "description": "货币代码"
+      },
+      {
+        "name": "country",
+        "type": "str",
+        "required": "N",
+        "description": "国家（比如：中国、美国）"
+      },
+      {
+        "name": "event",
+        "type": "str",
+        "required": "N",
+        "description": "事件 （支持模糊匹配： *非农*）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "etf_basic": {
+    "doc_id": "385",
+    "doc_url": "https://tushare.pro/document/2?doc_id=385",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "ETF代码（带.SZ/.SH后缀的6位数字，如：159526.SZ）"
+      },
+      {
+        "name": "index_code",
+        "type": "str",
+        "required": "N",
+        "description": "跟踪指数代码"
+      },
+      {
+        "name": "list_date",
+        "type": "str",
+        "required": "N",
+        "description": "上市日期（格式：YYYYMMDD）"
+      },
+      {
+        "name": "list_status",
+        "type": "str",
+        "required": "N",
+        "description": "上市状态（L上市 D退市 P待上市）"
+      },
+      {
+        "name": "exchange",
+        "type": "str",
+        "required": "N",
+        "description": "交易所（SH上交所 SZ深交所）"
+      },
+      {
+        "name": "mgr",
+        "type": "str",
+        "required": "N",
+        "description": "管理人（简称，e.g.华夏基金)"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "etf_index": {
+    "doc_id": "386",
+    "doc_url": "https://tushare.pro/document/2?doc_id=386",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "指数代码"
+      },
+      {
+        "name": "pub_date",
+        "type": "str",
+        "required": "N",
+        "description": "发布日期（格式：YYYYMMDD）"
+      },
+      {
+        "name": "base_date",
+        "type": "str",
+        "required": "N",
+        "description": "指数基期（格式：YYYYMMDD）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "etf_share_size": {
+    "doc_id": "408",
+    "doc_url": "https://tushare.pro/document/2?doc_id=408",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "基金代码 （可从ETF基础信息接口提取）"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（YYYYMMDD格式，下同）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "exchange",
+        "type": "str",
+        "required": "N",
+        "description": "交易所（SSE上交所 SZSE深交所）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "express": {
+    "doc_id": "46",
+    "doc_url": "https://tushare.pro/document/2?doc_id=46",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "股票代码"
+      },
+      {
+        "name": "ann_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告日期"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告结束日期"
+      },
+      {
+        "name": "period",
+        "type": "str",
+        "required": "N",
+        "description": "报告期(每个季度最后一天的日期,比如20171231表示年报，20170630半年报，20170930三季报)"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "film_record": {
+    "doc_id": "156",
+    "doc_url": "https://tushare.pro/document/2?doc_id=156",
+    "params": [
+      {
+        "name": "ann_date",
+        "type": "str",
+        "required": "N",
+        "description": "公布日期 （至少输入一个参数，格式：YYYYMMDD，日期不连续，定期公布）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "fina_audit": {
+    "doc_id": "80",
+    "doc_url": "https://tushare.pro/document/2?doc_id=80",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "股票代码"
+      },
+      {
+        "name": "ann_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告日期"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告结束日期"
+      },
+      {
+        "name": "period",
+        "type": "str",
+        "required": "N",
+        "description": "报告期(每个季度最后一天的日期,比如20171231表示年报)"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "fina_indicator": {
+    "doc_id": "79",
+    "doc_url": "https://tushare.pro/document/2?doc_id=79",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "TS股票代码,e.g. 600001.SH/000001.SZ"
+      },
+      {
+        "name": "ann_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告日期"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "报告期开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "报告期结束日期"
+      },
+      {
+        "name": "period",
+        "type": "str",
+        "required": "N",
+        "description": "报告期(每个季度最后一天的日期,比如20171231表示年报)"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "fina_mainbz": {
+    "doc_id": "81",
+    "doc_url": "https://tushare.pro/document/2?doc_id=81",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "股票代码"
+      },
+      {
+        "name": "period",
+        "type": "str",
+        "required": "N",
+        "description": "报告期(每个季度最后一天的日期,比如20171231表示年报)"
+      },
+      {
+        "name": "type",
+        "type": "str",
+        "required": "N",
+        "description": "类型：P按产品 D按地区 I按行业（请输入大写字母P或者D）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "报告期开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "报告期结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "forecast": {
+    "doc_id": "45",
+    "doc_url": "https://tushare.pro/document/2?doc_id=45",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码(二选一)"
+      },
+      {
+        "name": "ann_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告日期 (二选一)"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告结束日期"
+      },
+      {
+        "name": "period",
+        "type": "str",
+        "required": "N",
+        "description": "报告期(每个季度最后一天的日期，比如20171231表示年报，20170630半年报，20170930三季报)"
+      },
+      {
+        "name": "type",
+        "type": "str",
+        "required": "N",
+        "description": "预告类型(预增/预减/扭亏/首亏/续亏/续盈/略增/略减)"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "ft_limit": {
+    "doc_id": "368",
+    "doc_url": "https://tushare.pro/document/2?doc_id=368",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "合约代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（格式：YYYYMMDD）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "cont",
+        "type": "str",
+        "required": "N",
+        "description": "合约代码（例如：cont='CU')"
+      },
+      {
+        "name": "exchange",
+        "type": "str",
+        "required": "N",
+        "description": "交易所代码 （例如：exchange='DCE')"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "ft_mins": {
+    "doc_id": "313",
+    "doc_url": "https://tushare.pro/document/2?doc_id=313",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "股票代码，e.g.CU2310.SHF"
+      },
+      {
+        "name": "freq",
+        "type": "str",
+        "required": "Y",
+        "description": "分钟频度（1min/5min/15min/30min/60min）"
+      },
+      {
+        "name": "start_date",
+        "type": "datetime",
+        "required": "N",
+        "description": "开始日期 格式：2023-08-25 09:00:00"
+      },
+      {
+        "name": "end_date",
+        "type": "datetime",
+        "required": "N",
+        "description": "结束时间 格式：2023-08-25 19:00:00"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "fund_adj": {
+    "doc_id": "199",
+    "doc_url": "https://tushare.pro/document/2?doc_id=199",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "TS基金代码（支持多只基金输入）"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（格式：yyyymmdd，下同）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "offset",
+        "type": "str",
+        "required": "N",
+        "description": "开始行数"
+      },
+      {
+        "name": "limit",
+        "type": "str",
+        "required": "N",
+        "description": "最大行数"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "fund_basic": {
+    "doc_id": "19",
+    "doc_url": "https://tushare.pro/document/2?doc_id=19",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "基金代码"
+      },
+      {
+        "name": "market",
+        "type": "str",
+        "required": "N",
+        "description": "交易市场: E场内 O场外（默认E）"
+      },
+      {
+        "name": "status",
+        "type": "str",
+        "required": "N",
+        "description": "存续状态 D摘牌 I发行 L上市中"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "fund_company": {
+    "doc_id": "118",
+    "doc_url": "https://tushare.pro/document/2?doc_id=118",
+    "params": [],
+    "basis": "tushare_docs"
+  },
+  "fund_daily": {
+    "doc_id": "127",
+    "doc_url": "https://tushare.pro/document/2?doc_id=127",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "基金代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期(YYYYMMDD格式，下同)"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "fund_div": {
+    "doc_id": "120",
+    "doc_url": "https://tushare.pro/document/2?doc_id=120",
+    "params": [
+      {
+        "name": "ann_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告日（以下参数四选一）"
+      },
+      {
+        "name": "ex_date",
+        "type": "str",
+        "required": "N",
+        "description": "除息日"
+      },
+      {
+        "name": "pay_date",
+        "type": "str",
+        "required": "N",
+        "description": "派息日"
+      },
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "基金代码"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "fund_factor_pro": {
+    "doc_id": "359",
+    "doc_url": "https://tushare.pro/document/2?doc_id=359",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "基金代码"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "fund_manager": {
+    "doc_id": "208",
+    "doc_url": "https://tushare.pro/document/2?doc_id=208",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "基金代码，支持多只基金，逗号分隔"
+      },
+      {
+        "name": "ann_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告日期，格式：YYYYMMDD"
+      },
+      {
+        "name": "name",
+        "type": "str",
+        "required": "N",
+        "description": "基金经理姓名"
+      },
+      {
+        "name": "offset",
+        "type": "intint",
+        "required": "N",
+        "description": "开始行数"
+      },
+      {
+        "name": "limit",
+        "type": "int",
+        "required": "N",
+        "description": "每页行数"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "fund_nav": {
+    "doc_id": "119",
+    "doc_url": "https://tushare.pro/document/2?doc_id=119",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "TS基金代码 （二选一）"
+      },
+      {
+        "name": "nav_date",
+        "type": "str",
+        "required": "N",
+        "description": "净值日期 （二选一）"
+      },
+      {
+        "name": "market",
+        "type": "str",
+        "required": "N",
+        "description": "E场内 O场外"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "净值开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "净值结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "fund_portfolio": {
+    "doc_id": "121",
+    "doc_url": "https://tushare.pro/document/2?doc_id=121",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "基金代码 (ts_code,ann_date,period至少输入一个参数)"
+      },
+      {
+        "name": "symbol",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "ann_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告日期（YYYYMMDD格式）"
+      },
+      {
+        "name": "period",
+        "type": "str",
+        "required": "N",
+        "description": "季度（每个季度最后一天的日期，比如20131231表示2013年年报）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "报告期开始日期（YYYYMMDD格式）"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "报告期结束日期（YYYYMMDD格式）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "fund_sales_ratio": {
+    "doc_id": "265",
+    "doc_url": "https://tushare.pro/document/2?doc_id=265",
+    "params": [
+      {
+        "name": "年份",
+        "type": "str",
+        "required": "N",
+        "description": "年度"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "fund_sales_vol": {
+    "doc_id": "266",
+    "doc_url": "https://tushare.pro/document/2?doc_id=266",
+    "params": [
+      {
+        "name": "year",
+        "type": "str",
+        "required": "N",
+        "description": "年度"
+      },
+      {
+        "name": "quarter",
+        "type": "str",
+        "required": "N",
+        "description": "季度"
+      },
+      {
+        "name": "name",
+        "type": "str",
+        "required": "N",
+        "description": "机构名称"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "fund_share": {
+    "doc_id": "207",
+    "doc_url": "https://tushare.pro/document/2?doc_id=207",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "TS基金代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "market",
+        "type": "str",
+        "required": "N",
+        "description": "市场代码（SH上交所 ，SZ深交所）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "fut_basic": {
+    "doc_id": "135",
+    "doc_url": "https://tushare.pro/document/2?doc_id=135",
+    "params": [
+      {
+        "name": "exchange",
+        "type": "str",
+        "required": "Y",
+        "description": "交易所代码 CFFEX-中金所 DCE-大商所 CZCE-郑商所 SHFE-上期所 INE-上海国际能源交易中心 GFEX-广州期货交易所"
+      },
+      {
+        "name": "fut_type",
+        "type": "str",
+        "required": "N",
+        "description": "合约类型 (1 普通合约 2主力与连续合约 默认取全部)"
+      },
+      {
+        "name": "fut_code",
+        "type": "str",
+        "required": "N",
+        "description": "标准合约代码，如白银AG、AP鲜苹果等"
+      },
+      {
+        "name": "list_date",
+        "type": "str",
+        "required": "N",
+        "description": "上市开始日期(格式YYYYMMDD，从某日开始以来所有合约）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "fut_daily": {
+    "doc_id": "138",
+    "doc_url": "https://tushare.pro/document/2?doc_id=138",
+    "params": [
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期(YYYYMMDD格式，下同)"
+      },
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "合约代码"
+      },
+      {
+        "name": "exchange",
+        "type": "str",
+        "required": "N",
+        "description": "交易所代码"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "fut_holding": {
+    "doc_id": "139",
+    "doc_url": "https://tushare.pro/document/2?doc_id=139",
+    "params": [
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期 （trade_date/symbol至少输入一个参数）"
+      },
+      {
+        "name": "symbol",
+        "type": "str",
+        "required": "N",
+        "description": "合约或产品代码"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期(YYYYMMDD格式，下同)"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "exchange",
+        "type": "str",
+        "required": "N",
+        "description": "交易所代码"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "fut_mapping": {
+    "doc_id": "189",
+    "doc_url": "https://tushare.pro/document/2?doc_id=189",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "合约代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期(YYYYMMDD格式，下同)"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "fut_settle": {
+    "doc_id": "141",
+    "doc_url": "https://tushare.pro/document/2?doc_id=141",
+    "params": [
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期 （trade_date/ts_code至少需要输入一个参数）"
+      },
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "合约代码"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期(YYYYMMDD格式，下同)"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "exchange",
+        "type": "str",
+        "required": "N",
+        "description": "交易所代码"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "fut_weekly_detail": {
+    "doc_id": "216",
+    "doc_url": "https://tushare.pro/document/2?doc_id=216",
+    "params": [
+      {
+        "name": "week",
+        "type": "str",
+        "required": "N",
+        "description": "周期（每年第几周，e.g. 202001 表示2020第1周）"
+      },
+      {
+        "name": "prd",
+        "type": "str",
+        "required": "N",
+        "description": "期货品种（支持多品种输入，逗号分隔）"
+      },
+      {
+        "name": "start_week",
+        "type": "str",
+        "required": "N",
+        "description": "开始周期"
+      },
+      {
+        "name": "end_week",
+        "type": "str",
+        "required": "N",
+        "description": "结束周期"
+      },
+      {
+        "name": "exchange",
+        "type": "str",
+        "required": "N",
+        "description": "交易所（请参考交易所说明）"
+      },
+      {
+        "name": "fields",
+        "type": "str",
+        "required": "N",
+        "description": "提取的字段，e.g. fields='prd,name,vol'"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "fut_weekly_monthly": {
+    "doc_id": "337",
+    "doc_url": "https://tushare.pro/document/2?doc_id=337",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "TS代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始交易日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束交易日期"
+      },
+      {
+        "name": "freq",
+        "type": "str",
+        "required": "Y",
+        "description": "频率week周，month月"
+      },
+      {
+        "name": "exchange",
+        "type": "str",
+        "required": "N",
+        "description": "交易所"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "fut_wsr": {
+    "doc_id": "140",
+    "doc_url": "https://tushare.pro/document/2?doc_id=140",
+    "params": [
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期"
+      },
+      {
+        "name": "symbol",
+        "type": "str",
+        "required": "N",
+        "description": "产品代码"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期(YYYYMMDD格式，下同)"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "exchange",
+        "type": "str",
+        "required": "N",
+        "description": "交易所代码"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "fx_daily": {
+    "doc_id": "179",
+    "doc_url": "https://tushare.pro/document/2?doc_id=179",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "TS代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（GMT，日期是格林尼治时间，比北京时间晚一天）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期（GMT）"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期（GMT）"
+      },
+      {
+        "name": "exchange",
+        "type": "str",
+        "required": "N",
+        "description": "交易商，目前只有FXCM"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "fx_obasic": {
+    "doc_id": "178",
+    "doc_url": "https://tushare.pro/document/2?doc_id=178",
+    "params": [
+      {
+        "name": "exchange",
+        "type": "str",
+        "required": "N",
+        "description": "交易商"
+      },
+      {
+        "name": "classify",
+        "type": "str",
+        "required": "N",
+        "description": "分类"
+      },
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "TS代码"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "ggt_daily": {
+    "doc_id": "196",
+    "doc_url": "https://tushare.pro/document/2?doc_id=196",
+    "params": [
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期 （格式YYYYMMDD，下同。支持单日和多日输入）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "ggt_monthly": {
+    "doc_id": "197",
+    "doc_url": "https://tushare.pro/document/2?doc_id=197",
+    "params": [
+      {
+        "name": "month",
+        "type": "str",
+        "required": "N",
+        "description": "月度（格式YYYYMM，下同，支持多个输入）"
+      },
+      {
+        "name": "start_month",
+        "type": "str",
+        "required": "N",
+        "description": "开始月度"
+      },
+      {
+        "name": "end_month",
+        "type": "str",
+        "required": "N",
+        "description": "结束月度"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "ggt_top10": {
+    "doc_id": "49",
+    "doc_url": "https://tushare.pro/document/2?doc_id=49",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码（二选一）"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（二选一）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "market_type",
+        "type": "str",
+        "required": "N",
+        "description": "市场类型 2：港股通（沪） 4：港股通（深）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "gz_index": {
+    "doc_id": "174",
+    "doc_url": "https://tushare.pro/document/2?doc_id=174",
+    "params": [
+      {
+        "name": "date",
+        "type": "str",
+        "required": "N",
+        "description": "日期"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "hibor": {
+    "doc_id": "153",
+    "doc_url": "https://tushare.pro/document/2?doc_id=153",
+    "params": [
+      {
+        "name": "date",
+        "type": "str",
+        "required": "N",
+        "description": "日期 (日期输入格式：YYYYMMDD，下同)"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "hk_adjfactor": {
+    "doc_id": "401",
+    "doc_url": "https://tushare.pro/document/2?doc_id=401",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（格式：YYYYMMDD，下同）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "hk_balancesheet": {
+    "doc_id": "390",
+    "doc_url": "https://tushare.pro/document/2?doc_id=390",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "股票代码"
+      },
+      {
+        "name": "period",
+        "type": "str",
+        "required": "N",
+        "description": "报告期(格式：YYYYMMDD）"
+      },
+      {
+        "name": "ind_name",
+        "type": "str",
+        "required": "N",
+        "description": "指标名（如：应收帐款）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "报告期开始日期（格式：YYYYMMDD）"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "报告结束始日期（格式：YYYYMMDD）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "hk_basic": {
+    "doc_id": "191",
+    "doc_url": "https://tushare.pro/document/2?doc_id=191",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "TS代码"
+      },
+      {
+        "name": "list_status",
+        "type": "str",
+        "required": "N",
+        "description": "上市状态 L上市 D退市 P暂停上市 ，默认L"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "hk_cashflow": {
+    "doc_id": "391",
+    "doc_url": "https://tushare.pro/document/2?doc_id=391",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "股票代码"
+      },
+      {
+        "name": "period",
+        "type": "str",
+        "required": "N",
+        "description": "报告期(格式：YYYYMMDD）"
+      },
+      {
+        "name": "ind_name",
+        "type": "str",
+        "required": "N",
+        "description": "指标名（如：新增贷款）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "报告期开始日期（格式：YYYYMMDD）"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "报告结束始日期（格式：YYYYMMDD）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "hk_daily": {
+    "doc_id": "192",
+    "doc_url": "https://tushare.pro/document/2?doc_id=192",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "hk_daily_adj": {
+    "doc_id": "339",
+    "doc_url": "https://tushare.pro/document/2?doc_id=339",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码（e.g. 00001.HK）"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（YYYYMMDD）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期（YYYYMMDD）"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期（YYYYMMDD）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "hk_fina_indicator": {
+    "doc_id": "388",
+    "doc_url": "https://tushare.pro/document/2?doc_id=388",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "股票代码"
+      },
+      {
+        "name": "period",
+        "type": "str",
+        "required": "N",
+        "description": "报告期(格式：YYYYMMDD）"
+      },
+      {
+        "name": "report_type",
+        "type": "str",
+        "required": "N",
+        "description": "报告期类型（Q1一季报Q2半年报Q3三季报Q4年报）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "报告期开始日期(格式：YYYYMMDD）"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "报告结束日期(格式：YYYYMMDD）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "hk_hold": {
+    "doc_id": "188",
+    "doc_url": "https://tushare.pro/document/2?doc_id=188",
+    "params": [
+      {
+        "name": "code",
+        "type": "str",
+        "required": "N",
+        "description": "交易所代码"
+      },
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "TS股票代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "exchange",
+        "type": "str",
+        "required": "N",
+        "description": "类型：SH沪股通（北向）SZ深股通（北向）HK港股通（南向持股）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "hk_income": {
+    "doc_id": "389",
+    "doc_url": "https://tushare.pro/document/2?doc_id=389",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "股票代码"
+      },
+      {
+        "name": "period",
+        "type": "str",
+        "required": "N",
+        "description": "报告期(格式：YYYYMMDD）"
+      },
+      {
+        "name": "ind_name",
+        "type": "str",
+        "required": "N",
+        "description": "指标名（如：营业额）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "报告期开始日期（格式：YYYYMMDD）"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "报告结束始日期（格式：YYYYMMDD）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "hk_mins": {
+    "doc_id": "304",
+    "doc_url": "https://tushare.pro/document/2?doc_id=304",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "股票代码，e.g.00001.HK"
+      },
+      {
+        "name": "freq",
+        "type": "str",
+        "required": "Y",
+        "description": "分钟频度（1min/5min/15min/30min/60min）"
+      },
+      {
+        "name": "start_date",
+        "type": "datetime",
+        "required": "N",
+        "description": "开始日期 格式：2023-03-13 09:00:00"
+      },
+      {
+        "name": "end_date",
+        "type": "datetime",
+        "required": "N",
+        "description": "结束时间 格式：2023-03-13 19:00:00"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "hk_tradecal": {
+    "doc_id": "250",
+    "doc_url": "https://tushare.pro/document/2?doc_id=250",
+    "params": [
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "is_open",
+        "type": "str",
+        "required": "N",
+        "description": "是否交易 '0'休市 '1'交易"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "hm_detail": {
+    "doc_id": "312",
+    "doc_url": "https://tushare.pro/document/2?doc_id=312",
+    "params": [
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期(YYYYMMDD)"
+      },
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "hm_name",
+        "type": "str",
+        "required": "N",
+        "description": "游资名称"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期(YYYYMMDD)"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期(YYYYMMDD)"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "hm_list": {
+    "doc_id": "311",
+    "doc_url": "https://tushare.pro/document/2?doc_id=311",
+    "params": [
+      {
+        "name": "name",
+        "type": "str",
+        "required": "N",
+        "description": "游资名称"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "hsgt_top10": {
+    "doc_id": "48",
+    "doc_url": "https://tushare.pro/document/2?doc_id=48",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码（二选一）"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（二选一）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "market_type",
+        "type": "str",
+        "required": "N",
+        "description": "市场类型（1：沪市 3：深市）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "idx_factor_pro": {
+    "doc_id": "358",
+    "doc_url": "https://tushare.pro/document/2?doc_id=358",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "指数代码(大盘指数 申万指数 中信指数)"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "idx_mins": {
+    "doc_id": "419",
+    "doc_url": "https://tushare.pro/document/2?doc_id=419",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "指数代码，e.g. 000001.SH"
+      },
+      {
+        "name": "freq",
+        "type": "str",
+        "required": "Y",
+        "description": "分钟频度（1min/5min/15min/30min/60min）"
+      },
+      {
+        "name": "start_date",
+        "type": "datetime",
+        "required": "N",
+        "description": "开始日期 格式：2023-08-25 09:00:00"
+      },
+      {
+        "name": "end_date",
+        "type": "datetime",
+        "required": "N",
+        "description": "结束时间 格式：2023-08-25 19:00:00"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "income": {
+    "doc_id": "33",
+    "doc_url": "https://tushare.pro/document/2?doc_id=33",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "股票代码"
+      },
+      {
+        "name": "ann_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告日期（YYYYMMDD格式，下同）"
+      },
+      {
+        "name": "f_ann_date",
+        "type": "str",
+        "required": "N",
+        "description": "实际公告日期"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告日开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告日结束日期"
+      },
+      {
+        "name": "period",
+        "type": "str",
+        "required": "N",
+        "description": "报告期(每个季度最后一天的日期，比如20171231表示年报，20170630半年报，20170930三季报)"
+      },
+      {
+        "name": "report_type",
+        "type": "str",
+        "required": "N",
+        "description": "报告类型，参考文档最下方说明"
+      },
+      {
+        "name": "comp_type",
+        "type": "str",
+        "required": "N",
+        "description": "公司类型（1一般工商业2银行3保险4证券）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "index_basic": {
+    "doc_id": "94",
+    "doc_url": "https://tushare.pro/document/2?doc_id=94",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "TS指数代码"
+      },
+      {
+        "name": "symbol",
+        "type": "str",
+        "required": "N",
+        "description": "指数代码，支持多值输入，如000300,000001"
+      },
+      {
+        "name": "name",
+        "type": "str",
+        "required": "N",
+        "description": "指数简称"
+      },
+      {
+        "name": "market",
+        "type": "str",
+        "required": "N",
+        "description": "交易所或服务商(默认SSE)"
+      },
+      {
+        "name": "publisher",
+        "type": "str",
+        "required": "N",
+        "description": "发布商"
+      },
+      {
+        "name": "category",
+        "type": "str",
+        "required": "N",
+        "description": "指数类别"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "index_classify": {
+    "doc_id": "181",
+    "doc_url": "https://tushare.pro/document/2?doc_id=181",
+    "params": [
+      {
+        "name": "index_code",
+        "type": "str",
+        "required": "N",
+        "description": "指数代码"
+      },
+      {
+        "name": "level",
+        "type": "str",
+        "required": "N",
+        "description": "行业分级（L1/L2/L3）"
+      },
+      {
+        "name": "parent_code",
+        "type": "str",
+        "required": "N",
+        "description": "父级代码（一级为0）"
+      },
+      {
+        "name": "src",
+        "type": "str",
+        "required": "N",
+        "description": "指数来源（SW2014：申万2014年版本，SW2021：申万2021年版本）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "index_daily": {
+    "doc_id": "95",
+    "doc_url": "https://tushare.pro/document/2?doc_id=95",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "指数代码，来源指数基础信息接口"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期 （日期格式：YYYYMMDD，下同）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "index_dailybasic": {
+    "doc_id": "128",
+    "doc_url": "https://tushare.pro/document/2?doc_id=128",
+    "params": [
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期 （格式：YYYYMMDD，比如20181018，下同）"
+      },
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "TS代码"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "index_global": {
+    "doc_id": "211",
+    "doc_url": "https://tushare.pro/document/2?doc_id=211",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "TS指数代码，见下表"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期，YYYYMMDD格式，下同"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "index_member_all": {
+    "doc_id": "335",
+    "doc_url": "https://tushare.pro/document/2?doc_id=335",
+    "params": [
+      {
+        "name": "l1_code",
+        "type": "str",
+        "required": "N",
+        "description": "一级行业代码"
+      },
+      {
+        "name": "l2_code",
+        "type": "str",
+        "required": "N",
+        "description": "二级行业代码"
+      },
+      {
+        "name": "l3_code",
+        "type": "str",
+        "required": "N",
+        "description": "三级行业代码"
+      },
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "is_new",
+        "type": "str",
+        "required": "N",
+        "description": "是否最新（默认为“Y是”）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "index_monthly": {
+    "doc_id": "172",
+    "doc_url": "https://tushare.pro/document/2?doc_id=172",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "TS代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "index_weekly": {
+    "doc_id": "171",
+    "doc_url": "https://tushare.pro/document/2?doc_id=171",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "TS代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "index_weight": {
+    "doc_id": "96",
+    "doc_url": "https://tushare.pro/document/2?doc_id=96",
+    "params": [
+      {
+        "name": "index_code",
+        "type": "str",
+        "required": "Y",
+        "description": "指数代码，来源指数基础信息接口"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（格式YYYYMMDD，下同）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "nan",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "irm_qa_sh": {
+    "doc_id": "366",
+    "doc_url": "https://tushare.pro/document/2?doc_id=366",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（格式YYYYMMDD，下同）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "pub_date",
+        "type": "str",
+        "required": "N",
+        "description": "发布开始日期(格式：2025-06-03 16:43:03)"
+      },
+      {
+        "name": "pub_date",
+        "type": "str",
+        "required": "N",
+        "description": "发布结束日期(格式：2025-06-03 18:43:23)"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "irm_qa_sz": {
+    "doc_id": "367",
+    "doc_url": "https://tushare.pro/document/2?doc_id=367",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（格式YYYYMMDD，下同）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "pub_date",
+        "type": "str",
+        "required": "N",
+        "description": "发布开始日期(格式：2025-06-03 16:43:03)"
+      },
+      {
+        "name": "pub_date",
+        "type": "str",
+        "required": "N",
+        "description": "发布结束日期(格式：2025-06-03 18:43:23)"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "kpl_concept_cons": {
+    "doc_id": "351",
+    "doc_url": "https://tushare.pro/document/2?doc_id=351",
+    "params": [
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（YYYYMMDD格式）"
+      },
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "题材代码（xxxxxx.KP格式）"
+      },
+      {
+        "name": "con_code",
+        "type": "str",
+        "required": "N",
+        "description": "成分代码（xxxxxx.SH格式）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "kpl_list": {
+    "doc_id": "347",
+    "doc_url": "https://tushare.pro/document/2?doc_id=347",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期"
+      },
+      {
+        "name": "tag",
+        "type": "str",
+        "required": "N",
+        "description": "板单类型（涨停/炸板/跌停/自然涨停/竞价，默认为涨停)"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "libor": {
+    "doc_id": "152",
+    "doc_url": "https://tushare.pro/document/2?doc_id=152",
+    "params": [
+      {
+        "name": "date",
+        "type": "str",
+        "required": "N",
+        "description": "日期 (日期输入格式：YYYYMMDD，下同)"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "curr_type",
+        "type": "str",
+        "required": "N",
+        "description": "货币代码 (USD美元 EUR欧元 JPY日元 GBP英镑 CHF瑞郎，默认是USD)"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "limit_cpt_list": {
+    "doc_id": "357",
+    "doc_url": "https://tushare.pro/document/2?doc_id=357",
+    "params": [
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（格式：YYYYMMDD，下同）"
+      },
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "板块代码"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "limit_list_d": {
+    "doc_id": "298",
+    "doc_url": "https://tushare.pro/document/2?doc_id=298",
+    "params": [
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期"
+      },
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "limit_type",
+        "type": "str",
+        "required": "N",
+        "description": "涨跌停类型（U涨停D跌停Z炸板）"
+      },
+      {
+        "name": "exchange",
+        "type": "str",
+        "required": "N",
+        "description": "交易所（SH上交所SZ深交所BJ北交所）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "limit_list_ths": {
+    "doc_id": "355",
+    "doc_url": "https://tushare.pro/document/2?doc_id=355",
+    "params": [
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期"
+      },
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "limit_type",
+        "type": "str",
+        "required": "N",
+        "description": "涨停池、连扳池、冲刺涨停、炸板池、跌停池，默认：涨停池"
+      },
+      {
+        "name": "market",
+        "type": "str",
+        "required": "N",
+        "description": "HS-沪深主板 GEM-创业板 STAR-科创板"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "limit_step": {
+    "doc_id": "356",
+    "doc_url": "https://tushare.pro/document/2?doc_id=356",
+    "params": [
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（格式：YYYYMMDD，下同）"
+      },
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "nums",
+        "type": "str",
+        "required": "N",
+        "description": "连板次数，支持多个输入，例如nums='2,3'"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "major_news": {
+    "doc_id": "195",
+    "doc_url": "https://tushare.pro/document/2?doc_id=195",
+    "params": [
+      {
+        "name": "src",
+        "type": "str",
+        "required": "N",
+        "description": "新闻来源（新华网、凤凰财经、同花顺、新浪财经、华尔街见闻、中证网、财新网、第一财经、财联社）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "新闻发布开始时间，e.g. 2018-11-21 00:00:00"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "新闻发布结束时间，e.g. 2018-11-22 00:00:00"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "margin": {
+    "doc_id": "58",
+    "doc_url": "https://tushare.pro/document/2?doc_id=58",
+    "params": [
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（格式：YYYYMMDD，下同）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "exchange_id",
+        "type": "str",
+        "required": "N",
+        "description": "交易所代码（SSE上交所SZSE深交所BSE北交所）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "margin_detail": {
+    "doc_id": "59",
+    "doc_url": "https://tushare.pro/document/2?doc_id=59",
+    "params": [
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（格式：YYYYMMDD，下同）"
+      },
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "TS代码"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "margin_secs": {
+    "doc_id": "326",
+    "doc_url": "https://tushare.pro/document/2?doc_id=326",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "标的代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日"
+      },
+      {
+        "name": "exchange",
+        "type": "str",
+        "required": "N",
+        "description": "交易所（SSE上交所 SZSE深交所 BSE北交所）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "moneyflow": {
+    "doc_id": "349",
+    "doc_url": "https://tushare.pro/document/2?doc_id=349",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（YYYYMMDD格式，下同）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "moneyflow_cnt_ths": {
+    "doc_id": "371",
+    "doc_url": "https://tushare.pro/document/2?doc_id=371",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期(格式：YYYYMMDD，下同)"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "moneyflow_dc": {
+    "doc_id": "349",
+    "doc_url": "https://tushare.pro/document/2?doc_id=349",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（YYYYMMDD格式，下同）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "moneyflow_hsgt": {
+    "doc_id": "47",
+    "doc_url": "https://tushare.pro/document/2?doc_id=47",
+    "params": [
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期 (二选一)"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期 (二选一)"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "moneyflow_ind_dc": {
+    "doc_id": "344",
+    "doc_url": "https://tushare.pro/document/2?doc_id=344",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（YYYYMMDD格式，下同）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "content_type",
+        "type": "str",
+        "required": "N",
+        "description": "资金类型(行业、概念、地域)"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "moneyflow_ind_ths": {
+    "doc_id": "343",
+    "doc_url": "https://tushare.pro/document/2?doc_id=343",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期(YYYYMMDD格式，下同)"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "moneyflow_mkt_dc": {
+    "doc_id": "345",
+    "doc_url": "https://tushare.pro/document/2?doc_id=345",
+    "params": [
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期(YYYYMMDD格式，下同）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "moneyflow_ths": {
+    "doc_id": "348",
+    "doc_url": "https://tushare.pro/document/2?doc_id=348",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（YYYYMMDD格式，下同）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "namechange": {
+    "doc_id": "100",
+    "doc_url": "https://tushare.pro/document/2?doc_id=100",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "TS代码"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "new_share": {
+    "doc_id": "123",
+    "doc_url": "https://tushare.pro/document/2?doc_id=123",
+    "params": [
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "上网发行开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "上网发行结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "news": {
+    "doc_id": "143",
+    "doc_url": "https://tushare.pro/document/2?doc_id=143",
+    "params": [
+      {
+        "name": "start_date",
+        "type": "datetime",
+        "required": "Y",
+        "description": "开始日期(格式：2018-11-20 09:00:00）"
+      },
+      {
+        "name": "end_date",
+        "type": "datetime",
+        "required": "Y",
+        "description": "结束日期"
+      },
+      {
+        "name": "src",
+        "type": "str",
+        "required": "Y",
+        "description": "新闻来源 见下表"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "npr": {
+    "doc_id": "406",
+    "doc_url": "https://tushare.pro/document/2?doc_id=406",
+    "params": [
+      {
+        "name": "org",
+        "type": "str",
+        "required": "N",
+        "description": "发布机构"
+      },
+      {
+        "name": "start_date",
+        "type": "datetime",
+        "required": "N",
+        "description": "发布开始时间"
+      },
+      {
+        "name": "end_date",
+        "type": "datetime",
+        "required": "N",
+        "description": "发布结束时间"
+      },
+      {
+        "name": "ptype",
+        "type": "str",
+        "required": "N",
+        "description": "类型"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "opt_basic": {
+    "doc_id": "158",
+    "doc_url": "https://tushare.pro/document/2?doc_id=158",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "TS期权代码"
+      },
+      {
+        "name": "exchange",
+        "type": "str",
+        "required": "N",
+        "description": "交易所代码 （包括上交所SSE等交易所）"
+      },
+      {
+        "name": "list_date",
+        "type": "str",
+        "required": "N",
+        "description": "上市交易日"
+      },
+      {
+        "name": "opt_code",
+        "type": "str",
+        "required": "N",
+        "description": "标准合约代码，OP+期货合约TS_CODE，如棕榈油2207合约，输入OPP2207.DCE"
+      },
+      {
+        "name": "call_put",
+        "type": "str",
+        "required": "N",
+        "description": "期权类型"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "opt_mins": {
+    "doc_id": "341",
+    "doc_url": "https://tushare.pro/document/2?doc_id=341",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "股票代码，e.g：10007976.SH"
+      },
+      {
+        "name": "freq",
+        "type": "str",
+        "required": "Y",
+        "description": "分钟频度（1min/5min/15min/30min/60min）"
+      },
+      {
+        "name": "start_date",
+        "type": "datetime",
+        "required": "N",
+        "description": "开始日期 格式：2024-08-25 09:00:00"
+      },
+      {
+        "name": "end_date",
+        "type": "datetime",
+        "required": "N",
+        "description": "结束时间 格式：2024-08-25 19:00:00"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "pledge_detail": {
+    "doc_id": "111",
+    "doc_url": "https://tushare.pro/document/2?doc_id=111",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "股票代码"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "pledge_stat": {
+    "doc_id": "110",
+    "doc_url": "https://tushare.pro/document/2?doc_id=110",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "截止日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "realtime_list": {
+    "doc_id": "",
+    "doc_url": "",
+    "params": [],
+    "basis": "runtime_fallback"
+  },
+  "realtime_quote": {
+    "doc_id": "",
+    "doc_url": "",
+    "params": [],
+    "basis": "runtime_fallback"
+  },
+  "realtime_tick": {
+    "doc_id": "",
+    "doc_url": "",
+    "params": [],
+    "basis": "runtime_fallback"
+  },
+  "repo_daily": {
+    "doc_id": "256",
+    "doc_url": "https://tushare.pro/document/2?doc_id=256",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "TS代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期(YYYYMMDD格式，下同)"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "report_corpus": {
+    "doc_id": "",
+    "doc_url": "",
+    "params": [],
+    "basis": "runtime_fallback"
+  },
+  "report_rc": {
+    "doc_id": "292",
+    "doc_url": "https://tushare.pro/document/2?doc_id=292",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "report_date",
+        "type": "str",
+        "required": "N",
+        "description": "报告日期"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "报告开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "报告结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "repurchase": {
+    "doc_id": "124",
+    "doc_url": "https://tushare.pro/document/2?doc_id=124",
+    "params": [
+      {
+        "name": "ann_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告日期（任意填参数，如果都不填，单次默认返回2000条）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "research_report": {
+    "doc_id": "415",
+    "doc_url": "https://tushare.pro/document/2?doc_id=415",
+    "params": [
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "研报日期（格式：YYYYMMDD，下同）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "研报开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "研报结束日期"
+      },
+      {
+        "name": "report_type",
+        "type": "str",
+        "required": "N",
+        "description": "研报类别：个股研报/行业研报"
+      },
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "inst_csname",
+        "type": "str",
+        "required": "N",
+        "description": "券商名称"
+      },
+      {
+        "name": "ind_name",
+        "type": "str",
+        "required": "N",
+        "description": "行业名称"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "rt_etf_k": {
+    "doc_id": "400",
+    "doc_url": "https://tushare.pro/document/2?doc_id=400",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "支持通配符方式，e.g. 5*.SH、15*.SZ、159101.SZ"
+      },
+      {
+        "name": "topic",
+        "type": "str",
+        "required": "Y",
+        "description": "分类参数，取上海ETF时，需要输入'HQ_FND_TICK'，参考下面例子"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "rt_etf_sz_iopv": {
+    "doc_id": "454",
+    "doc_url": "https://tushare.pro/document/2?doc_id=454",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "ETF代码（默认为空，即一次全市场。支持单个和多个ETF过滤提取）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "rt_fut_min": {
+    "doc_id": "340",
+    "doc_url": "https://tushare.pro/document/2?doc_id=340",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "股票代码，e.g.CU2310.SHF，支持多个合约（逗号分隔）"
+      },
+      {
+        "name": "freq",
+        "type": "str",
+        "required": "Y",
+        "description": "分钟频度（1MIN/5MIN/15MIN/30MIN/60MIN）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "rt_hk_k": {
+    "doc_id": "383",
+    "doc_url": "https://tushare.pro/document/2?doc_id=383",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "支持通配符方式，e.g. 00001.HK、02*.HK"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "rt_idx_k": {
+    "doc_id": "403",
+    "doc_url": "https://tushare.pro/document/2?doc_id=403",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "指数代码，支持通配符方式，e.g. 0*.SH、3*.SZ、000001.SH"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "rt_idx_min": {
+    "doc_id": "420",
+    "doc_url": "https://tushare.pro/document/2?doc_id=420",
+    "params": [
+      {
+        "name": "freq",
+        "type": "str",
+        "required": "Y",
+        "description": "1MIN,5MIN,15MIN,30MIN,60MIN （大写）"
+      },
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "支持单个和多个：000001.SH 或者 000001.SH,399300.SZ"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "rt_k": {
+    "doc_id": "372",
+    "doc_url": "https://tushare.pro/document/2?doc_id=372",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "支持通配符方式，e.g. 所有上交所股票：6*.SH、所有创业板股票3*.SZ、所有科创板股票688*.SH，或单个股票600000.SH"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "rt_min": {
+    "doc_id": "374",
+    "doc_url": "https://tushare.pro/document/2?doc_id=374",
+    "params": [
+      {
+        "name": "freq",
+        "type": "str",
+        "required": "Y",
+        "description": "1MIN,5MIN,15MIN,30MIN,60MIN （大写）"
+      },
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "支持单个和多个：600000.SH 或者 600000.SH,000001.SZ"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "rt_min_daily": {
+    "doc_id": "457",
+    "doc_url": "https://tushare.pro/document/2?doc_id=457",
+    "params": [
+      {
+        "name": "freq",
+        "type": "str",
+        "required": "Y",
+        "description": "频度：1MIN,5MIN,15MIN,30MIN,60MIN"
+      },
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "股票代码，如：600000.SH"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "rt_sw_k": {
+    "doc_id": "417",
+    "doc_url": "https://tushare.pro/document/2?doc_id=417",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "指数代码，如: 801005.SI；可以是逗号隔开的多个，如: 801005.SI,801001.SI"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "sf_month": {
+    "doc_id": "310",
+    "doc_url": "https://tushare.pro/document/2?doc_id=310",
+    "params": [
+      {
+        "name": "m",
+        "type": "str",
+        "required": "N",
+        "description": "月份（YYYYMM，下同），支持多个月份同时输入，逗号分隔"
+      },
+      {
+        "name": "start_m",
+        "type": "str",
+        "required": "N",
+        "description": "开始月份"
+      },
+      {
+        "name": "end_m",
+        "type": "str",
+        "required": "N",
+        "description": "结束月份"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "sge_basic": {
+    "doc_id": "284",
+    "doc_url": "https://tushare.pro/document/2?doc_id=284",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "合约代码 （支持多个，逗号分隔，不输入为获取全部）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "sge_daily": {
+    "doc_id": "285",
+    "doc_url": "https://tushare.pro/document/2?doc_id=285",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "合约代码，可通过基础信息获得"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "share_float": {
+    "doc_id": "160",
+    "doc_url": "https://tushare.pro/document/2?doc_id=160",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "TS股票代码"
+      },
+      {
+        "name": "ann_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告日期（日期格式：YYYYMMDD，下同）"
+      },
+      {
+        "name": "float_date",
+        "type": "str",
+        "required": "N",
+        "description": "解禁日期"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "解禁开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "解禁结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "shibor": {
+    "doc_id": "150",
+    "doc_url": "https://tushare.pro/document/2?doc_id=150",
+    "params": [
+      {
+        "name": "date",
+        "type": "str",
+        "required": "N",
+        "description": "日期 (日期输入格式：YYYYMMDD，下同)"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "bank",
+        "type": "str",
+        "required": "N",
+        "description": "银行名称 （中文名称，例如 农业银行）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "shibor_lpr": {
+    "doc_id": "151",
+    "doc_url": "https://tushare.pro/document/2?doc_id=151",
+    "params": [
+      {
+        "name": "date",
+        "type": "str",
+        "required": "N",
+        "description": "日期 (日期输入格式：YYYYMMDD，下同)"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "shibor_quote": {
+    "doc_id": "150",
+    "doc_url": "https://tushare.pro/document/2?doc_id=150",
+    "params": [
+      {
+        "name": "date",
+        "type": "str",
+        "required": "N",
+        "description": "日期 (日期输入格式：YYYYMMDD，下同)"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "bank",
+        "type": "str",
+        "required": "N",
+        "description": "银行名称 （中文名称，例如 农业银行）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "slb_len": {
+    "doc_id": "331",
+    "doc_url": "https://tushare.pro/document/2?doc_id=331",
+    "params": [
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（YYYYMMDD格式，下同）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "slb_len_mm": {
+    "doc_id": "334",
+    "doc_url": "https://tushare.pro/document/2?doc_id=334",
+    "params": [
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（YYYYMMDD格式，下同）"
+      },
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "slb_sec": {
+    "doc_id": "333",
+    "doc_url": "https://tushare.pro/document/2?doc_id=333",
+    "params": [
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（YYYYMMDD格式，下同）"
+      },
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "slb_sec_detail": {
+    "doc_id": "333",
+    "doc_url": "https://tushare.pro/document/2?doc_id=333",
+    "params": [
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（YYYYMMDD格式，下同）"
+      },
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "st": {
+    "doc_id": "423",
+    "doc_url": "https://tushare.pro/document/2?doc_id=423",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "pub_date",
+        "type": "str",
+        "required": "N",
+        "description": "发布日期"
+      },
+      {
+        "name": "imp_date",
+        "type": "str",
+        "required": "N",
+        "description": "实施日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "stk_account": {
+    "doc_id": "164",
+    "doc_url": "https://tushare.pro/document/2?doc_id=164",
+    "params": [
+      {
+        "name": "date",
+        "type": "str",
+        "required": "N",
+        "description": "日期"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "stk_account_old": {
+    "doc_id": "165",
+    "doc_url": "https://tushare.pro/document/2?doc_id=165",
+    "params": [
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "stk_ah_comparison": {
+    "doc_id": "399",
+    "doc_url": "https://tushare.pro/document/2?doc_id=399",
+    "params": [
+      {
+        "name": "hk_code",
+        "type": "str",
+        "required": "N",
+        "description": "港股股票代码（xxxxx.HK)"
+      },
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "A股票代码(xxxxxx.SH/SZ/BJ)"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（格式：YYYYMMDD下同）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "stk_alert": {
+    "doc_id": "453",
+    "doc_url": "https://tushare.pro/document/2?doc_id=453",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码（可以通过stock_basic获取）示例:000001.SZ"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易所重点提示起始日期（YYYYMMDD格式）示例:20260312"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期（YYYYMMDD格式）示例:20260312"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期（YYYYMMDD格式）示例:20260312"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "stk_auction": {
+    "doc_id": "353",
+    "doc_url": "https://tushare.pro/document/2?doc_id=353",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期(YYYYMMDD)"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期(YYYYMMDD)"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期(YYYYMMDD)"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "stk_auction_c": {
+    "doc_id": "354",
+    "doc_url": "https://tushare.pro/document/2?doc_id=354",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期(YYYYMMDD)"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期(YYYYMMDD)"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期(YYYYMMDD)"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "stk_auction_o": {
+    "doc_id": "353",
+    "doc_url": "https://tushare.pro/document/2?doc_id=353",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期(YYYYMMDD)"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期(YYYYMMDD)"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期(YYYYMMDD)"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "stk_factor_pro": {
+    "doc_id": "328",
+    "doc_url": "https://tushare.pro/document/2?doc_id=328",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期(格式：yyyymmdd，下同)"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "stk_high_shock": {
+    "doc_id": "452",
+    "doc_url": "https://tushare.pro/document/2?doc_id=452",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码（可以通过stock_basic获取）示例:000001.SZ"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（YYYYMMDD格式）示例:20260312"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期（YYYYMMDD格式）示例:20260312"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期（YYYYMMDD格式）示例:20260312"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "stk_holdernumber": {
+    "doc_id": "166",
+    "doc_url": "https://tushare.pro/document/2?doc_id=166",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "TS股票代码"
+      },
+      {
+        "name": "ann_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告日期"
+      },
+      {
+        "name": "enddate",
+        "type": "str",
+        "required": "N",
+        "description": "截止日期"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "stk_holdertrade": {
+    "doc_id": "175",
+    "doc_url": "https://tushare.pro/document/2?doc_id=175",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "TS股票代码"
+      },
+      {
+        "name": "ann_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告日期"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告结束日期"
+      },
+      {
+        "name": "trade_type",
+        "type": "str",
+        "required": "N",
+        "description": "交易类型IN增持DE减持"
+      },
+      {
+        "name": "holder_type",
+        "type": "str",
+        "required": "N",
+        "description": "股东类型C公司P个人G高管"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "stk_limit": {
+    "doc_id": "183",
+    "doc_url": "https://tushare.pro/document/2?doc_id=183",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "stk_managers": {
+    "doc_id": "193",
+    "doc_url": "https://tushare.pro/document/2?doc_id=193",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码，支持单个或多个股票输入"
+      },
+      {
+        "name": "ann_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告日期（YYYYMMDD格式，下同）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "stk_mins": {
+    "doc_id": "370",
+    "doc_url": "https://tushare.pro/document/2?doc_id=370",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "股票代码，e.g. 600000.SH"
+      },
+      {
+        "name": "freq",
+        "type": "str",
+        "required": "Y",
+        "description": "分钟频度（1min/5min/15min/30min/60min）"
+      },
+      {
+        "name": "start_date",
+        "type": "datetime",
+        "required": "N",
+        "description": "开始日期 格式：2023-08-25 09:00:00"
+      },
+      {
+        "name": "end_date",
+        "type": "datetime",
+        "required": "N",
+        "description": "结束时间 格式：2023-08-25 19:00:00"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "stk_nineturn": {
+    "doc_id": "364",
+    "doc_url": "https://tushare.pro/document/2?doc_id=364",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期 （格式：YYYY-MM-DD HH:MM:SS)"
+      },
+      {
+        "name": "freq",
+        "type": "str",
+        "required": "N",
+        "description": "频率(日daily)"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始时间"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束时间"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "stk_premarket": {
+    "doc_id": "329",
+    "doc_url": "https://tushare.pro/document/2?doc_id=329",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期(YYYYMMDD格式，下同)"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "stk_rewards": {
+    "doc_id": "194",
+    "doc_url": "https://tushare.pro/document/2?doc_id=194",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "TS股票代码，支持单个或多个代码输入"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "报告期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "stk_shock": {
+    "doc_id": "451",
+    "doc_url": "https://tushare.pro/document/2?doc_id=451",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码（可以通过stock_basic获取）示例:000001.SZ"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（YYYYMMDD格式）示例:20260312"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期（YYYYMMDD格式）示例:20260312"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期（YYYYMMDD格式）示例:20260312"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "stk_surv": {
+    "doc_id": "275",
+    "doc_url": "https://tushare.pro/document/2?doc_id=275",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "调研日期"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "调研开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "调研结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "stk_week_month_adj": {
+    "doc_id": "365",
+    "doc_url": "https://tushare.pro/document/2?doc_id=365",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "TS代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（格式：YYYYMMDD，每周或每月最后一天的日期）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始交易日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束交易日期"
+      },
+      {
+        "name": "freq",
+        "type": "str",
+        "required": "Y",
+        "description": "频率week周，month月"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "stk_weekly_monthly": {
+    "doc_id": "336",
+    "doc_url": "https://tushare.pro/document/2?doc_id=336",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "TS代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期(格式：YYYYMMDD，每周或每月最后一天的日期）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始交易日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束交易日期"
+      },
+      {
+        "name": "freq",
+        "type": "str",
+        "required": "Y",
+        "description": "频率week周，month月"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "stock_basic": {
+    "doc_id": "25",
+    "doc_url": "https://tushare.pro/document/2?doc_id=25",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "TS股票代码(格式说明)"
+      },
+      {
+        "name": "name",
+        "type": "str",
+        "required": "N",
+        "description": "名称"
+      },
+      {
+        "name": "market",
+        "type": "str",
+        "required": "N",
+        "description": "市场类别 （主板/创业板/科创板/CDR/北交所）"
+      },
+      {
+        "name": "list_status",
+        "type": "str",
+        "required": "N",
+        "description": "上市状态 L上市 D退市 P暂停上市 G 未交易，默认是L"
+      },
+      {
+        "name": "exchange",
+        "type": "str",
+        "required": "N",
+        "description": "交易所 SSE上交所 SZSE深交所 BSE北交所"
+      },
+      {
+        "name": "is_hs",
+        "type": "str",
+        "required": "N",
+        "description": "是否沪深港通标的，N否 H沪股通 S深股通"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "stock_company": {
+    "doc_id": "112",
+    "doc_url": "https://tushare.pro/document/2?doc_id=112",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "exchange",
+        "type": "str",
+        "required": "N",
+        "description": "交易所代码 ，SSE上交所 SZSE深交所 BSE北交所"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "stock_corpus": {
+    "doc_id": "",
+    "doc_url": "",
+    "params": [],
+    "basis": "runtime_fallback"
+  },
+  "stock_daily": {
+    "doc_id": "27",
+    "doc_url": "https://tushare.pro/document/2?doc_id=27",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码（支持多个股票同时提取，逗号分隔）"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（YYYYMMDD）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期(YYYYMMDD)"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期(YYYYMMDD)"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "stock_hsgt": {
+    "doc_id": "398",
+    "doc_url": "https://tushare.pro/document/2?doc_id=398",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（格式：YYYYMMDD）"
+      },
+      {
+        "name": "type",
+        "type": "str",
+        "required": "Y",
+        "description": "类型（参考下表）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始时间"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束时间"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "stock_monthly": {
+    "doc_id": "172",
+    "doc_url": "https://tushare.pro/document/2?doc_id=172",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "TS代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "stock_st": {
+    "doc_id": "397",
+    "doc_url": "https://tushare.pro/document/2?doc_id=397",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（格式：YYYYMMDD下同）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始时间"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束时间"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "stock_weekly": {
+    "doc_id": "144",
+    "doc_url": "https://tushare.pro/document/2?doc_id=144",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "TS代码 （ts_code,trade_date两个参数任选一）"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期 （每周最后一个交易日期，YYYYMMDD格式）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "suspend": {
+    "doc_id": "214",
+    "doc_url": "https://tushare.pro/document/2?doc_id=214",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码(可输入多值)"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日日期"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "停复牌查询开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "停复牌查询结束日期"
+      },
+      {
+        "name": "suspend_type",
+        "type": "str",
+        "required": "N",
+        "description": "停复牌类型：S-停牌,R-复牌"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "suspend_d": {
+    "doc_id": "214",
+    "doc_url": "https://tushare.pro/document/2?doc_id=214",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码(可输入多值)"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日日期"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "停复牌查询开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "停复牌查询结束日期"
+      },
+      {
+        "name": "suspend_type",
+        "type": "str",
+        "required": "N",
+        "description": "停复牌类型：S-停牌,R-复牌"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "sw_daily": {
+    "doc_id": "327",
+    "doc_url": "https://tushare.pro/document/2?doc_id=327",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "行业代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "sz_daily_info": {
+    "doc_id": "268",
+    "doc_url": "https://tushare.pro/document/2?doc_id=268",
+    "params": [
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（YYYYMMDD格式，下同）"
+      },
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "板块代码"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "tdx_daily": {
+    "doc_id": "378",
+    "doc_url": "https://tushare.pro/document/2?doc_id=378",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "板块代码：xxxxxx.TDX"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期，格式YYYYMMDD,下同"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "tdx_index": {
+    "doc_id": "376",
+    "doc_url": "https://tushare.pro/document/2?doc_id=376",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "板块代码：xxxxxx.TDX"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期(格式：YYYYMMDD）"
+      },
+      {
+        "name": "idx_type",
+        "type": "str",
+        "required": "N",
+        "description": "板块类型：概念板块、行业板块、风格板块、地区板块"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "tdx_member": {
+    "doc_id": "377",
+    "doc_url": "https://tushare.pro/document/2?doc_id=377",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "板块代码：xxxxxx.TDX"
+      },
+      {
+        "name": "con_code",
+        "type": "str",
+        "required": "N",
+        "description": "成分股票代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期：（YYYYMMDD格式）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期：（YYYYMMDD格式）"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期：（YYYYMMDD格式）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "teleplay_record": {
+    "doc_id": "180",
+    "doc_url": "https://tushare.pro/document/2?doc_id=180",
+    "params": [
+      {
+        "name": "report_date",
+        "type": "str",
+        "required": "N",
+        "description": "备案月份（YYYYMM）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "备案开始月份（YYYYMM）"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "备案结束月份（YYYYMM）"
+      },
+      {
+        "name": "org",
+        "type": "str",
+        "required": "N",
+        "description": "备案机构"
+      },
+      {
+        "name": "name",
+        "type": "str",
+        "required": "N",
+        "description": "电视剧名称"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "ths_daily": {
+    "doc_id": "260",
+    "doc_url": "https://tushare.pro/document/2?doc_id=260",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "指数代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（YYYYMMDD格式，下同）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "ths_hot": {
+    "doc_id": "320",
+    "doc_url": "https://tushare.pro/document/2?doc_id=320",
+    "params": [
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期"
+      },
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "TS代码"
+      },
+      {
+        "name": "market",
+        "type": "str",
+        "required": "N",
+        "description": "热榜类型(热股、ETF、可转债、行业板块、概念板块、期货、港股、热基、美股)"
+      },
+      {
+        "name": "is_new",
+        "type": "str",
+        "required": "N",
+        "description": "是否最新（默认Y，如果为N则为盘中和盘后阶段采集，具体时间可参考rank_time字段，状态N每小时更新一次，状态Y更新时间为22：30）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "ths_index": {
+    "doc_id": "259",
+    "doc_url": "https://tushare.pro/document/2?doc_id=259",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "指数代码"
+      },
+      {
+        "name": "exchange",
+        "type": "str",
+        "required": "N",
+        "description": "市场类型A-a股 HK-港股 US-美股"
+      },
+      {
+        "name": "type",
+        "type": "str",
+        "required": "N",
+        "description": "指数类型 N-概念指数 I-行业指数 R-地域指数 S-同花顺特色指数 ST-同花顺风格指数 TH-同花顺主题指数 BB-同花顺宽基指数"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "ths_member": {
+    "doc_id": "261",
+    "doc_url": "https://tushare.pro/document/2?doc_id=261",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "板块指数代码"
+      },
+      {
+        "name": "con_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "tmt_twincome": {
+    "doc_id": "87",
+    "doc_url": "https://tushare.pro/document/2?doc_id=87",
+    "params": [
+      {
+        "name": "date",
+        "type": "str",
+        "required": "N",
+        "description": "报告期"
+      },
+      {
+        "name": "item",
+        "type": "str",
+        "required": "N",
+        "description": "产品代码"
+      },
+      {
+        "name": "symbol",
+        "type": "str",
+        "required": "N",
+        "description": "公司代码"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "报告期开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "报告期结束日期"
+      },
+      {
+        "name": "source",
+        "type": "str",
+        "required": "N",
+        "description": "nan"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "tmt_twincomedetail": {
+    "doc_id": "87",
+    "doc_url": "https://tushare.pro/document/2?doc_id=87",
+    "params": [
+      {
+        "name": "date",
+        "type": "str",
+        "required": "N",
+        "description": "报告期"
+      },
+      {
+        "name": "item",
+        "type": "str",
+        "required": "N",
+        "description": "产品代码"
+      },
+      {
+        "name": "symbol",
+        "type": "str",
+        "required": "N",
+        "description": "公司代码"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "报告期开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "报告期结束日期"
+      },
+      {
+        "name": "source",
+        "type": "str",
+        "required": "N",
+        "description": "nan"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "top_inst": {
+    "doc_id": "107",
+    "doc_url": "https://tushare.pro/document/2?doc_id=107",
+    "params": [
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "Y",
+        "description": "交易日期"
+      },
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "TS代码"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "top_list": {
+    "doc_id": "106",
+    "doc_url": "https://tushare.pro/document/2?doc_id=106",
+    "params": [
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "Y",
+        "description": "交易日期"
+      },
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "top10_floatholders": {
+    "doc_id": "62",
+    "doc_url": "https://tushare.pro/document/2?doc_id=62",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "TS代码"
+      },
+      {
+        "name": "period",
+        "type": "str",
+        "required": "N",
+        "description": "报告期（YYYYMMDD格式，一般为每个季度最后一天）"
+      },
+      {
+        "name": "ann_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告日期"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "报告期开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "报告期结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "top10_holders": {
+    "doc_id": "61",
+    "doc_url": "https://tushare.pro/document/2?doc_id=61",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "TS代码"
+      },
+      {
+        "name": "period",
+        "type": "str",
+        "required": "N",
+        "description": "报告期（YYYYMMDD格式，一般为每个季度最后一天）"
+      },
+      {
+        "name": "ann_date",
+        "type": "str",
+        "required": "N",
+        "description": "公告日期"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "报告期开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "报告期结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "trade_cal": {
+    "doc_id": "137",
+    "doc_url": "https://tushare.pro/document/2?doc_id=137",
+    "params": [
+      {
+        "name": "exchange",
+        "type": "str",
+        "required": "N",
+        "description": "交易所 SHFE 上期所 DCE 大商所 CFFEX中金所 CZCE郑商所 INE上海国际能源交易所"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "is_open",
+        "type": "int",
+        "required": "N",
+        "description": "是否交易 0休市 1交易"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "us_adjfactor": {
+    "doc_id": "402",
+    "doc_url": "https://tushare.pro/document/2?doc_id=402",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（格式：YYYYMMDD，下同）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "us_balancesheet": {
+    "doc_id": "395",
+    "doc_url": "https://tushare.pro/document/2?doc_id=395",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "股票代码"
+      },
+      {
+        "name": "period",
+        "type": "str",
+        "required": "N",
+        "description": "报告期（格式：YYYYMMDD，每个季度最后一天的日期，如20241231)"
+      },
+      {
+        "name": "ind_name",
+        "type": "str",
+        "required": "N",
+        "description": "指标名(如：新增借款）"
+      },
+      {
+        "name": "report_type",
+        "type": "str",
+        "required": "N",
+        "description": "报告期类型(Q1一季报Q2半年报Q3三季报Q4年报)"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "报告期开始时间（格式：YYYYMMDD）"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "报告结束始时间（格式：YYYYMMDD）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "us_basic": {
+    "doc_id": "252",
+    "doc_url": "https://tushare.pro/document/2?doc_id=252",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码"
+      },
+      {
+        "name": "classify",
+        "type": "str",
+        "required": "N",
+        "description": "股票分类"
+      },
+      {
+        "name": "offset",
+        "type": "str",
+        "required": "N",
+        "description": "开始行数"
+      },
+      {
+        "name": "limit",
+        "type": "str",
+        "required": "N",
+        "description": "每页最大行数"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "us_cashflow": {
+    "doc_id": "396",
+    "doc_url": "https://tushare.pro/document/2?doc_id=396",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "股票代码"
+      },
+      {
+        "name": "period",
+        "type": "str",
+        "required": "N",
+        "description": "报告期（格式：YYYYMMDD，每个季度最后一天的日期，如20241231)"
+      },
+      {
+        "name": "ind_name",
+        "type": "str",
+        "required": "N",
+        "description": "指标名(如：新增借款）"
+      },
+      {
+        "name": "report_type",
+        "type": "str",
+        "required": "N",
+        "description": "报告期类型(Q1一季报Q2半年报Q3三季报Q4年报)"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "报告期开始时间（格式：YYYYMMDD）"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "报告结束始时间（格式：YYYYMMDD）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "us_daily": {
+    "doc_id": "254",
+    "doc_url": "https://tushare.pro/document/2?doc_id=254",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码（e.g. AAPL）"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（YYYYMMDD）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期（YYYYMMDD）"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期（YYYYMMDD）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "us_daily_adj": {
+    "doc_id": "338",
+    "doc_url": "https://tushare.pro/document/2?doc_id=338",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "股票代码（e.g. AAPL）"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期（YYYYMMDD）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期（YYYYMMDD）"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期（YYYYMMDD）"
+      },
+      {
+        "name": "exchange",
+        "type": "str",
+        "required": "N",
+        "description": "交易所（NAS/NYS/OTC)"
+      },
+      {
+        "name": "offset",
+        "type": "int",
+        "required": "N",
+        "description": "开始行数"
+      },
+      {
+        "name": "limit",
+        "type": "int",
+        "required": "N",
+        "description": "每页行数行数"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "us_fina_indicator": {
+    "doc_id": "393",
+    "doc_url": "https://tushare.pro/document/2?doc_id=393",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "股票代码"
+      },
+      {
+        "name": "period",
+        "type": "str",
+        "required": "N",
+        "description": "报告期（格式：YYYYMMDD，每个季度最后一天的日期，如20241231)"
+      },
+      {
+        "name": "report_type",
+        "type": "str",
+        "required": "N",
+        "description": "报告期类型(Q1一季报Q2半年报Q3三季报Q4年报)"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "报告期开始时间（格式：YYYYMMDD）"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "报告结束始时间（格式：YYYYMMDD）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "us_income": {
+    "doc_id": "394",
+    "doc_url": "https://tushare.pro/document/2?doc_id=394",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "Y",
+        "description": "股票代码"
+      },
+      {
+        "name": "period",
+        "type": "str",
+        "required": "N",
+        "description": "报告期（格式：YYYYMMDD，每个季度最后一天的日期，如20241231)"
+      },
+      {
+        "name": "ind_name",
+        "type": "str",
+        "required": "N",
+        "description": "指标名(如：新增借款）"
+      },
+      {
+        "name": "report_type",
+        "type": "str",
+        "required": "N",
+        "description": "报告期类型(Q1一季报Q2半年报Q3三季报Q4年报)"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "报告期开始时间（格式：YYYYMMDD）"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "报告结束始时间（格式：YYYYMMDD）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "us_tbr": {
+    "doc_id": "221",
+    "doc_url": "https://tushare.pro/document/2?doc_id=221",
+    "params": [
+      {
+        "name": "date",
+        "type": "str",
+        "required": "N",
+        "description": "日期"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期(YYYYMMDD格式)"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "fields",
+        "type": "str",
+        "required": "N",
+        "description": "指定输出字段(e.g. fields='w4_bd,w52_ce')"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "us_tltr": {
+    "doc_id": "222",
+    "doc_url": "https://tushare.pro/document/2?doc_id=222",
+    "params": [
+      {
+        "name": "date",
+        "type": "str",
+        "required": "N",
+        "description": "日期"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "fields",
+        "type": "str",
+        "required": "N",
+        "description": "指定字段"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "us_tradecal": {
+    "doc_id": "253",
+    "doc_url": "https://tushare.pro/document/2?doc_id=253",
+    "params": [
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "is_open",
+        "type": "str",
+        "required": "N",
+        "description": "是否交易"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "us_trltr": {
+    "doc_id": "223",
+    "doc_url": "https://tushare.pro/document/2?doc_id=223",
+    "params": [
+      {
+        "name": "date",
+        "type": "str",
+        "required": "N",
+        "description": "日期"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "fields",
+        "type": "str",
+        "required": "N",
+        "description": "指定字段"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "us_trycr": {
+    "doc_id": "220",
+    "doc_url": "https://tushare.pro/document/2?doc_id=220",
+    "params": [
+      {
+        "name": "date",
+        "type": "str",
+        "required": "N",
+        "description": "日期 （YYYYMMDD格式，下同）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "fields",
+        "type": "str",
+        "required": "N",
+        "description": "指定输出字段"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "us_tycr": {
+    "doc_id": "219",
+    "doc_url": "https://tushare.pro/document/2?doc_id=219",
+    "params": [
+      {
+        "name": "date",
+        "type": "str",
+        "required": "N",
+        "description": "日期 （YYYYMMDD格式，下同）"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      },
+      {
+        "name": "fields",
+        "type": "str",
+        "required": "N",
+        "description": "指定输出字段（e.g. fields='m1,y1'）"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "wz_index": {
+    "doc_id": "173",
+    "doc_url": "https://tushare.pro/document/2?doc_id=173",
+    "params": [
+      {
+        "name": "date",
+        "type": "str",
+        "required": "N",
+        "description": "日期"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "开始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "结束日期"
+      }
+    ],
+    "basis": "tushare_docs"
+  },
+  "yc_cb": {
+    "doc_id": "201",
+    "doc_url": "https://tushare.pro/document/2?doc_id=201",
+    "params": [
+      {
+        "name": "ts_code",
+        "type": "str",
+        "required": "N",
+        "description": "收益率曲线编码：1001.CB-国债收益率曲线"
+      },
+      {
+        "name": "curve_type",
+        "type": "str",
+        "required": "N",
+        "description": "曲线类型：0-到期，1-即期"
+      },
+      {
+        "name": "trade_date",
+        "type": "str",
+        "required": "N",
+        "description": "交易日期"
+      },
+      {
+        "name": "start_date",
+        "type": "str",
+        "required": "N",
+        "description": "查询起始日期"
+      },
+      {
+        "name": "end_date",
+        "type": "str",
+        "required": "N",
+        "description": "查询结束日期"
+      },
+      {
+        "name": "curve_term",
+        "type": "float",
+        "required": "N",
+        "description": "期限"
+      }
+    ],
+    "basis": "tushare_docs"
+  }
+}

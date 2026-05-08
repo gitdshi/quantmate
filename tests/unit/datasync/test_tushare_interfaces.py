@@ -17,7 +17,16 @@ _MOD = "app.datasync.sources.tushare.interfaces"
 _CATALOG_MOD = "app.datasync.sources.tushare.catalog_interfaces"
 
 
-def _catalog_spec(interface_key: str, api_name: str | None = None, *, sync_priority: int = 100):
+def _catalog_spec(
+    interface_key: str,
+    api_name: str | None = None,
+    *,
+    sync_priority: int = 100,
+    supports_backfill: bool | None = None,
+    backfill_mode: str | None = None,
+    input_params: str | None = None,
+    analysis_date_params: str | None = None,
+):
     from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogSpec
 
     return TushareCatalogSpec(
@@ -27,6 +36,10 @@ def _catalog_spec(interface_key: str, api_name: str | None = None, *, sync_prior
         target_table=interface_key,
         sync_priority=sync_priority,
         requires_permission="0",
+        supports_backfill=supports_backfill,
+        backfill_mode=backfill_mode,
+        input_params=input_params,
+        analysis_date_params=analysis_date_params,
     )
 
 
@@ -624,6 +637,163 @@ class TestTushareCatalogInterface:
         assert iface.supports_scheduled_sync() is False
         assert iface.supports_backfill() is False
 
+    def test_generic_catalog_interface_prefers_explicit_backfill_metadata(self):
+        from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface
+
+        iface = TushareCatalogInterface(
+            _catalog_spec(
+                "stock_basic",
+                supports_backfill=True,
+                backfill_mode="code",
+            )
+        )
+
+        assert iface.supports_backfill() is True
+        assert iface.backfill_mode() == "code"
+
+    def test_build_specialized_catalog_interface_uses_metadata_for_code_mode(self):
+        from app.datasync.sources.tushare.interfaces import TusharePerSymbolCodeCatalogInterface, build_specialized_catalog_interface
+
+        iface = build_specialized_catalog_interface(
+            _catalog_spec(
+                "stock_company_event",
+                supports_backfill=True,
+                backfill_mode="code",
+                input_params="ts_code",
+            )
+        )
+
+        assert isinstance(iface, TusharePerSymbolCodeCatalogInterface)
+        assert iface.supports_backfill() is True
+        assert iface.backfill_mode() == "code"
+
+    @pytest.mark.parametrize(
+        ("interface_key", "expected_loader_name"),
+        [
+            ("rt_etf_k", "_get_fund_codes"),
+            ("rt_etf_sz_iopv", "_get_fund_codes"),
+            ("rt_fut_min", "_get_fut_codes"),
+            ("rt_hk_k", "_get_hk_codes"),
+            ("rt_idx_k", "_get_index_codes"),
+            ("rt_idx_min", "_get_index_codes"),
+            ("rt_sw_k", "_get_index_codes"),
+        ],
+    )
+    def test_build_specialized_catalog_interface_uses_realtime_specific_entity_loader(self, interface_key, expected_loader_name):
+        from app.datasync.sources.tushare.interfaces import TusharePerSymbolCodeCatalogInterface, build_specialized_catalog_interface
+
+        iface = build_specialized_catalog_interface(
+            _catalog_spec(
+                interface_key,
+                supports_backfill=True,
+                backfill_mode="code",
+                input_params="ts_code",
+            )
+        )
+
+        assert isinstance(iface, TusharePerSymbolCodeCatalogInterface)
+        assert getattr(getattr(iface, "_entity_loader"), "__name__", "") == expected_loader_name
+
+    def test_build_specialized_catalog_interface_uses_metadata_for_code_date_mode(self):
+        from app.datasync.sources.tushare.interfaces import TusharePerSymbolDateCatalogInterface, build_specialized_catalog_interface
+
+        spec = _catalog_spec(
+            "stock_company_event",
+            supports_backfill=True,
+            backfill_mode="code_date",
+            input_params="ts_code,ann_date",
+            analysis_date_params="ann_date",
+        )
+
+        iface = build_specialized_catalog_interface(spec)
+
+        assert isinstance(iface, TusharePerSymbolDateCatalogInterface)
+        assert iface.supports_backfill() is True
+        assert iface.backfill_mode() == "code_date"
+
+    @pytest.mark.parametrize(
+        ("interface_key", "input_params", "expected_call"),
+        [
+            ("rt_min", "freq, ts_code", {"freq": "1MIN", "ts_code": "600000.SH"}),
+            ("rt_etf_k", "ts_code, topic", {"topic": "HQ_FND_TICK", "ts_code": "510300.SH"}),
+        ],
+    )
+    def test_code_catalog_sync_merges_realtime_default_params(self, interface_key, input_params, expected_call):
+        from app.datasync.sources.tushare.interfaces import TusharePerSymbolCodeCatalogInterface
+
+        entity = expected_call["ts_code"]
+        iface = TusharePerSymbolCodeCatalogInterface(
+            _catalog_spec(
+                interface_key,
+                supports_backfill=True,
+                backfill_mode="code",
+                input_params=input_params,
+            ),
+            entity_loader=lambda: [entity],
+        )
+
+        df = pd.DataFrame({"ts_code": [entity]})
+        with patch("app.datasync.service.tushare_ingest.call_pro", return_value=df) as mock_call, \
+             patch("app.domains.extdata.dao.tushare_dao.insert_catalog_rows", return_value=1), \
+             patch.object(iface, "_ensure_inferred_table", return_value=None):
+            result = iface.sync_code(date(2024, 5, 7))
+
+        assert result.status == SyncStatus.SUCCESS
+        mock_call.assert_called_once_with(interface_key, **expected_call)
+
+    def test_generic_catalog_interface_sync_other_ignores_anchor_date(self):
+        from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface
+
+        iface = TushareCatalogInterface(
+            _catalog_spec(
+                "broker_recommend",
+                supports_backfill=True,
+                backfill_mode="other",
+            )
+        )
+
+        df = pd.DataFrame({"month": ["202405"]})
+        with patch("app.datasync.service.tushare_ingest.call_pro", return_value=df) as mock_call, \
+             patch("app.domains.extdata.dao.tushare_dao.insert_catalog_rows", return_value=1), \
+             patch.object(iface, "_ensure_inferred_table", return_value=None):
+            result = iface.sync_other(date(2024, 5, 7))
+
+        assert result.status == SyncStatus.SUCCESS
+        mock_call.assert_called_once_with("broker_recommend")
+
+    def test_build_catalog_interfaces_preserves_metadata_when_permission_is_overridden(self):
+        from app.datasync.sources.tushare.catalog_interfaces import build_catalog_interfaces
+
+        row = (
+            "fut_weekly_monthly",
+            "fut_weekly_monthly",
+            "fut_weekly_monthly",
+            "fut_weekly_monthly",
+            100,
+            "0",
+            True,
+            "code_date",
+            "ts_code, ann_date",
+            None,
+            "ann_date",
+            {"input_params": ["ts_code", "ann_date"]},
+        )
+
+        with patch(f"{_CATALOG_MOD}._load_catalog_specs") as mock_specs:
+            mock_specs.return_value = __import__(
+                "app.datasync.sources.tushare.catalog_interfaces",
+                fromlist=["_build_specs"],
+            )._build_specs([row])
+
+            interfaces = build_catalog_interfaces()
+
+        assert len(interfaces) == 1
+        iface = interfaces[0]
+        assert iface.backfill_mode() == "code_date"
+        assert getattr(iface, "_spec").requires_permission == "1"
+        assert getattr(iface, "_spec").input_params == "ts_code, ann_date"
+        assert getattr(iface, "_spec").analysis_date_params == "ann_date"
+
     @pytest.mark.parametrize(
         ("interface_key", "api_name"),
         [
@@ -711,6 +881,91 @@ class TestTushareCatalogInterface:
         assert result.status == SyncStatus.SUCCESS
         assert result.rows_synced == 2
         mock_call.assert_called_once_with("new_share", start_date="20240105", end_date="20240108")
+
+    @pytest.mark.parametrize(
+        ("interface_key", "api_name", "expected_param"),
+        [
+            ("bak_basic", "bak_basic", "trade_date"),
+            ("cctv_news", "cctv_news", "trade_date"),
+            ("cb_call", "cb_call", "ann_date"),
+            ("dc_concept", "dc_concept", "trade_date"),
+            ("dc_concept_cons", "dc_concept_cons", "trade_date"),
+            ("dc_hot", "dc_hot", "trade_date"),
+            ("hk_adjfactor", "hk_adjfactor", "trade_date"),
+            ("moneyflow_dc", "moneyflow_dc", "trade_date"),
+            ("research_report", "research_report", "trade_date"),
+            ("stk_auction_o", "stk_auction_o", "trade_date"),
+            ("stk_weekly_monthly", "stk_weekly_monthly", "trade_date"),
+            ("tdx_daily", "tdx_daily", "trade_date"),
+            ("ths_hot", "ths_hot", "trade_date"),
+            ("us_adjfactor", "us_adjfactor", "trade_date"),
+        ],
+    )
+    def test_doc_audited_catalog_items_use_expected_single_date_param(
+        self,
+        interface_key: str,
+        api_name: str,
+        expected_param: str,
+    ):
+        from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface, TushareCatalogSpec
+
+        iface = TushareCatalogInterface(
+            TushareCatalogSpec(
+                interface_key=interface_key,
+                display_name=interface_key,
+                api_name=api_name,
+                target_table=interface_key,
+                sync_priority=999,
+            )
+        )
+
+        with patch("app.datasync.service.tushare_ingest.call_pro", return_value=pd.DataFrame()) as mock_call:
+            result = iface.sync_date(date(2024, 1, 5))
+
+        assert iface.supports_backfill() is True
+        assert iface._date_param() == expected_param
+        assert result.status == SyncStatus.SUCCESS
+        mock_call.assert_called_once_with(api_name, **{expected_param: "20240105"})
+
+    @pytest.mark.parametrize(
+        ("interface_key", "api_name"),
+        [
+            ("ci_daily", "ci_daily"),
+            ("dc_daily", "dc_daily"),
+            ("dc_index", "dc_index"),
+            ("kpl_list", "kpl_list"),
+            ("limit_list_ths", "limit_list_ths"),
+            ("moneyflow_mkt_dc", "moneyflow_mkt_dc"),
+            ("shibor_quote", "shibor_quote"),
+            ("sw_daily", "sw_daily"),
+            ("ths_daily", "ths_daily"),
+            ("us_tradecal", "us_tradecal"),
+        ],
+    )
+    def test_doc_audited_catalog_items_use_range_params_when_supported(
+        self,
+        interface_key: str,
+        api_name: str,
+    ):
+        from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface, TushareCatalogSpec
+
+        iface = TushareCatalogInterface(
+            TushareCatalogSpec(
+                interface_key=interface_key,
+                display_name=interface_key,
+                api_name=api_name,
+                target_table=interface_key,
+                sync_priority=999,
+            )
+        )
+
+        with patch("app.datasync.service.tushare_ingest.call_pro", return_value=pd.DataFrame()) as mock_call:
+            result = iface.sync_range(date(2024, 1, 5), date(2024, 1, 8))
+
+        assert iface.supports_backfill() is True
+        assert iface.backfill_mode() == "range"
+        assert result.status == SyncStatus.SUCCESS
+        mock_call.assert_called_once_with(api_name, start_date="20240105", end_date="20240108")
 
     def test_catalog_permission_denied_returns_partial(self):
         from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface, TushareCatalogSpec

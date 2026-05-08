@@ -14,7 +14,7 @@ from sqlalchemy import text
 
 from app.datasync.base import BaseIngestInterface, InterfaceInfo, SyncResult, SyncStatus
 from app.datasync.sources.tushare.sync_error_handling import handle_tushare_sync_exception, is_permission_error
-from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface, TushareCatalogSpec
+from app.datasync.sources.tushare.catalog_interfaces import _DEFAULT_API_PARAMS, TushareCatalogInterface, TushareCatalogSpec
 from app.datasync.sources.tushare import ddl
 from app.infrastructure.db.connections import get_tushare_engine
 
@@ -62,6 +62,39 @@ def _get_fund_codes() -> list[str]:
     return []
 
 
+def _get_hk_codes() -> list[str]:
+    cached_codes = _load_distinct_table_values("hk_basic", ("ts_code",))
+    if cached_codes:
+        return cached_codes
+
+    from app.datasync.service.tushare_ingest import call_pro
+
+    df = call_pro("hk_basic", list_status="L")
+    if df is None or getattr(df, "empty", True):
+        return []
+
+    if "ts_code" in df.columns:
+        return sorted({str(value).strip() for value in df["ts_code"].tolist() if str(value or "").strip()})
+    return []
+
+
+def _get_fut_codes() -> list[str]:
+    cached_codes = _load_distinct_table_values("fut_basic", ("ts_code",))
+    if cached_codes:
+        return cached_codes
+
+    from app.datasync.service.tushare_ingest import call_pro
+
+    exchanges = ("CFFEX", "DCE", "CZCE", "SHFE", "INE", "GFEX")
+    codes: set[str] = set()
+    for exchange in exchanges:
+        df = call_pro("fut_basic", exchange=exchange)
+        if df is None or getattr(df, "empty", True) or "ts_code" not in df.columns:
+            continue
+        codes.update(str(value).strip() for value in df["ts_code"].tolist() if str(value or "").strip())
+    return sorted(codes)
+
+
 def _get_index_codes() -> list[str]:
     cached_codes = _load_distinct_table_values("index_basic", ("index_code", "ts_code"))
     if cached_codes:
@@ -77,6 +110,61 @@ def _get_stock_codes() -> list[str]:
     from app.datasync.service.tushare_ingest import get_all_ts_codes
 
     return get_all_ts_codes()
+
+
+def _parse_metadata_params(raw: str | None) -> set[str]:
+    if not raw:
+        return set()
+    normalized = str(raw).replace(";", ",").replace("|", ",")
+    return {
+        part.strip().lower()
+        for part in normalized.split(",")
+        if part and part.strip()
+    }
+
+
+def _resolve_catalog_entity_binding(spec: TushareCatalogSpec):
+    input_params = _parse_metadata_params(spec.input_params)
+    interface_key = str(spec.interface_key or "").lower()
+    api_name = str(spec.api_name or "").lower()
+
+    special_binding = {
+        "rt_etf_k": ("ts_code", _get_fund_codes),
+        "rt_etf_sz_iopv": ("ts_code", _get_fund_codes),
+        "rt_fut_min": ("ts_code", _get_fut_codes),
+        "rt_hk_k": ("ts_code", _get_hk_codes),
+        "rt_idx_k": ("ts_code", _get_index_codes),
+        "rt_idx_min": ("ts_code", _get_index_codes),
+        "rt_sw_k": ("ts_code", _get_index_codes),
+    }.get(interface_key) or {
+        "rt_etf_k": ("ts_code", _get_fund_codes),
+        "rt_etf_sz_iopv": ("ts_code", _get_fund_codes),
+        "rt_fut_min": ("ts_code", _get_fut_codes),
+        "rt_hk_k": ("ts_code", _get_hk_codes),
+        "rt_idx_k": ("ts_code", _get_index_codes),
+        "rt_idx_min": ("ts_code", _get_index_codes),
+        "rt_sw_k": ("ts_code", _get_index_codes),
+    }.get(api_name)
+    if special_binding is not None:
+        return special_binding
+
+    if "index_code" in input_params:
+        return "index_code", _get_index_codes
+    if "fund_code" in input_params:
+        return "fund_code", _get_fund_codes
+    if "ts_code" in input_params:
+        if interface_key.startswith(("fund_", "etf_")) or api_name.startswith(("fund_", "etf_")):
+            return "ts_code", _get_fund_codes
+        return "ts_code", _get_stock_codes
+    return None
+
+
+def _resolve_catalog_date_param(spec: TushareCatalogSpec) -> str | None:
+    candidates = _parse_metadata_params(spec.analysis_date_params) or _parse_metadata_params(spec.input_params)
+    for param_name in ("trade_date", "ann_date", "end_date", "report_date", "date"):
+        if param_name in candidates:
+            return param_name
+    return None
 
 
 def _resolve_explicit_key_columns(
@@ -188,8 +276,9 @@ def _sync_catalog_once(
 ) -> SyncResult:
     from app.datasync.service.tushare_ingest import call_pro
 
-    request_params = dict(params or {})
     api_name = _catalog_api_name(iface)
+    request_params = dict(_DEFAULT_API_PARAMS.get(api_name, {}))
+    request_params.update(params or {})
     try:
         df = call_pro(api_name, **request_params)
         _, rows = _insert_catalog_dataframe(iface, df)
@@ -221,7 +310,8 @@ def _sync_catalog_by_entities(
     failed_entities: list[str] = []
 
     for entity in ordered_entities:
-        params = params_builder(entity)
+        params = dict(_DEFAULT_API_PARAMS.get(api_name, {}))
+        params.update(params_builder(entity))
         try:
             df = call_pro(api_name, **params)
             processed_count += 1
@@ -849,24 +939,30 @@ class TusharePerSymbolDateCatalogInterface(_ExplicitKeyCatalogInterface):
         request_date_param: str,
         extra_key_fields: tuple[str, ...] = (),
         supports_range: bool = True,
+        entity_param_name: str = "ts_code",
+        entity_loader=None,
+        backfill_mode: str | None = None,
     ):
         super().__init__(spec)
         self._request_date_param = request_date_param
         self._extra_key_fields = tuple(field for field in extra_key_fields if field)
         self._supports_range = supports_range
+        self._entity_param_name = entity_param_name
+        self._entity_loader = entity_loader or _get_stock_codes
+        self._backfill_mode = backfill_mode or ("range" if supports_range else "date")
 
     def supports_backfill(self) -> bool:
         return True
 
     def backfill_mode(self) -> str:
-        return "range" if self._supports_range else "date"
+        return self._backfill_mode
 
     def _schema_date_column(self) -> str | None:
         return self._request_date_param
 
     def _payload_key_fields(self) -> tuple[str, ...]:
         fields = [
-            "ts_code",
+            self._entity_param_name,
             self._request_date_param,
             *self._extra_key_fields,
             "symbol",
@@ -879,15 +975,15 @@ class TusharePerSymbolDateCatalogInterface(_ExplicitKeyCatalogInterface):
 
     def sync_date(self, trade_date: date) -> SyncResult:
         try:
-            ts_codes = _get_stock_codes()
+            entities = self._entity_loader()
         except Exception as exc:
             return handle_tushare_sync_exception(logger, f"{self.info.interface_key} symbol load", exc)
 
         target = trade_date.strftime("%Y%m%d")
         return _sync_catalog_by_entities(
             self,
-            ts_codes,
-            lambda ts_code: {"ts_code": ts_code, self._request_date_param: target},
+            entities,
+            lambda entity: {self._entity_param_name: entity, self._request_date_param: target},
         )
 
     def sync_range(self, start: date, end: date) -> SyncResult:
@@ -895,7 +991,7 @@ class TusharePerSymbolDateCatalogInterface(_ExplicitKeyCatalogInterface):
         (dates × symbols) to (symbols) by passing start_date/end_date to
         the Tushare endpoint for each symbol."""
         try:
-            ts_codes = _get_stock_codes()
+            entities = self._entity_loader()
         except Exception as exc:
             return handle_tushare_sync_exception(logger, f"{self.info.interface_key} symbol load", exc)
 
@@ -904,9 +1000,9 @@ class TusharePerSymbolDateCatalogInterface(_ExplicitKeyCatalogInterface):
 
         return _sync_catalog_by_entities(
             self,
-            ts_codes,
-            lambda ts_code: {
-                "ts_code": ts_code,
+            entities,
+            lambda entity: {
+                self._entity_param_name: entity,
                 "start_date": start_str,
                 "end_date": end_str,
             },
@@ -919,13 +1015,17 @@ class TusharePerSymbolLatestCatalogInterface(_LatestOnlyCatalogInterface):
         spec: TushareCatalogSpec,
         *,
         extra_key_fields: tuple[str, ...] = (),
+        entity_param_name: str = "ts_code",
+        entity_loader=None,
     ):
         super().__init__(spec)
         self._extra_key_fields = tuple(field for field in extra_key_fields if field)
+        self._entity_param_name = entity_param_name
+        self._entity_loader = entity_loader or _get_stock_codes
 
     def _payload_key_fields(self) -> tuple[str, ...]:
         fields = [
-            "ts_code",
+            self._entity_param_name,
             *self._extra_key_fields,
             "symbol",
             "code",
@@ -937,11 +1037,22 @@ class TusharePerSymbolLatestCatalogInterface(_LatestOnlyCatalogInterface):
 
     def sync_date(self, trade_date: date) -> SyncResult:
         try:
-            ts_codes = _get_stock_codes()
+            entities = self._entity_loader()
         except Exception as exc:
             return handle_tushare_sync_exception(logger, f"{self.info.interface_key} symbol load", exc)
 
-        return _sync_catalog_by_entities(self, ts_codes, lambda ts_code: {"ts_code": ts_code})
+        return _sync_catalog_by_entities(self, entities, lambda entity: {self._entity_param_name: entity})
+
+
+class TusharePerSymbolCodeCatalogInterface(TusharePerSymbolLatestCatalogInterface):
+    def supports_backfill(self) -> bool:
+        return True
+
+    def backfill_mode(self) -> str:
+        return "code"
+
+    def sync_code(self, anchor_date: date) -> SyncResult:
+        return self.sync_date(anchor_date)
 
 
 class TushareCyqChipsInterface(_ExplicitKeyCatalogInterface):
@@ -1626,5 +1737,28 @@ def build_specialized_catalog_interface(spec: TushareCatalogSpec) -> BaseIngestI
     latest_key_fields = _PER_SYMBOL_LATEST_CATALOG_CONFIG.get(key)
     if latest_key_fields is not None:
         return TusharePerSymbolLatestCatalogInterface(spec, extra_key_fields=latest_key_fields)
+
+    entity_binding = _resolve_catalog_entity_binding(spec)
+    date_param = _resolve_catalog_date_param(spec)
+
+    if spec.backfill_mode == "code" and entity_binding is not None:
+        entity_param_name, entity_loader = entity_binding
+        return TusharePerSymbolCodeCatalogInterface(
+            spec,
+            entity_param_name=entity_param_name,
+            entity_loader=entity_loader,
+        )
+
+    if spec.backfill_mode in {"range", "code_date"} and entity_binding is not None and date_param is not None:
+        entity_param_name, entity_loader = entity_binding
+        return TusharePerSymbolDateCatalogInterface(
+            spec,
+            request_date_param=date_param,
+            extra_key_fields=(),
+            supports_range=spec.backfill_mode == "range",
+            entity_param_name=entity_param_name,
+            entity_loader=entity_loader,
+            backfill_mode=spec.backfill_mode,
+        )
 
     return None

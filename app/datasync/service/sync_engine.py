@@ -24,13 +24,24 @@ from sqlalchemy import text
 from app.datasync.base import SyncResult, SyncStatus
 from app.datasync.capabilities import is_item_sync_supported, load_source_config_map
 from app.datasync.registry import DataSourceRegistry, build_default_registry
-from app.datasync.sync_mode import infer_sync_mode_from_interface, normalize_sync_mode, sync_mode_supports_backfill
+from app.datasync.sync_mode import (
+    backfill_mode_uses_trade_calendar,
+    infer_backfill_mode_from_interface,
+    infer_sync_mode_from_interface,
+    normalize_backfill_mode,
+    normalize_sync_mode,
+    sync_mode_supports_backfill,
+)
 from app.datasync.sources.tushare.sync_error_handling import final_retry_count_for_result, is_quota_pause_result
 from app.datasync.table_manager import ensure_table
 from app.infrastructure.config import get_runtime_config, get_runtime_int
 from app.infrastructure.db.connections import get_quantmate_engine
 
 logger = logging.getLogger(__name__)
+
+
+def _is_unknown_data_source_items_column_error(exc: Exception) -> bool:
+    return "unknown column" in str(exc or "").lower()
 
 def _max_retries() -> int:
     return get_runtime_int(env_keys="MAX_RETRIES", db_key="datasync.max_retries", default=3)
@@ -85,6 +96,7 @@ class _BackfillTask:
     dates: list[date]
     retry_counts: dict[date, int]
     mode: str
+    status_priority: int = 0
 
     @property
     def start_date(self) -> date:
@@ -279,7 +291,30 @@ def _get_failed_records(
             rows_synced = row[6] if len(row) > 6 else 0
             updated_at = row[7] if len(row) > 7 else None
             records.append((row[0], row[1], row[2], row[3], error_message, status, int(rows_synced or 0), updated_at))
+        records.sort(
+            key=lambda record: (
+                _backfill_status_priority(record[5] if len(record) > 5 else None),
+                -record[0].toordinal(),
+                str(record[1]),
+                str(record[2]),
+            )
+        )
         return records
+
+
+def _backfill_status_priority(status: object) -> int:
+    normalized = str(status or "").strip().lower()
+    if normalized == SyncStatus.PENDING.value:
+        return 0
+    if normalized == SyncStatus.PARTIAL.value:
+        return 1
+    if normalized == SyncStatus.ERROR.value:
+        return 2
+    if normalized == SyncStatus.RUNNING.value:
+        return 3
+    if normalized == SyncStatus.SUCCESS.value:
+        return 4
+    return 5
 
 
 def _parse_quota_retry_after_seconds(error_message: str | None) -> float | None:
@@ -342,7 +377,14 @@ def _should_bypass_quota_filters(
         return False
 
     sync_mode = normalize_sync_mode(item.get("sync_mode"))
-    return not sync_mode_supports_backfill(sync_mode) and sync_date != window_end_date
+    backfill_mode = normalize_backfill_mode(item.get("backfill_mode"))
+    return (
+        sync_date != window_end_date
+        and (
+            not sync_mode_supports_backfill(sync_mode)
+            or not backfill_mode_uses_trade_calendar(backfill_mode)
+        )
+    )
 
 
 def _filter_backfill_retry_records(
@@ -464,15 +506,18 @@ def _supports_scheduled_sync(iface, source: str, iface_key: str) -> bool:
     return supports_scheduled_sync
 
 
-def _get_backfill_mode(iface, source: str, iface_key: str) -> str:
+def _get_backfill_mode(iface, source: str, iface_key: str, configured_mode: object | None = None) -> str:
     mode = "date"
+    normalized_configured_mode = normalize_backfill_mode(configured_mode)
+    if configured_mode not in (None, ""):
+        return normalized_configured_mode
     method = getattr(iface, "backfill_mode", None)
     if callable(method):
         try:
             candidate = method()
-            if candidate in {"date", "range"}:
-                mode = candidate
-            elif candidate is not None:
+            if candidate is not None:
+                mode = normalize_backfill_mode(candidate)
+            else:
                 logger.warning(
                     "Invalid backfill_mode=%r for %s/%s, falling back to date mode",
                     candidate,
@@ -524,6 +569,33 @@ def _group_contiguous_trade_dates(dates: list[date]) -> list[list[date]]:
 
     groups.append(current_group)
     return groups
+
+
+def _group_range_backfill_dates(dates: list[date], max_span_days: int = 365) -> list[list[date]]:
+    if max_span_days <= 0:
+        return _group_contiguous_trade_dates(dates)
+
+    max_span = timedelta(days=max_span_days)
+    grouped_windows: list[list[date]] = []
+
+    for contiguous_group in _group_contiguous_trade_dates(dates):
+        if not contiguous_group:
+            continue
+
+        current_window = [contiguous_group[0]]
+        current_start = contiguous_group[0]
+
+        for current_date in contiguous_group[1:]:
+            if current_date - current_start > max_span:
+                grouped_windows.append(current_window)
+                current_window = [current_date]
+                current_start = current_date
+                continue
+            current_window.append(current_date)
+
+        grouped_windows.append(current_window)
+
+    return grouped_windows
 
 
 def _normalize_log_value(value) -> str:
@@ -698,6 +770,12 @@ def _execute_backfill_task(task: _BackfillTask) -> SyncResult:
                 ensure_table(target_database, target_table, task.iface.get_ddl())
         if task.mode == "range":
             return task.iface.sync_range(task.start_date, task.end_date)
+        if task.mode == "code":
+            return task.iface.sync_code(task.end_date)
+        if task.mode == "code_date":
+            return task.iface.sync_code_date(task.end_date)
+        if task.mode == "other":
+            return task.iface.sync_other(task.end_date)
         return task.iface.sync_date(task.start_date)
     finally:
         if sem:
@@ -706,20 +784,38 @@ def _execute_backfill_task(task: _BackfillTask) -> SyncResult:
 
 def _get_enabled_items() -> list[dict]:
     """Return enabled data_source_items ordered by sync_priority."""
+    primary_sql = (
+        "SELECT dsi.source, dsi.item_key, dsi.target_database, dsi.target_table, "
+        "dsi.table_created, dsi.sync_priority, "
+        "COALESCE(NULLIF(TRIM(dsi.api_name), ''), dsi.item_key) AS api_name, "
+        "dsi.permission_points, dsi.requires_permission, dsi.sync_mode, "
+        "dsi.supports_backfill, dsi.backfill_mode, dsi.input_params, dsi.input_param_details, "
+        "dsi.analysis_date_params, dsi.input_params_meta "
+        "FROM data_source_items dsi "
+        "JOIN data_source_configs dsc ON dsi.source = dsc.source_key AND dsc.enabled = 1 "
+        "WHERE dsi.enabled = 1 "
+        "ORDER BY dsi.sync_priority ASC"
+    )
+    legacy_sql = (
+        "SELECT dsi.source, dsi.item_key, dsi.target_database, dsi.target_table, "
+        "dsi.table_created, dsi.sync_priority, dsi.item_key AS api_name, "
+        "0 AS permission_points, dsi.requires_permission, 'backfill' AS sync_mode, "
+        "NULL AS supports_backfill, NULL AS backfill_mode, NULL AS input_params, NULL AS input_param_details, "
+        "NULL AS analysis_date_params, NULL AS input_params_meta "
+        "FROM data_source_items dsi "
+        "JOIN data_source_configs dsc ON dsi.source = dsc.source_key AND dsc.enabled = 1 "
+        "WHERE dsi.enabled = 1 "
+        "ORDER BY dsi.sync_priority ASC"
+    )
     engine = get_quantmate_engine()
     with engine.connect() as conn:
-        rows = conn.execute(
-            text(
-                "SELECT dsi.source, dsi.item_key, dsi.target_database, dsi.target_table, "
-                "dsi.table_created, dsi.sync_priority, "
-                "COALESCE(NULLIF(TRIM(dsi.api_name), ''), dsi.item_key) AS api_name, "
-                "dsi.permission_points, dsi.requires_permission, dsi.sync_mode "
-                "FROM data_source_items dsi "
-                "JOIN data_source_configs dsc ON dsi.source = dsc.source_key AND dsc.enabled = 1 "
-                "WHERE dsi.enabled = 1 "
-                "ORDER BY dsi.sync_priority ASC"
-            )
-        ).fetchall()
+        try:
+            rows = conn.execute(text(primary_sql)).fetchall()
+        except Exception as exc:
+            if not _is_unknown_data_source_items_column_error(exc):
+                raise
+            logger.warning("Falling back to legacy data_source_items metadata query: %s", exc)
+            rows = conn.execute(text(legacy_sql)).fetchall()
         items = []
         for row in rows:
             item_key = row[1]
@@ -736,6 +832,12 @@ def _get_enabled_items() -> list[dict]:
                     "permission_points": row[7] if len(row) > 7 else None,
                     "requires_permission": row[8] if len(row) > 8 else None,
                     "sync_mode": row[9] if len(row) > 9 else None,
+                    "supports_backfill": row[10] if len(row) > 10 else None,
+                    "backfill_mode": row[11] if len(row) > 11 else None,
+                    "input_params": row[12] if len(row) > 12 else None,
+                    "input_param_details": row[13] if len(row) > 13 else None,
+                    "analysis_date_params": row[14] if len(row) > 14 else None,
+                    "input_params_meta": row[15] if len(row) > 15 else None,
                 }
             )
 
@@ -1156,14 +1258,38 @@ def backfill_retry(
                 results[label] = {"status": SyncStatus.SUCCESS.value, "rows": 0, "skipped": True}
                 continue
 
-            mode = "date" if not sync_mode_supports_backfill(sync_mode) else _get_backfill_mode(iface, source, iface_key)
+            mode = "date" if not sync_mode_supports_backfill(sync_mode) else _get_backfill_mode(
+                iface,
+                source,
+                iface_key,
+                item.get("backfill_mode"),
+            )
+            if sync_date != window_end_date and not backfill_mode_uses_trade_calendar(mode):
+                logger.info("Skipping historical backfill for anchor-only interface %s", label)
+                _write_status(
+                    sync_date,
+                    source,
+                    iface_key,
+                    SyncStatus.SUCCESS.value,
+                    0,
+                    "Skipped historical backfill for anchor-only interface",
+                    retry_count=effective_retry_count,
+                )
+                skipped_result = SyncResult(
+                    SyncStatus.SUCCESS,
+                    0,
+                    "Skipped historical backfill for anchor-only interface",
+                )
+                _log_backfill_result(sync_date, source, iface_key, skipped_result, iface)
+                results[label] = {"status": SyncStatus.SUCCESS.value, "rows": 0, "skipped": True}
+                continue
             if mode == "range":
                 task_key = (source, iface_key)
                 bucket = pending_range_records.setdefault(
                     task_key,
                     {"iface": iface, "records": []},
                 )
-                bucket["records"].append((sync_date, effective_retry_count))
+                bucket["records"].append((sync_date, effective_retry_count, _backfill_status_priority(record[5] if len(record) > 5 else None)))
                 continue
 
             tasks.append(
@@ -1173,15 +1299,17 @@ def backfill_retry(
                     iface=iface,
                     dates=[sync_date],
                     retry_counts={sync_date: effective_retry_count + 1},
-                    mode="date",
+                    mode=mode,
+                    status_priority=_backfill_status_priority(record[5] if len(record) > 5 else None),
                 )
             )
 
         for (source, iface_key), bucket in pending_range_records.items():
             records = bucket["records"]
             iface = bucket["iface"]
-            retry_by_date = {sync_date: retry_count + 1 for sync_date, retry_count in records}
-            for grouped_dates in _group_contiguous_trade_dates([sync_date for sync_date, _ in records]):
+            retry_by_date = {sync_date: retry_count + 1 for sync_date, retry_count, _ in records}
+            priority_by_date = {sync_date: priority for sync_date, _, priority in records}
+            for grouped_dates in _group_range_backfill_dates([sync_date for sync_date, _, _ in records]):
                 tasks.append(
                     _BackfillTask(
                         source=source,
@@ -1190,11 +1318,13 @@ def backfill_retry(
                         dates=grouped_dates,
                         retry_counts={sync_date: retry_by_date[sync_date] for sync_date in grouped_dates},
                         mode="range",
+                        status_priority=min(priority_by_date[sync_date] for sync_date in grouped_dates),
                     )
                 )
 
         tasks.sort(
             key=lambda task: (
+                task.status_priority,
                 -task.end_date.toordinal(),
                 -task.start_date.toordinal(),
                 task.source,

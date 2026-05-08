@@ -3,8 +3,8 @@ thread-safe rate limiting, and new DAO / settings routes."""
 
 from __future__ import annotations
 
-from datetime import date
-from unittest.mock import MagicMock, patch
+from datetime import date, timedelta
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -513,6 +513,140 @@ class TestRunBackfillTask:
         sem.release.assert_called_once()
         assert result["synced"] == 1
 
+    def test_uses_code_handler_for_code_backfill_mode(self):
+        from app.datasync.base import SyncResult, SyncStatus
+        from app.worker.service.datasync_tasks import run_backfill_task
+
+        registry = MagicMock()
+        iface = MagicMock()
+        iface.sync_code.return_value = SyncResult(SyncStatus.SUCCESS, 5)
+        registry.get_interface.return_value = iface
+        engine, conn = _conn_ctx()
+
+        item_row = ("tushare", "stock_basic", 1, "backfill", "code")
+        pending_rows = MagicMock(fetchall=MagicMock(return_value=[(date(2024, 1, 4), "pending", 0)]))
+
+        def _execute_side_effect(statement, *args, **kwargs):
+            sql = str(statement)
+            if "FROM data_source_items" in sql:
+                return MagicMock(fetchone=MagicMock(return_value=item_row))
+            if "SELECT MAX(sync_date)" in sql:
+                return MagicMock(fetchone=MagicMock(return_value=(date(2024, 1, 4),)))
+            if "UPDATE data_sync_status SET status = 'success'" in sql:
+                return MagicMock()
+            if "ORDER BY sync_date DESC LIMIT" in sql:
+                return pending_rows
+            if "retry_count < :max_retries" in sql:
+                return MagicMock(fetchone=MagicMock(return_value=(0,)))
+            if "retry_count >= :max_retries" in sql:
+                return MagicMock(fetchone=MagicMock(return_value=(0,)))
+            return MagicMock()
+
+        conn.execute.side_effect = _execute_side_effect
+
+        with patch("rq.get_current_job", return_value=None), \
+             patch("app.datasync.registry.build_default_registry", return_value=registry), \
+             patch("app.datasync.table_manager.ensure_table", return_value=True), \
+             patch("app.infrastructure.db.connections.get_quantmate_engine", return_value=engine), \
+             patch("app.datasync.service.sync_engine._get_backfill_source_semaphore", return_value=None), \
+             patch("app.datasync.service.sync_engine._write_status"):
+            result = run_backfill_task("tushare", "stock_basic")
+
+        iface.sync_code.assert_called_once_with(date(2024, 1, 4))
+        iface.sync_date.assert_not_called()
+        assert result["synced"] == 1
+
+    def test_uses_sync_range_for_contiguous_range_dates(self):
+        from app.datasync.base import SyncResult, SyncStatus
+        from app.worker.service.datasync_tasks import run_backfill_task
+
+        registry = MagicMock()
+        iface = MagicMock()
+        iface.sync_range.return_value = SyncResult(SyncStatus.SUCCESS, 10)
+        iface.get_backfill_rows_by_date.return_value = {
+            date(2024, 1, 3): 4,
+            date(2024, 1, 4): 6,
+        }
+        registry.get_interface.return_value = iface
+        engine, conn = _conn_ctx()
+
+        item_row = ("tushare", "dividend", 1, "backfill", "range")
+        pending_rows = MagicMock(fetchall=MagicMock(return_value=[
+            (date(2024, 1, 3), "pending", 0),
+            (date(2024, 1, 4), "partial", 1),
+        ]))
+
+        def _execute_side_effect(statement, *args, **kwargs):
+            sql = str(statement)
+            if "FROM data_source_items" in sql:
+                return MagicMock(fetchone=MagicMock(return_value=item_row))
+            if "ORDER BY sync_date DESC LIMIT" in sql:
+                return pending_rows
+            if "retry_count < :max_retries" in sql:
+                return MagicMock(fetchone=MagicMock(return_value=(0,)))
+            if "retry_count >= :max_retries" in sql:
+                return MagicMock(fetchone=MagicMock(return_value=(0,)))
+            return MagicMock()
+
+        conn.execute.side_effect = _execute_side_effect
+
+        with patch("rq.get_current_job", return_value=None), \
+             patch("app.datasync.registry.build_default_registry", return_value=registry), \
+             patch("app.datasync.table_manager.ensure_table", return_value=True), \
+             patch("app.infrastructure.db.connections.get_quantmate_engine", return_value=engine), \
+             patch("app.datasync.service.sync_engine.get_trade_calendar", return_value=[date(2024, 1, 3), date(2024, 1, 4)]), \
+             patch("app.datasync.service.sync_engine._get_backfill_source_semaphore", return_value=None), \
+             patch("app.datasync.service.sync_engine._write_status"):
+            result = run_backfill_task("tushare", "dividend")
+
+        iface.sync_range.assert_called_once_with(date(2024, 1, 3), date(2024, 1, 4))
+        iface.sync_date.assert_not_called()
+        assert result["synced"] == 2
+
+    def test_splits_range_backfill_into_one_year_windows(self):
+        from app.datasync.base import SyncResult, SyncStatus
+        from app.worker.service.datasync_tasks import run_backfill_task
+
+        registry = MagicMock()
+        iface = MagicMock()
+        iface.sync_range.return_value = SyncResult(SyncStatus.SUCCESS, 0)
+        registry.get_interface.return_value = iface
+        engine, conn = _conn_ctx()
+
+        start_date = date(2024, 1, 3)
+        dates = [start_date + timedelta(days=offset) for offset in range(367)]
+        item_row = ("tushare", "dividend", 1, "backfill", "range")
+        pending_rows = MagicMock(fetchall=MagicMock(return_value=[(sync_date, "pending", 0) for sync_date in dates]))
+
+        def _execute_side_effect(statement, *args, **kwargs):
+            sql = str(statement)
+            if "FROM data_source_items" in sql:
+                return MagicMock(fetchone=MagicMock(return_value=item_row))
+            if "ORDER BY sync_date DESC LIMIT" in sql:
+                return pending_rows
+            if "retry_count < :max_retries" in sql:
+                return MagicMock(fetchone=MagicMock(return_value=(0,)))
+            if "retry_count >= :max_retries" in sql:
+                return MagicMock(fetchone=MagicMock(return_value=(0,)))
+            return MagicMock()
+
+        conn.execute.side_effect = _execute_side_effect
+
+        with patch("rq.get_current_job", return_value=None), \
+             patch("app.datasync.registry.build_default_registry", return_value=registry), \
+             patch("app.datasync.table_manager.ensure_table", return_value=True), \
+             patch("app.infrastructure.db.connections.get_quantmate_engine", return_value=engine), \
+             patch("app.datasync.service.sync_engine.get_trade_calendar", return_value=dates), \
+             patch("app.datasync.service.sync_engine._get_backfill_source_semaphore", return_value=None), \
+             patch("app.datasync.service.sync_engine._write_status"):
+            result = run_backfill_task("tushare", "dividend", batch_size=len(dates))
+
+        assert iface.sync_range.call_args_list == [
+            call(date(2025, 1, 3), date(2025, 1, 3)),
+            call(date(2024, 1, 3), date(2025, 1, 2)),
+        ]
+        assert result["synced"] == len(dates)
+
     def test_pauses_batch_on_quota_without_reenqueue(self):
         from app.datasync.base import SyncResult, SyncStatus
         from app.worker.service.datasync_tasks import run_backfill_task
@@ -541,7 +675,7 @@ class TestRunBackfillTask:
             sql = str(statement)
             if "FROM data_source_items" in sql:
                 return MagicMock(fetchone=MagicMock(return_value=item_row))
-            if "ORDER BY sync_date ASC LIMIT" in sql:
+            if "ORDER BY sync_date DESC LIMIT" in sql:
                 return pending_rows
             if "retry_count < :max_retries" in sql:
                 return remaining_row

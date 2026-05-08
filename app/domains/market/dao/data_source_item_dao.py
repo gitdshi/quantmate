@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any, Optional
 
 from sqlalchemy import text
@@ -92,6 +93,45 @@ class DataSourceItemDao:
                 updated += result.rowcount  # type: ignore[union-attr]
             conn.commit()
         return updated
+
+    def batch_update_backfill_analysis(self, items: list[dict[str, Any]]) -> int:
+        """Persist parameter-analysis metadata onto data_source_items rows."""
+        updated = 0
+        sql = text(
+            "UPDATE data_source_items SET "
+            "supports_backfill = :supports_backfill, "
+            "backfill_mode = :backfill_mode, "
+            "input_params = :input_params, "
+            "input_param_details = :input_param_details, "
+            "analysis_date_params = :analysis_date_params, "
+            "input_params_meta = :input_params_meta "
+            "WHERE source = :source AND item_key = :item_key"
+        )
+        with connection("quantmate") as conn:
+            for item in items:
+                params = dict(item)
+                input_params_meta = params.get("input_params_meta")
+                if input_params_meta is not None and not isinstance(input_params_meta, str):
+                    params["input_params_meta"] = json.dumps(input_params_meta, ensure_ascii=False)
+                result = conn.execute(sql, params)
+                updated += result.rowcount  # type: ignore[union-attr]
+            conn.commit()
+        return updated
+
+    def find_missing_backfill_analysis_items(self, items: list[dict[str, Any]]) -> list[tuple[str, str]]:
+        """Return `(source, item_key)` pairs missing from data_source_items."""
+        missing: list[tuple[str, str]] = []
+        sql = text(
+            "SELECT 1 FROM data_source_items WHERE source = :source AND item_key = :item_key"
+        )
+        with connection("quantmate") as conn:
+            for item in items:
+                source = str(item["source"])
+                item_key = str(item["item_key"])
+                row = conn.execute(sql, {"source": source, "item_key": item_key}).fetchone()
+                if row is None:
+                    missing.append((source, item_key))
+        return missing
 
     def list_enabled(self, source: Optional[str] = None) -> list[dict[str, Any]]:
         with connection("quantmate") as conn:

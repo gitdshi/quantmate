@@ -9,8 +9,11 @@ from sqlalchemy import text
 
 from app.datasync.registry import DataSourceRegistry
 from app.datasync.sync_mode import (
+    backfill_mode_uses_trade_calendar,
+    infer_backfill_mode_from_interface,
     SYNC_MODE_BACKFILL,
     infer_sync_mode_from_interface,
+    normalize_backfill_mode,
     normalize_sync_mode,
     sync_mode_supports_backfill,
 )
@@ -387,6 +390,7 @@ def reconcile_sync_status_item(
     start_date: date | None = None,
     end_date: date | None = None,
     sync_mode: str | None = None,
+    backfill_mode: str | None = None,
 ) -> dict[str, object] | None:
     iface = registry.get_interface(source, item_key)
     if iface is None:
@@ -397,7 +401,12 @@ def reconcile_sync_status_item(
         sync_mode,
         default=inferred_sync_mode,
     )
-    use_trade_calendar = sync_mode_supports_backfill(resolved_sync_mode)
+    supports_backfill = sync_mode_supports_backfill(resolved_sync_mode)
+    resolved_backfill_mode = normalize_backfill_mode(
+        backfill_mode,
+        default=infer_backfill_mode_from_interface(iface),
+    )
+    use_trade_calendar = supports_backfill and backfill_mode_uses_trade_calendar(resolved_backfill_mode)
 
     item_start_date, item_end_date, inherited_bounds = _resolve_reconcile_bounds(
         source,
@@ -430,7 +439,9 @@ def reconcile_sync_status_item(
         "end_date": item_end_date.isoformat(),
         "pending_records": pending_records,
         "sync_mode": resolved_sync_mode,
-        "supports_backfill": use_trade_calendar,
+        "supports_backfill": supports_backfill,
+        "backfill_mode": resolved_backfill_mode,
+        "use_trade_calendar": use_trade_calendar,
         "inherited_bounds": inherited_bounds,
     }
 
@@ -459,7 +470,9 @@ def reconcile_enabled_sync_status(
         params["item_key"] = item_key
 
     sql = (
-        "SELECT dsi.source, dsi.item_key, dsi.api_name, dsi.permission_points, dsi.requires_permission, dsi.sync_mode "
+        "SELECT dsi.source, dsi.item_key, dsi.api_name, dsi.permission_points, dsi.requires_permission, dsi.sync_mode, "
+        "dsi.supports_backfill, dsi.backfill_mode, dsi.input_params, dsi.input_param_details, "
+        "dsi.analysis_date_params, dsi.input_params_meta "
         "FROM data_source_items dsi "
         "JOIN data_source_configs dsc ON dsi.source = dsc.source_key "
         f"WHERE {' AND '.join(clauses)} "
@@ -467,7 +480,9 @@ def reconcile_enabled_sync_status(
     )
 
     legacy_sql = (
-        "SELECT dsi.source, dsi.item_key, dsi.item_key AS api_name, 0 AS permission_points, dsi.requires_permission, 'backfill' AS sync_mode "
+        "SELECT dsi.source, dsi.item_key, dsi.item_key AS api_name, 0 AS permission_points, dsi.requires_permission, 'backfill' AS sync_mode, "
+        "NULL AS supports_backfill, NULL AS backfill_mode, NULL AS input_params, NULL AS input_param_details, "
+        "NULL AS analysis_date_params, NULL AS input_params_meta "
         "FROM data_source_items dsi "
         "JOIN data_source_configs dsc ON dsi.source = dsc.source_key "
         f"WHERE {' AND '.join(clauses)} "
@@ -499,6 +514,12 @@ def reconcile_enabled_sync_status(
             "permission_points": row[3] if len(row) > 3 else None,
             "requires_permission": row[4] if len(row) > 4 else None,
             "sync_mode": row[5] if len(row) > 5 else None,
+            "supports_backfill": row[6] if len(row) > 6 else None,
+            "backfill_mode": row[7] if len(row) > 7 else None,
+            "input_params": row[8] if len(row) > 8 else None,
+            "input_param_details": row[9] if len(row) > 9 else None,
+            "analysis_date_params": row[10] if len(row) > 10 else None,
+            "input_params_meta": row[11] if len(row) > 11 else None,
         }
         if not is_item_sync_supported(registry, item, source_configs=source_configs):
             _clear_runtime_unsupported_status_rows(
@@ -528,6 +549,7 @@ def reconcile_enabled_sync_status(
             start_date=start_date,
             end_date=end_date,
             sync_mode=item.get("sync_mode"),
+            backfill_mode=item.get("backfill_mode"),
         )
         if item_result is None:
             _clear_runtime_unsupported_status_rows(

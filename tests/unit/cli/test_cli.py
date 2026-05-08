@@ -5,8 +5,17 @@ from __future__ import annotations
 import argparse
 from unittest.mock import MagicMock, patch
 
+import pytest
 
-from app.cli import cmd_health, cmd_db_status, cmd_sync_status, cmd_create_user, main
+from app.cli import (
+    _build_backfill_analysis_items,
+    cmd_create_user,
+    cmd_db_status,
+    cmd_health,
+    cmd_import_backfill_analysis,
+    cmd_sync_status,
+    main,
+)
 
 _CONN_PATH = "app.infrastructure.db.connections.connection"
 
@@ -112,6 +121,84 @@ def test_create_user_auto_password():
     assert args.password is not None  # auto-generated
 
 
+def test_build_backfill_analysis_items(tmp_path):
+    csv_path = tmp_path / "analysis.csv"
+    csv_path.write_text(
+        "source,interface,supports_backfill,backfill_mode,input_params,input_param_details,analysis_date_params\n"
+        "tushare,stock_daily,True,date,trade_date,trade_date(required),trade_date\n",
+        encoding="utf-8",
+    )
+
+    items = _build_backfill_analysis_items(csv_path)
+
+    assert items == [
+        {
+            "source": "tushare",
+            "item_key": "stock_daily",
+            "supports_backfill": 1,
+            "backfill_mode": "date",
+            "input_params": "trade_date",
+            "input_param_details": "trade_date(required)",
+            "analysis_date_params": "trade_date",
+            "input_params_meta": {
+                "input_params": ["trade_date"],
+                "analysis_date_params": ["trade_date"],
+                "supports_backfill": True,
+                "backfill_mode": "date",
+            },
+        }
+    ]
+
+
+def test_build_backfill_analysis_items_rejects_duplicate_keys(tmp_path):
+    csv_path = tmp_path / "analysis.csv"
+    csv_path.write_text(
+        "source,interface,supports_backfill,backfill_mode,input_params,input_param_details,analysis_date_params\n"
+        "tushare,stock_daily,True,date,trade_date,trade_date(required),trade_date\n"
+        "tushare,stock_daily,True,date,trade_date,trade_date(required),trade_date\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Duplicate backfill-analysis row"):
+        _build_backfill_analysis_items(csv_path)
+
+
+def test_import_backfill_analysis_dry_run(tmp_path):
+    csv_path = tmp_path / "analysis.csv"
+    csv_path.write_text(
+        "source,interface,supports_backfill,backfill_mode,input_params,input_param_details,analysis_date_params\n"
+        "tushare,stock_daily,True,date,trade_date,trade_date(required),trade_date\n",
+        encoding="utf-8",
+    )
+
+    dao = MagicMock()
+    dao.find_missing_backfill_analysis_items.return_value = []
+
+    args = argparse.Namespace(csv_path=str(csv_path), dry_run=True)
+    with patch("app.domains.market.dao.data_source_item_dao.DataSourceItemDao", return_value=dao):
+        result = cmd_import_backfill_analysis(args)
+
+    assert result == 0
+
+
+def test_import_backfill_analysis_fails_for_missing_rows(tmp_path):
+    csv_path = tmp_path / "analysis.csv"
+    csv_path.write_text(
+        "source,interface,supports_backfill,backfill_mode,input_params,input_param_details,analysis_date_params\n"
+        "tushare,stock_daily,True,date,trade_date,trade_date(required),trade_date\n",
+        encoding="utf-8",
+    )
+
+    dao = MagicMock()
+    dao.find_missing_backfill_analysis_items.return_value = [("tushare", "stock_daily")]
+
+    args = argparse.Namespace(csv_path=str(csv_path), dry_run=False)
+    with patch("app.domains.market.dao.data_source_item_dao.DataSourceItemDao", return_value=dao):
+        result = cmd_import_backfill_analysis(args)
+
+    assert result == 1
+
+
 # ── main ──────────────────────────────────────────────────────────
 
 def test_main_no_command(monkeypatch):
@@ -123,6 +210,14 @@ def test_main_no_command(monkeypatch):
 def test_main_health_command(monkeypatch):
     monkeypatch.setattr("sys.argv", ["quantmate", "health"])
     with patch("app.cli.cmd_health", return_value=0) as mock_cmd:
+        result = main()
+    mock_cmd.assert_called_once()
+    assert result == 0
+
+
+def test_main_import_backfill_analysis_command(monkeypatch):
+    monkeypatch.setattr("sys.argv", ["quantmate", "import-backfill-analysis", "--dry-run"])
+    with patch("app.cli.cmd_import_backfill_analysis", return_value=0) as mock_cmd:
         result = main()
     mock_cmd.assert_called_once()
     assert result == 0

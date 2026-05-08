@@ -212,6 +212,8 @@ class TestReconcileBounds:
                 "pending_records": 23,
                 "sync_mode": "backfill",
                 "supports_backfill": True,
+                "backfill_mode": "date",
+                "use_trade_calendar": True,
                 "inherited_bounds": True,
             }
         ]
@@ -263,9 +265,47 @@ class TestReconcileBounds:
                 "pending_records": 5,
                 "sync_mode": "backfill",
                 "supports_backfill": True,
+                "backfill_mode": "date",
+                "use_trade_calendar": True,
                 "inherited_bounds": False,
             }
         ]
+
+    def test_reconcile_sync_status_item_uses_anchor_window_for_code_backfill_mode(self):
+        from app.datasync.service.sync_init_service import reconcile_sync_status_item
+
+        registry = MagicMock()
+        iface = MagicMock()
+        iface.backfill_mode.return_value = "code"
+        registry.get_interface.return_value = iface
+
+        with patch("app.datasync.service.sync_init_service._get_initialized_bounds", return_value=None), \
+             patch("app.datasync.service.sync_init_service._get_source_initialized_bounds", return_value=None), \
+             patch(
+                 "app.datasync.service.sync_init_service._resolve_default_sync_window",
+                 return_value=(date(2025, 1, 1), date(2026, 4, 22)),
+             ), \
+             patch("app.datasync.service.sync_init_service.initialize_sync_status", return_value=1) as init_mock, \
+             patch("app.datasync.service.sync_init_service._reconcile_missing_pending_rows", return_value=0):
+            result = reconcile_sync_status_item(
+                registry,
+                "tushare",
+                "stock_basic",
+                sync_mode="backfill",
+                backfill_mode="code",
+            )
+
+        init_mock.assert_called_once_with(
+            "tushare",
+            "stock_basic",
+            start_date=date(2026, 4, 22),
+            end_date=date(2026, 4, 22),
+            reconcile_missing=True,
+            use_trade_calendar=False,
+        )
+        assert result["backfill_mode"] == "code"
+        assert result["use_trade_calendar"] is False
+        assert result["supports_backfill"] is True
 
 
 class TestInitializationState:

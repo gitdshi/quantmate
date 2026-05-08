@@ -99,6 +99,22 @@ class TestGetFailedRecords:
         assert "status = 'success'" in sql
         assert "COALESCE(rows_synced, 0) = 0" in sql
 
+    def test_prioritizes_pending_then_partial_then_error(self):
+        from app.datasync.service.sync_engine import _get_failed_records
+
+        engine, conn = _conn_ctx()
+        rows = [
+            (date(2024, 1, 6), "tushare", "daily", 0, None, "partial", 0, None),
+            (date(2024, 1, 7), "tushare", "daily", 0, None, "error", 0, None),
+            (date(2024, 1, 5), "tushare", "daily", 0, None, "pending", 0, None),
+        ]
+        conn.execute.return_value = MagicMock(fetchall=MagicMock(return_value=rows))
+
+        with patch(f"{_MOD}.get_quantmate_engine", return_value=engine):
+            result = _get_failed_records(date(2024, 1, 1), date(2024, 1, 7))
+
+        assert [record[5] for record in result] == ["pending", "partial", "error"]
+
 
 class TestBackfillRetryFiltering:
     def test_detects_quota_cooldown_records(self):
@@ -359,6 +375,64 @@ class TestGetEnabledItems:
             result = _get_enabled_items()
         assert len(result) == 1
         assert result[0]["source"] == "tushare"
+
+    def test_returns_backfill_metadata_when_available(self):
+        from app.datasync.service.sync_engine import _get_enabled_items
+
+        engine, conn = _conn_ctx()
+        rows = [
+            (
+                "tushare",
+                "stock_basic",
+                "tushare_db",
+                "stock_basic",
+                1,
+                10,
+                "stock_basic",
+                0,
+                None,
+                "latest_only",
+                1,
+                "code",
+                "ts_code,list_status",
+                "ts_code(required);list_status(optional)",
+                None,
+                '{"required":["ts_code"]}',
+            )
+        ]
+        conn.execute.return_value = MagicMock(fetchall=MagicMock(return_value=rows))
+
+        with patch(f"{_MOD}.get_quantmate_engine", return_value=engine), \
+             patch(f"{_MOD}._runtime_support_registry", return_value=MagicMock()), \
+             patch(f"{_MOD}.load_source_config_map", return_value={}), \
+             patch(f"{_MOD}.is_item_sync_supported", return_value=True):
+            result = _get_enabled_items()
+
+        assert result[0]["supports_backfill"] == 1
+        assert result[0]["backfill_mode"] == "code"
+        assert result[0]["input_params"] == "ts_code,list_status"
+
+    def test_falls_back_to_legacy_query_when_metadata_columns_are_missing(self):
+        from app.datasync.service.sync_engine import _get_enabled_items
+
+        engine, conn = _conn_ctx()
+        conn.execute.side_effect = [
+            Exception("(1054, \"Unknown column 'dsi.supports_backfill' in 'field list'\")"),
+            MagicMock(
+                fetchall=MagicMock(
+                    return_value=[("tushare", "stock_daily", "tushare_db", "stock_daily", 1, 10, "daily", 0, None, "backfill")]
+                )
+            ),
+        ]
+
+        with patch(f"{_MOD}.get_quantmate_engine", return_value=engine), \
+             patch(f"{_MOD}._runtime_support_registry", return_value=MagicMock()), \
+             patch(f"{_MOD}.load_source_config_map", return_value={}), \
+             patch(f"{_MOD}.is_item_sync_supported", return_value=True):
+            result = _get_enabled_items()
+
+        assert result[0]["item_key"] == "stock_daily"
+        assert result[0]["backfill_mode"] is None
 
     def test_filters_runtime_unsupported_items(self):
         from app.datasync.service.sync_engine import _get_enabled_items
@@ -846,6 +920,57 @@ class TestBackfillRetry:
 
         assert submitted_dates == [date(2024, 1, 4), date(2024, 1, 3)]
 
+    def test_splits_range_backfill_into_one_year_windows(self):
+        from concurrent.futures import Future
+
+        from app.datasync.base import SyncResult, SyncStatus
+        from app.datasync.service.sync_engine import backfill_retry
+
+        registry = MagicMock()
+        iface = MagicMock()
+        iface.backfill_mode.return_value = "range"
+        iface.sync_range.return_value = SyncResult(status=SyncStatus.SUCCESS, rows_synced=0)
+        registry.get_interface.return_value = iface
+
+        start_date = date(2024, 1, 3)
+        dates = [start_date + timedelta(days=offset) for offset in range(367)]
+        submitted_windows = []
+
+        class FakeExecutor:
+            def __init__(self, max_workers, thread_name_prefix=None):
+                self.max_workers = max_workers
+                self.thread_name_prefix = thread_name_prefix
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def submit(self, fn, task, *args, **kwargs):
+                submitted_windows.append((task.start_date, task.end_date))
+                future = Future()
+                try:
+                    future.set_result(fn(task, *args, **kwargs))
+                except Exception as exc:
+                    future.set_exception(exc)
+                return future
+
+        with patch(f"{_MOD}._get_enabled_backfill_keys", return_value={("tushare", "dividend")}), \
+             patch(f"{_MOD}.ThreadPoolExecutor", FakeExecutor), \
+             patch(f"{_MOD}._get_failed_records", return_value=[(sync_date, "tushare", "dividend", 0) for sync_date in dates]), \
+             patch(f"{_MOD}.get_trade_calendar", return_value=dates), \
+             patch(f"{_MOD}._write_status"), \
+             patch("app.domains.extdata.dao.data_sync_status_dao.acquire_backfill_lock"), \
+             patch("app.domains.extdata.dao.data_sync_status_dao.release_backfill_lock"), \
+             patch("app.domains.extdata.dao.data_sync_status_dao.is_backfill_locked", return_value=False):
+            backfill_retry(registry, max_workers=2)
+
+        assert submitted_windows == [
+            (date(2025, 1, 3), date(2025, 1, 3)),
+            (date(2024, 1, 3), date(2025, 1, 2)),
+        ]
+
     def test_uses_range_backfill_for_range_interfaces(self):
         from app.datasync.base import SyncResult, SyncStatus
         from app.datasync.service.sync_engine import backfill_retry
@@ -904,6 +1029,54 @@ class TestBackfillRetry:
         iface.sync_range.assert_not_called()
         assert result["tushare/stock_daily@2024-01-03"]["backfill_mode"] == "date"
         assert result["tushare/stock_daily@2024-01-04"]["backfill_mode"] == "date"
+
+    def test_uses_code_backfill_handler_for_code_interfaces(self):
+        from app.datasync.base import SyncResult, SyncStatus
+        from app.datasync.service.sync_engine import backfill_retry
+
+        registry = MagicMock()
+        iface = MagicMock()
+        iface.sync_code.return_value = SyncResult(status=SyncStatus.SUCCESS, rows_synced=7)
+        registry.get_interface.return_value = iface
+
+        with patch(f"{_MOD}._resolve_backfill_window", return_value=(date(2024, 1, 4), date(2024, 1, 4))), \
+             patch(f"{_MOD}._get_enabled_backfill_keys", return_value={("tushare", "stock_basic")}), \
+             patch(
+                 f"{_MOD}._get_enabled_items",
+                 return_value=[{"source": "tushare", "item_key": "stock_basic", "sync_mode": "backfill", "backfill_mode": "code"}],
+             ), \
+             patch(f"{_MOD}._get_failed_records", return_value=[(date(2024, 1, 4), "tushare", "stock_basic", 0)]), \
+             patch(f"{_MOD}._write_status"), \
+             patch("app.domains.extdata.dao.data_sync_status_dao.acquire_backfill_lock"), \
+             patch("app.domains.extdata.dao.data_sync_status_dao.release_backfill_lock"), \
+             patch("app.domains.extdata.dao.data_sync_status_dao.is_backfill_locked", return_value=False):
+            result = backfill_retry(registry, max_workers=1)
+
+        iface.sync_code.assert_called_once_with(date(2024, 1, 4))
+        iface.sync_date.assert_not_called()
+        assert result["tushare/stock_basic@2024-01-04"]["backfill_mode"] == "code"
+
+    def test_uses_code_date_backfill_handler_for_code_date_interfaces(self):
+        from app.datasync.base import SyncResult, SyncStatus
+        from app.datasync.service.sync_engine import backfill_retry
+
+        registry = MagicMock()
+        iface = MagicMock()
+        iface.sync_code_date.return_value = SyncResult(status=SyncStatus.SUCCESS, rows_synced=4)
+        registry.get_interface.return_value = iface
+
+        with patch(f"{_MOD}._get_enabled_backfill_keys", return_value={("tushare", "stk_rewards")}), \
+             patch(f"{_MOD}._get_enabled_items", return_value=[{"source": "tushare", "item_key": "stk_rewards", "sync_mode": "backfill", "backfill_mode": "code_date"}]), \
+             patch(f"{_MOD}._get_failed_records", return_value=[(date(2024, 1, 4), "tushare", "stk_rewards", 0)]), \
+             patch(f"{_MOD}._write_status"), \
+             patch("app.domains.extdata.dao.data_sync_status_dao.acquire_backfill_lock"), \
+             patch("app.domains.extdata.dao.data_sync_status_dao.release_backfill_lock"), \
+             patch("app.domains.extdata.dao.data_sync_status_dao.is_backfill_locked", return_value=False):
+            result = backfill_retry(registry, max_workers=1)
+
+        iface.sync_code_date.assert_called_once_with(date(2024, 1, 4))
+        iface.sync_date.assert_not_called()
+        assert result["tushare/stk_rewards@2024-01-04"]["backfill_mode"] == "code_date"
 
     def test_uses_configured_worker_count(self):
         from concurrent.futures import Future
@@ -1008,6 +1181,42 @@ class TestBackfillRetry:
         assert result["tushare/us_daily@2024-01-03"]["skipped"] is True
         assert result["tushare/us_daily@2024-01-04"]["status"] == SyncStatus.SUCCESS.value
         assert mock_write.call_args_list[0].args[:3] == (historical_date, "tushare", "us_daily")
+
+    def test_skips_historical_records_for_anchor_only_backfill_mode(self):
+        from app.datasync.base import SyncResult, SyncStatus
+        from app.datasync.service.sync_engine import backfill_retry
+
+        registry = MagicMock()
+        iface = MagicMock()
+        iface.sync_code.return_value = SyncResult(status=SyncStatus.SUCCESS, rows_synced=1)
+        registry.get_interface.return_value = iface
+
+        historical_date = date(2024, 1, 3)
+        latest_date = date(2024, 1, 4)
+
+        with patch(f"{_MOD}._resolve_backfill_window", return_value=(historical_date, latest_date)), \
+             patch(f"{_MOD}._get_enabled_backfill_keys", return_value={("tushare", "stock_basic")}), \
+             patch(
+                 f"{_MOD}._get_enabled_items",
+                 return_value=[{"source": "tushare", "item_key": "stock_basic", "sync_mode": "backfill", "backfill_mode": "code"}],
+             ), \
+             patch(
+                 f"{_MOD}._get_failed_records",
+                 return_value=[
+                     (historical_date, "tushare", "stock_basic", 0, None, "pending", 0, None),
+                     (latest_date, "tushare", "stock_basic", 0, None, "pending", 0, None),
+                 ],
+             ), \
+             patch(f"{_MOD}._write_status") as mock_write, \
+             patch("app.domains.extdata.dao.data_sync_status_dao.acquire_backfill_lock"), \
+             patch("app.domains.extdata.dao.data_sync_status_dao.release_backfill_lock"), \
+             patch("app.domains.extdata.dao.data_sync_status_dao.is_backfill_locked", return_value=False):
+            result = backfill_retry(registry, max_workers=1)
+
+        iface.sync_code.assert_called_once_with(latest_date)
+        assert result["tushare/stock_basic@2024-01-03"]["skipped"] is True
+        assert result["tushare/stock_basic@2024-01-04"]["backfill_mode"] == "code"
+        assert mock_write.call_args_list[0].args[:3] == (historical_date, "tushare", "stock_basic")
 
     def test_filters_out_non_enabled_records_before_backfill(self):
         from app.datasync.base import SyncResult, SyncStatus

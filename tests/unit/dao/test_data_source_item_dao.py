@@ -101,6 +101,40 @@ class TestDataSourceItemDao:
         result = _mod.DataSourceItemDao().list_enabled()
         assert result == []
 
+    def test_batch_update_backfill_analysis(self, _mock_connection):
+        _mock_connection.execute.return_value = MagicMock(rowcount=1)
+        items = [
+            {
+                "source": "tushare",
+                "item_key": "stock_daily",
+                "supports_backfill": 1,
+                "backfill_mode": "date",
+                "input_params": "trade_date",
+                "input_param_details": "trade_date(required)",
+                "analysis_date_params": "trade_date",
+                "input_params_meta": {"input_params": ["trade_date"]},
+            }
+        ]
+
+        result = _mod.DataSourceItemDao().batch_update_backfill_analysis(items)
+
+        assert result == 1
+        _mock_connection.execute.assert_called_once()
+
+    def test_find_missing_backfill_analysis_items(self, _mock_connection):
+        _mock_connection.execute.side_effect = [
+            MagicMock(fetchone=MagicMock(return_value=(1,))),
+            MagicMock(fetchone=MagicMock(return_value=None)),
+        ]
+        items = [
+            {"source": "tushare", "item_key": "stock_daily"},
+            {"source": "tushare", "item_key": "missing_item"},
+        ]
+
+        result = _mod.DataSourceItemDao().find_missing_backfill_analysis_items(items)
+
+        assert result == [("tushare", "missing_item")]
+
 
 # ── DataSourceConfigDao ──────────────────────────────────────────
 

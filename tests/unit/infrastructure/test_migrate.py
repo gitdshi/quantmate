@@ -272,3 +272,47 @@ def test_us_daily_latest_only_migration_exists():
 
     assert "item_key = 'us_daily'" in sql
     assert "sync_mode = 'latest_only'" in sql
+
+
+def test_backfill_analysis_columns_migration_uses_mysql_compatible_column_guards():
+    migration_path = Path(__file__).resolve().parents[3] / "mysql" / "migrations" / "045_add_backfill_analysis_columns_to_data_source_items.sql"
+
+    sql = migration_path.read_text(encoding="utf-8")
+
+    assert "information_schema.columns" in sql
+    assert "PREPARE stmt_add_supports_backfill" in sql
+    assert "PREPARE stmt_add_backfill_mode" in sql
+    assert "PREPARE stmt_add_input_params_meta" in sql
+    assert "ADD COLUMN IF NOT EXISTS supports_backfill" not in sql
+    assert "CREATE TEMPORARY TABLE IF NOT EXISTS `_tmp_backfill_analysis_seed`" in sql
+    assert "JOIN `_tmp_backfill_analysis_seed` seed ON seed.source = dsi.source AND seed.item_key = dsi.item_key" in sql
+    assert "JSON_ARRAY()" in sql
+    assert "('tushare', 'ann_corpus', 1, 'other'" in sql
+
+
+def test_quantmate_init_includes_post_catalog_sync_mode_updates():
+    init_path = Path(__file__).resolve().parents[3] / "mysql" / "init" / "quantmate.sql"
+
+    sql = init_path.read_text(encoding="utf-8")
+
+    assert "-- Migration 040: Add sync_mode to data_source_items" in sql
+    assert "'opt_mins'" in sql
+    assert "'pledge_detail'" in sql
+    assert "'us_daily'" in sql
+    assert "sync_mode = 'latest_only'" in sql
+    assert "CREATE TEMPORARY TABLE IF NOT EXISTS `_tmp_backfill_analysis_seed`" in sql
+    assert "JSON_ARRAY()" in sql
+    assert "('tushare', 'ann_corpus', 1, 'other'" in sql
+
+
+def test_tushare_init_includes_extended_tushare_tables_and_followup_fixes():
+    init_path = Path(__file__).resolve().parents[3] / "mysql" / "init" / "tushare.sql"
+
+    sql = init_path.read_text(encoding="utf-8")
+
+    assert "CREATE TABLE IF NOT EXISTS moneyflow" in sql
+    assert "CREATE TABLE IF NOT EXISTS stock_minute" in sql
+    assert "CREATE TABLE IF NOT EXISTS hk_stock_basic" in sql
+    assert "CREATE TABLE IF NOT EXISTS us_stock_daily" in sql
+    assert "ALTER TABLE `tushare`.`pledge_detail` MODIFY COLUMN `holder_name` VARCHAR(128) NOT NULL" in sql
+    assert "ALTER TABLE `tushare`.`cb_rate` DROP INDEX `ux_cb_rate_ts_code`" in sql
