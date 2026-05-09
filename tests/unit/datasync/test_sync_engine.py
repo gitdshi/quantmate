@@ -995,6 +995,65 @@ class TestBackfillRetry:
             (date(2024, 1, 3), date(2025, 1, 2)),
         ]
 
+    def test_groups_sparse_range_backfill_into_contiguous_windows(self):
+        from concurrent.futures import Future
+
+        from app.datasync.base import SyncResult, SyncStatus
+        from app.datasync.service.sync_engine import backfill_retry
+
+        registry = MagicMock()
+        iface = MagicMock()
+        iface.backfill_mode.return_value = "range"
+        iface.sync_range.return_value = SyncResult(status=SyncStatus.SUCCESS, rows_synced=0)
+        registry.get_interface.return_value = iface
+
+        failed_dates = [
+            date(2024, 1, 2),
+            date(2024, 1, 3),
+            date(2024, 1, 5),
+            date(2024, 1, 9),
+            date(2024, 1, 10),
+            date(2024, 1, 11),
+        ]
+        trade_calendar = [date(2024, 1, day) for day in range(2, 12)]
+        submitted_windows = []
+
+        class FakeExecutor:
+            def __init__(self, max_workers, thread_name_prefix=None):
+                self.max_workers = max_workers
+                self.thread_name_prefix = thread_name_prefix
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def submit(self, fn, task, *args, **kwargs):
+                submitted_windows.append((task.start_date, task.end_date))
+                future = Future()
+                try:
+                    future.set_result(fn(task, *args, **kwargs))
+                except Exception as exc:
+                    future.set_exception(exc)
+                return future
+
+        with patch(f"{_MOD}._get_enabled_backfill_keys", return_value={("tushare", "fina_audit")}), \
+             patch(f"{_MOD}.ThreadPoolExecutor", FakeExecutor), \
+             patch(f"{_MOD}._get_failed_records", return_value=[(sync_date, "tushare", "fina_audit", 0) for sync_date in failed_dates]), \
+               patch(f"{_MOD}.get_trade_calendar", return_value=trade_calendar), \
+             patch(f"{_MOD}._write_status"), \
+             patch("app.domains.extdata.dao.data_sync_status_dao.acquire_backfill_lock"), \
+             patch("app.domains.extdata.dao.data_sync_status_dao.release_backfill_lock"), \
+             patch("app.domains.extdata.dao.data_sync_status_dao.is_backfill_locked", return_value=False):
+            backfill_retry(registry, max_workers=2)
+
+        assert submitted_windows == [
+            (date(2024, 1, 9), date(2024, 1, 11)),
+            (date(2024, 1, 5), date(2024, 1, 5)),
+            (date(2024, 1, 2), date(2024, 1, 3)),
+        ]
+
     def test_uses_range_backfill_for_range_interfaces(self):
         from app.datasync.base import SyncResult, SyncStatus
         from app.datasync.service.sync_engine import backfill_retry

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+import json
 
 
 _MODULE_PATH = Path(__file__).resolve().parents[2] / "scripts" / "datasync" / "reanalyze_tushare_backfill.py"
@@ -97,7 +98,7 @@ def test_analyze_method_classifies_other_without_code_or_date_axis():
     assert date_params == []
 
 
-def test_rewrite_record_prefers_explicit_runtime_columns_and_doc_params(monkeypatch):
+def test_rewrite_record_keeps_runtime_mode_aligned_with_backfill_mode(monkeypatch):
     monkeypatch.setattr(
         _MODULE,
         "_fetch_doc_metadata",
@@ -129,9 +130,10 @@ def test_rewrite_record_prefers_explicit_runtime_columns_and_doc_params(monkeypa
         {},
     )
 
-    assert rewritten["runtime_backfill_mode"] == "code"
-    assert rewritten["runtime_backfill_logic"] == "运行时按代码同步"
     assert rewritten["backfill_mode"] == "code"
+    assert rewritten["runtime_backfill_mode"] == "code"
+    assert rewritten["runtime_backfill_logic"] == rewritten["backfill_logic"]
+    assert rewritten["runtime_slow_reason"] == rewritten["slow_reason"]
     assert rewritten["input_params"] == "ts_code, classify"
     assert rewritten["analysis_basis"] == "tushare_docs"
 
@@ -177,6 +179,7 @@ def test_rewrite_record_refetches_non_doc_cache_entries(monkeypatch):
     assert cache["us_basic"]["basis"] == "tushare_docs"
     assert rewritten["analysis_basis"] == "tushare_docs"
     assert rewritten["input_params"] == "ts_code"
+    assert rewritten["runtime_backfill_mode"] == rewritten["backfill_mode"] == "code"
 
 
 def test_fetch_doc_metadata_accepts_item_name_match_for_alias_api(monkeypatch):
@@ -243,3 +246,60 @@ def test_rewrite_record_keeps_doc_basis_for_empty_param_docs(monkeypatch):
     assert rewritten["analysis_basis"] == "tushare_docs"
     assert rewritten["input_params"] == ""
     assert rewritten["backfill_mode"] == "other"
+    assert rewritten["runtime_backfill_mode"] == "other"
+
+
+def test_main_omits_runtime_backfill_mode_from_output_columns(tmp_path, monkeypatch):
+    input_path = tmp_path / "analysis.json"
+    output_prefix = tmp_path / "tushare_backfill_analysis"
+    cache_path = tmp_path / "cache.json"
+
+    input_path.write_text(
+        json.dumps(
+            {
+                "columns": ["source", "interface", "backfill_mode", "runtime_backfill_mode"],
+                "records": [
+                    {
+                        "source": "tushare",
+                        "interface": "fund_company",
+                        "interface_name": "基金管理人",
+                        "backfill_mode": "other",
+                        "runtime_backfill_mode": "other",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        _MODULE,
+        "_fetch_doc_metadata",
+        lambda api_name, item_name: {
+            "doc_id": "118",
+            "doc_url": "https://tushare.pro/document/2?doc_id=118",
+            "params": [],
+            "basis": "tushare_docs",
+        },
+    )
+    monkeypatch.setattr(
+        _MODULE,
+        "_parse_args",
+        lambda: type(
+            "Args",
+            (),
+            {
+                "input_json": str(input_path),
+                "output_prefix": str(output_prefix),
+                "cache_json": str(cache_path),
+                "limit": 0,
+                "refresh_doc_cache": False,
+            },
+        )(),
+    )
+
+    _MODULE.main()
+
+    output_payload = json.loads(output_prefix.with_suffix(".json").read_text(encoding="utf-8"))
+    assert "runtime_backfill_mode" not in output_payload["columns"]

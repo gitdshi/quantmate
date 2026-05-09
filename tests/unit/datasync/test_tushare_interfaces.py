@@ -621,6 +621,105 @@ class TestTushareCatalogInterface:
         assert "UNIQUE KEY" not in adjusted_schema["ddl"]
         mock_ensure_table.assert_called_once_with("tushare", "block_trade", adjusted_schema)
 
+    def test_block_trade_specialized_schema_skips_auto_unique_index(self):
+        from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogSpec
+        from app.datasync.sources.tushare.interfaces import TusharePerSymbolDateCatalogInterface
+
+        iface = TusharePerSymbolDateCatalogInterface(
+            TushareCatalogSpec(
+                interface_key="block_trade",
+                display_name="大宗交易",
+                api_name="block_trade",
+                target_table="block_trade",
+                sync_priority=90,
+                backfill_mode="range",
+            ),
+            request_date_param="trade_date",
+            supports_range=True,
+            entity_loader=lambda: ["000001.SZ"],
+        )
+
+        df = pd.DataFrame(
+            {
+                "ts_code": ["000001.SZ"],
+                "trade_date": ["20240105"],
+                "trade_time": ["2024-01-05 10:30:00"],
+                "price": [10.5],
+            }
+        )
+        inferred_schema = {
+            "column_specs": [
+                {"name": "ts_code", "sql_type": "VARCHAR(32)", "source_fields": ["ts_code"]},
+                {"name": "trade_date", "sql_type": "DATE", "source_fields": ["trade_date"]},
+                {"name": "trade_time", "sql_type": "DATETIME", "source_fields": ["trade_time"]},
+                {"name": "price", "sql_type": "DECIMAL(18,4)", "source_fields": ["price"]},
+            ],
+            "key_columns": ("trade_date", "ts_code"),
+            "unique_index_name": "ux_block_trade_trade_date_ts_code",
+            "ddl": "CREATE TABLE block_trade (...)",
+        }
+
+        with patch(
+            "app.datasync.sources.tushare.interfaces.ddl.infer_dynamic_table_schema",
+            return_value=inferred_schema,
+        ), patch("app.datasync.table_manager.ensure_inferred_table") as mock_ensure_table:
+            adjusted_schema = iface._ensure_inferred_table(df)
+
+        assert adjusted_schema is not None
+        assert adjusted_schema["key_columns"] == ()
+        assert adjusted_schema["unique_index_name"] == ""
+        assert "UNIQUE KEY" not in adjusted_schema["ddl"]
+        mock_ensure_table.assert_called_once_with("tushare", "block_trade", adjusted_schema)
+
+    def test_fund_sales_vol_inferred_schema_uses_explicit_composite_key(self):
+        from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface, TushareCatalogSpec
+
+        iface = TushareCatalogInterface(
+            TushareCatalogSpec(
+                interface_key="fund_sales_vol",
+                display_name="销售机构公募基金销售保有规模",
+                api_name="fund_sales_vol",
+                target_table="fund_sales_vol",
+                sync_priority=1135,
+            )
+        )
+
+        df = pd.DataFrame(
+            {
+                "year": [2024],
+                "quarter": ["Q1"],
+                "inst_name": ["Test Institution"],
+                "fund_scale": [10],
+                "scale": [20],
+                "rank": [1],
+            }
+        )
+        inferred_schema = {
+            "column_specs": [
+                {"name": "year", "sql_type": "BIGINT", "source_fields": ["year"]},
+                {"name": "quarter", "sql_type": "VARCHAR(64)", "source_fields": ["quarter"]},
+                {"name": "inst_name", "sql_type": "VARCHAR(128)", "source_fields": ["inst_name"]},
+                {"name": "fund_scale", "sql_type": "BIGINT", "source_fields": ["fund_scale"]},
+                {"name": "scale", "sql_type": "BIGINT", "source_fields": ["scale"]},
+                {"name": "rank", "sql_type": "BIGINT", "source_fields": ["rank"]},
+            ],
+            "key_columns": ("year",),
+            "unique_index_name": "ux_fund_sales_vol_year",
+            "ddl": "CREATE TABLE fund_sales_vol (...)",
+        }
+
+        with patch(
+            "app.datasync.sources.tushare.catalog_interfaces.ddl.infer_dynamic_table_schema",
+            return_value=inferred_schema,
+        ), patch("app.datasync.table_manager.ensure_inferred_table") as mock_ensure_table:
+            adjusted_schema = iface._ensure_inferred_table(df)
+
+        assert adjusted_schema is not None
+        assert adjusted_schema["key_columns"] == ("year", "quarter", "inst_name")
+        assert adjusted_schema["unique_index_name"] == "ux_fund_sales_vol_year_quarter_inst_name"
+        assert "UNIQUE KEY `ux_fund_sales_vol_year_quarter_inst_name` (`year`, `quarter`, `inst_name`)" in adjusted_schema["ddl"]
+        mock_ensure_table.assert_called_once_with("tushare", "fund_sales_vol", adjusted_schema)
+
     def test_generic_guardrail_disables_symbol_scoped_catalog_item(self):
         from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface, TushareCatalogSpec
 

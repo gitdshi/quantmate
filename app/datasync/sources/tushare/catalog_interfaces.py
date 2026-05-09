@@ -281,6 +281,10 @@ _APPEND_ONLY_DYNAMIC_TABLES = {
     "block_trade",
 }
 
+_INFERRED_KEY_COLUMN_OVERRIDES: dict[str, tuple[str, ...]] = {
+    "fund_sales_vol": ("year", "quarter", "inst_name"),
+}
+
 
 @dataclass(frozen=True)
 class TushareCatalogSpec:
@@ -438,6 +442,20 @@ class TushareCatalogInterface(BaseIngestInterface):
             preferred_date_column=self._schema_date_column(),
             preferred_key_fields=self._payload_key_fields(),
         )
+        override_key_columns = _INFERRED_KEY_COLUMN_OVERRIDES.get(self.info.target_table)
+        if override_key_columns is not None:
+            available_columns = {str(spec.get("name") or "") for spec in schema["column_specs"]}
+            if set(override_key_columns).issubset(available_columns):
+                schema = {
+                    **schema,
+                    "key_columns": override_key_columns,
+                    "unique_index_name": ddl._safe_unique_index_name(self.info.target_table, override_key_columns),
+                    "ddl": ddl.build_dynamic_table_ddl(
+                        self.info.target_table,
+                        list(schema["column_specs"]),
+                        override_key_columns,
+                    ),
+                }
         if self.info.target_table in _APPEND_ONLY_DYNAMIC_TABLES:
             schema = {
                 **schema,

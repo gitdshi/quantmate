@@ -286,7 +286,7 @@ def _preferred_record_value(record: dict[str, Any], preferred_key: str, fallback
     return record.get(fallback_key)
 
 
-def _analyze_method(params: list[dict[str, str]], runtime_backfill_mode: str | None = None) -> tuple[str, list[str]]:
+def _analyze_method(params: list[dict[str, str]]) -> tuple[str, list[str]]:
     normalized_params = [
         {
             "name": str(param.get("name") or "").strip(),
@@ -311,9 +311,6 @@ def _analyze_method(params: list[dict[str, str]], runtime_backfill_mode: str | N
     if code_params and not required_date_params:
         return "code", date_params
 
-    runtime_mode = _normalize_backfill_mode(runtime_backfill_mode)
-    if runtime_mode in {"code_date", "other"}:
-        return runtime_mode, date_params
     if code_params and date_params:
         return "code_date", date_params
     if code_params:
@@ -359,9 +356,9 @@ def _serialize_params(params: list[dict[str, str]]) -> tuple[str, str]:
 def _rewrite_record(record: dict[str, Any], cache: dict[str, dict[str, Any]]) -> dict[str, Any]:
     updated = dict(record)
     updated["runtime_supports_backfill"] = _preferred_record_value(record, "runtime_supports_backfill", "supports_backfill")
-    updated["runtime_backfill_mode"] = _preferred_record_value(record, "runtime_backfill_mode", "backfill_mode")
-    updated["runtime_backfill_logic"] = _preferred_record_value(record, "runtime_backfill_logic", "backfill_logic")
-    updated["runtime_slow_reason"] = _preferred_record_value(record, "runtime_slow_reason", "slow_reason")
+    updated["runtime_backfill_mode"] = _preferred_record_value(record, "backfill_mode", "runtime_backfill_mode")
+    updated["runtime_backfill_logic"] = _preferred_record_value(record, "backfill_logic", "runtime_backfill_logic")
+    updated["runtime_slow_reason"] = _preferred_record_value(record, "slow_reason", "runtime_slow_reason")
 
     if record.get("source") != "tushare":
         updated["analysis_basis"] = "source_passthrough"
@@ -387,10 +384,7 @@ def _rewrite_record(record: dict[str, Any], cache: dict[str, dict[str, Any]]) ->
         cache[api_name] = doc_meta
 
     param_names, param_details = _serialize_params(doc_meta.get("params", []))
-    method, date_params = _analyze_method(
-        doc_meta.get("params", []),
-        runtime_backfill_mode=_preferred_record_value(record, "runtime_backfill_mode", "backfill_mode"),
-    )
+    method, date_params = _analyze_method(doc_meta.get("params", []))
 
     updated["supports_backfill"] = True
     updated["backfill_mode"] = method
@@ -402,6 +396,9 @@ def _rewrite_record(record: dict[str, Any], cache: dict[str, dict[str, Any]]) ->
     updated["analysis_basis"] = doc_meta.get("basis", "")
     updated["backfill_logic"] = _analysis_logic(method, [param["name"] for param in doc_meta.get("params", [])], date_params)
     updated["slow_reason"] = _analysis_slow_reason(method)
+    updated["runtime_backfill_mode"] = updated["backfill_mode"]
+    updated["runtime_backfill_logic"] = updated["backfill_logic"]
+    updated["runtime_slow_reason"] = updated["slow_reason"]
     return updated
 
 
@@ -432,7 +429,6 @@ def _write_outputs(prefix: Path, payload: dict[str, Any]) -> None:
         "analysis_doc_id",
         "analysis_doc_url",
         "runtime_supports_backfill",
-        "runtime_backfill_mode",
         "runtime_backfill_logic",
         "latest_problem_date",
         "latest_problem_status",
@@ -459,7 +455,6 @@ def _write_outputs(prefix: Path, payload: dict[str, Any]) -> None:
         "input_params",
         "analysis_date_params",
         "analysis_basis",
-        "runtime_backfill_mode",
         "backfill_logic",
     ]
     lines = [
@@ -501,8 +496,10 @@ def main() -> None:
 
     cache_path.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
 
+    output_columns = [column for column in payload.get("columns", []) if column != "runtime_backfill_mode"]
+
     output_payload = {
-        "columns": payload.get("columns", []),
+        "columns": output_columns,
         "records": rewritten_records,
         "meta": {
             "analysis_rule": "start_date+end_date => range; required code + required date => code_date; date axis without required code => date; code axis without required date => code; otherwise => other",

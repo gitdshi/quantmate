@@ -23,6 +23,10 @@ logger = logging.getLogger(__name__)
 # Major indices synced by default
 INDEX_CODES = ["000001.SH", "399001.SZ", "399006.SZ", "000300.SH", "000905.SH"]
 
+_APPEND_ONLY_SPECIALIZED_TABLES = {
+    "block_trade",
+}
+
 
 def _load_distinct_table_values(table_name: str, column_names: tuple[str, ...]) -> list[str]:
     engine = get_tushare_engine()
@@ -209,6 +213,14 @@ def _infer_catalog_schema(
             iface.info.target_table,
             schema["column_specs"],
             explicit_key_columns,
+        )
+    if iface.info.target_table in _APPEND_ONLY_SPECIALIZED_TABLES:
+        schema["key_columns"] = ()
+        schema["unique_index_name"] = ""
+        schema["ddl"] = ddl.build_dynamic_table_ddl(
+            iface.info.target_table,
+            schema["column_specs"],
+            (),
         )
     return schema
 
