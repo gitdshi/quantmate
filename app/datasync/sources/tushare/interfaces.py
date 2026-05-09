@@ -1818,6 +1818,7 @@ _ONE_SHOT_DATE_CATALOG_KEYS: dict[str, str] = {
 _PERMISSION_REQUIRED_CATALOG_KEYS: frozenset[str] = frozenset({
     "bo_weekly",
     "bo_monthly",
+    "hk_mins",
     "realtime_list",
     "realtime_quote",
     "realtime_tick",

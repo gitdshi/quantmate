@@ -1715,6 +1715,7 @@ class TestTushareDataSourceRegistration:
 
         specs = (
             _catalog_spec("bo_monthly"),
+            _catalog_spec("hk_mins"),
             _catalog_spec("income"),
             _catalog_spec("fund_nav"),
             _catalog_spec("index_weight"),
@@ -1735,6 +1736,7 @@ class TestTushareDataSourceRegistration:
         assert interfaces["bo_monthly"].supports_scheduled_sync() is True
         assert interfaces["bo_monthly"].supports_backfill() is True
         assert interfaces["bo_monthly"].info.requires_permission == "1"
+        assert interfaces["hk_mins"].info.requires_permission == "1"
         assert interfaces["income"].supports_scheduled_sync() is True
         assert interfaces["income"].supports_backfill() is True
         assert interfaces["fund_nav"].supports_scheduled_sync() is True
