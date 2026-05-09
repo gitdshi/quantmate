@@ -171,10 +171,10 @@ class DataSyncDashboardService:
 
     def get_latest(self, *, days: int = DEFAULT_DASHBOARD_SUMMARY_DAYS) -> Dict[str, Any]:
         del days
-        from app.datasync.service.sync_engine import normalize_stale_running_statuses
+        from app.datasync.service.sync_engine import normalize_stale_running_statuses_best_effort
         from app.infrastructure.db.connections import get_quantmate_engine as get_engine
 
-        normalize_stale_running_statuses()
+        normalize_stale_running_statuses_best_effort()
         cache_key = id(get_engine)
         return _DATASYNC_LATEST_CACHE.get_or_load(
             cache_key,
