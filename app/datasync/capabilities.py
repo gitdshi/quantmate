@@ -90,9 +90,10 @@ def get_item_support_state(
             "sync_supported": False,
         }
 
+    effective_item = _merge_runtime_item_metadata(item, iface)
     auto_sync_supported = _iface_supports_scheduled_sync(iface, source=source, item_key=item_key)
     if source == "tushare":
-        capability_supported = _is_tushare_item_supported(item, source_config=(source_configs or {}).get(source))
+        capability_supported = _is_tushare_item_supported(effective_item, source_config=(source_configs or {}).get(source))
     else:
         capability_supported = True
 
@@ -101,6 +102,18 @@ def get_item_support_state(
         "auto_sync_supported": auto_sync_supported,
         "sync_supported": capability_supported and auto_sync_supported,
     }
+
+
+def _merge_runtime_item_metadata(item: Mapping[str, Any], iface: object) -> dict[str, Any]:
+    effective = dict(item)
+
+    runtime_info = getattr(iface, "info", None)
+    runtime_requires_permission = getattr(runtime_info, "requires_permission", None)
+    normalized_runtime_requires_permission = str(runtime_requires_permission or "").strip().lower()
+    if _requires_explicit_grant(normalized_runtime_requires_permission):
+        effective["requires_permission"] = "1"
+
+    return effective
 
 
 def is_item_capability_supported(

@@ -175,3 +175,30 @@ class TestIsItemSyncSupported:
             "auto_sync_supported": True,
             "sync_supported": True,
         }
+
+    def test_runtime_metadata_can_override_stale_db_permission_flags(self):
+        from app.datasync.capabilities import get_item_support_state
+
+        registry = MagicMock()
+        iface = MagicMock()
+        iface.supports_scheduled_sync.return_value = True
+        iface.info.requires_permission = "1"
+        registry.get_interface.return_value = iface
+
+        state = get_item_support_state(
+            registry,
+            {
+                "source": "tushare",
+                "item_key": "film_record",
+                "api_name": "film_record",
+                "permission_points": 0,
+                "requires_permission": "0",
+            },
+            source_configs={"tushare": {"config_json": {"token_points": 2000}}},
+        )
+
+        assert state == {
+            "capability_supported": False,
+            "auto_sync_supported": True,
+            "sync_supported": False,
+        }

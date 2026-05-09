@@ -28,6 +28,30 @@ class TestStatusHelpers:
             _write_status(date(2024, 1, 5), "tushare", "stock_daily", "success", 100)
         conn.execute.assert_called_once()
 
+    def test_write_status_marks_running_with_started_at_and_open_finish(self):
+        from app.datasync.service.sync_engine import _write_status
+
+        engine, conn = _conn_ctx()
+        with patch(f"{_MOD}.get_quantmate_engine", return_value=engine):
+            _write_status(date(2024, 1, 5), "tushare", "stock_daily", "running", 0)
+
+        sql = conn.execute.call_args.args[0].text
+        assert "VALUES (:sd, :src, :ik, :st, :rows, :err, :rc, NOW(), NULL)" in sql
+        assert "started_at=COALESCE(started_at, NOW())" in sql
+        assert "finished_at=NULL" in sql
+
+    def test_write_status_marks_terminal_states_with_finished_at(self):
+        from app.datasync.service.sync_engine import _write_status
+
+        engine, conn = _conn_ctx()
+        with patch(f"{_MOD}.get_quantmate_engine", return_value=engine):
+            _write_status(date(2024, 1, 5), "tushare", "stock_daily", "success", 100)
+
+        sql = conn.execute.call_args.args[0].text
+        assert "VALUES (:sd, :src, :ik, :st, :rows, :err, :rc, NULL, NOW())" in sql
+        assert "finished_at=NOW()" in sql
+        assert "started_at=COALESCE(started_at, NOW())" not in sql
+
     def test_get_status_found(self):
         from app.datasync.service.sync_engine import _get_status
         engine, conn = _conn_ctx()

@@ -170,16 +170,29 @@ def _write_status(
     retry_count: int = 0,
 ) -> None:
     engine = get_quantmate_engine()
+    is_running = status == SyncStatus.RUNNING.value
+    if is_running:
+        sql = (
+            "INSERT INTO data_sync_status "
+            "(sync_date, source, interface_key, status, rows_synced, error_message, retry_count, started_at, finished_at) "
+            "VALUES (:sd, :src, :ik, :st, :rows, :err, :rc, NOW(), NULL) "
+            "ON DUPLICATE KEY UPDATE "
+            "status=VALUES(status), rows_synced=VALUES(rows_synced), error_message=VALUES(error_message), "
+            "retry_count=VALUES(retry_count), started_at=COALESCE(started_at, NOW()), "
+            "finished_at=NULL, updated_at=CURRENT_TIMESTAMP"
+        )
+    else:
+        sql = (
+            "INSERT INTO data_sync_status "
+            "(sync_date, source, interface_key, status, rows_synced, error_message, retry_count, started_at, finished_at) "
+            "VALUES (:sd, :src, :ik, :st, :rows, :err, :rc, NULL, NOW()) "
+            "ON DUPLICATE KEY UPDATE "
+            "status=VALUES(status), rows_synced=VALUES(rows_synced), error_message=VALUES(error_message), "
+            "retry_count=VALUES(retry_count), finished_at=NOW(), updated_at=CURRENT_TIMESTAMP"
+        )
     with engine.begin() as conn:
         conn.execute(
-            text(
-                "INSERT INTO data_sync_status "
-                "(sync_date, source, interface_key, status, rows_synced, error_message, retry_count, started_at, finished_at) "
-                "VALUES (:sd, :src, :ik, :st, :rows, :err, :rc, NOW(), NOW()) "
-                "ON DUPLICATE KEY UPDATE "
-                "status=VALUES(status), rows_synced=VALUES(rows_synced), error_message=VALUES(error_message), "
-                "retry_count=VALUES(retry_count), finished_at=NOW(), updated_at=CURRENT_TIMESTAMP"
-            ),
+            text(sql),
             {
                 "sd": sync_date,
                 "src": source,
