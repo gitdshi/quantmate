@@ -1145,15 +1145,18 @@ class TestRealtimeQuoteServiceBatch11:
         result = svc._normalize_symbol("000001.SZ")
         assert isinstance(result, str)
 
-    @patch("app.domains.market.realtime_quote_service._fetch_akshare_with_timeout")
-    def test_get_quote_akshare(self, mock_fetch):
-        mock_fetch.return_value = {
-            "last_price": 10.5, "open": 10.0, "high": 11.0, "low": 9.8,
-            "volume": 50000, "bid1": 10.4, "ask1": 10.5,
-        }
+    def test_get_quote_akshare(self, monkeypatch):
         from app.domains.market.realtime_quote_service import RealtimeQuoteService
         svc = RealtimeQuoteService()
-        svc._source = "akshare"
+        parts = [""] * 50
+        parts[1] = "平安银行"
+        parts[3] = "10.5"
+        parts[4] = "10.0"
+        parts[5] = "10.0"
+        parts[6] = "50000"
+        parts[33] = "11.0"
+        parts[34] = "9.8"
+        monkeypatch.setattr(svc, "_fetch_tencent_quote", lambda code: parts)
         result = svc.get_quote("000001.SZ")
         assert "last_price" in result
 

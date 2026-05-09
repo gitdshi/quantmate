@@ -1195,13 +1195,15 @@ class TestRealtimeQuoteServiceBatch10:
 
     def test_get_quote_cn(self, monkeypatch):
         svc = self.mod.RealtimeQuoteService()
-        df = pd.DataFrame({
-            "代码": ["000001"], "名称": ["平安银行"],
-            "最新价": [15.0], "涨跌幅": [2.0], "涨跌额": [0.3],
-            "今开": [14.7], "最高": [15.2], "最低": [14.5], "昨收": [14.7],
-            "成交量": [100000], "成交额": [1500000],
-        })
-        monkeypatch.setattr(self.mod, "_fetch_akshare_with_timeout", self._mock_fetch(df))
+        parts = [""] * 50
+        parts[1] = "平安银行"
+        parts[3] = "15.0"
+        parts[4] = "14.7"
+        parts[5] = "14.8"
+        parts[6] = "100000"
+        parts[33] = "15.2"
+        parts[34] = "14.5"
+        monkeypatch.setattr(svc, "_fetch_tencent_quote", lambda code: parts)
         result = svc._quote_cn("000001.SZ")
         assert result is not None
 # placeholder
