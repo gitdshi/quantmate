@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
+import socket
 import sys
 import time
 from datetime import date
@@ -110,6 +112,24 @@ def run_backfill(registry=None, **_compat):
     return backfill_retry(registry)
 
 
+def _current_backfill_owner_token() -> str:
+    return f"{socket.gethostname()}:{os.getpid()}"
+
+
+def _release_self_stale_backfill_lock() -> bool:
+    from app.domains.extdata.dao.data_sync_status_dao import get_backfill_lock_owner, release_backfill_lock_token
+
+    owner = get_backfill_lock_owner()
+    current_owner = _current_backfill_owner_token()
+    if owner != current_owner:
+        return False
+
+    released = release_backfill_lock_token(current_owner)
+    if released:
+        logger.warning("Released self-stale backfill lock for %s", current_owner)
+    return released
+
+
 def run_backfill_loop(idle_hours: int | None = None, registry=None):
     """Continuously drain backfill work, then sleep until the next cycle."""
     from app.domains.extdata.dao.data_sync_status_dao import is_backfill_locked
@@ -123,6 +143,8 @@ def run_backfill_loop(idle_hours: int | None = None, registry=None):
     logger.info("Backfill loop starting (idle every %dh)", idle_hours)
     while True:
         if is_backfill_locked():
+            if _release_self_stale_backfill_lock():
+                continue
             retry_seconds = _backfill_lock_retry_seconds()
             logger.info(
                 "Backfill loop detected active lock; retrying in %ds",

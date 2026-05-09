@@ -826,6 +826,24 @@ def release_backfill_lock_token(token: str) -> bool:
             return False
 
 
+def get_backfill_lock_owner() -> str | None:
+    """Return the current backfill lock owner token, if any."""
+    ensure_backfill_lock_table()
+    with engine_tm.connect() as conn:
+        row = conn.execute(
+            text(
+                """
+            SELECT locked_by
+            FROM backfill_lock
+            WHERE id = 1 AND is_locked = 1
+            """
+            )
+        ).fetchone()
+        if not row:
+            return None
+        return row[0] or None
+
+
 def is_backfill_locked() -> bool:
     """Check if backfill is currently locked."""
     ensure_backfill_lock_table()

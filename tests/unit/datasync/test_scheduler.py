@@ -87,6 +87,33 @@ class TestBackfillLoop:
         assert mock_backfill.call_count == 2
         mock_sleep.assert_called_once_with(4 * 3600)
 
+    def test_releases_self_stale_lock_before_retrying(self):
+        from app.datasync.scheduler import run_backfill_loop
+
+        registry = MagicMock()
+        with patch(f"{_MOD}._build_registry", return_value=registry), \
+             patch(f"{_MOD}._current_backfill_owner_token", return_value="host:1"), \
+             patch(f"{_MOD}.run_backfill", return_value={}) as mock_backfill, \
+             patch(f"{_MOD}.time.sleep", side_effect=RuntimeError("stop-loop")) as mock_sleep, \
+             patch(
+                 "app.domains.extdata.dao.data_sync_status_dao.is_backfill_locked",
+                 side_effect=[True, False, False],
+             ), \
+             patch(
+                 "app.domains.extdata.dao.data_sync_status_dao.get_backfill_lock_owner",
+                 return_value="host:1",
+             ), \
+             patch(
+                 "app.domains.extdata.dao.data_sync_status_dao.release_backfill_lock_token",
+                 return_value=True,
+             ) as mock_release:
+            with pytest.raises(RuntimeError, match="stop-loop"):
+                run_backfill_loop(idle_hours=4)
+
+        mock_release.assert_called_once_with("host:1")
+        mock_backfill.assert_called_once_with(registry=registry)
+        mock_sleep.assert_called_once_with(4 * 3600)
+
 
 class TestRunVnpy:
     def test_calls_sync(self):
