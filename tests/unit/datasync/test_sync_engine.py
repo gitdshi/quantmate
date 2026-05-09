@@ -117,7 +117,7 @@ class TestGetFailedRecords:
         engine, conn = _conn_ctx()
         rows = [(date(2024, 1, 3), "tushare", "stock_daily", 1)]
         conn.execute.return_value = MagicMock(fetchall=MagicMock(return_value=rows))
-        with patch.dict("os.environ", {"SYNC_STATUS_RUNNING_STALE_HOURS": "8"}), \
+        with patch(f"{_MOD}._running_stale_hours", return_value=8), \
              patch(f"{_MOD}.get_quantmate_engine", return_value=engine):
             _get_failed_records(date(2023, 12, 4), date(2024, 1, 3))
 

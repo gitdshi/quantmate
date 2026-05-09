@@ -654,7 +654,7 @@ class TestRunBackfillTask:
         registry = MagicMock()
         iface = MagicMock()
         iface.sync_date.return_value = SyncResult(
-            SyncStatus.PENDING,
+            SyncStatus.RATE_LIMITED,
             0,
             "daily quota",
             details={"quota_exceeded": True, "quota_scope": "day"},

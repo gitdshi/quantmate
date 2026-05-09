@@ -192,7 +192,7 @@ class TestTushareStockDailyInterface:
             result = TushareStockDailyInterface().sync_date(date(2024, 1, 5))
             assert result.status == SyncStatus.ERROR
 
-    def test_sync_date_quota_returns_pending(self):
+    def test_sync_date_quota_returns_rate_limited(self):
         from app.datasync.service.tushare_ingest import TushareQuotaExceededError
         from app.datasync.sources.tushare.interfaces import TushareStockDailyInterface
 
@@ -202,7 +202,7 @@ class TestTushareStockDailyInterface:
         ):
             result = TushareStockDailyInterface().sync_date(date(2024, 1, 5))
 
-        assert result.status == SyncStatus.PENDING
+        assert result.status == SyncStatus.RATE_LIMITED
         assert result.details["quota_exceeded"] is True
         assert result.details["quota_scope"] == "day"
 
@@ -1134,7 +1134,7 @@ class TestTushareCatalogInterface:
 
         assert result.status == SyncStatus.PARTIAL
 
-    def test_catalog_quota_returns_pending(self):
+    def test_catalog_quota_returns_rate_limited(self):
         from app.datasync.service.tushare_ingest import TushareQuotaExceededError
         from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface, TushareCatalogSpec
 
@@ -1154,7 +1154,7 @@ class TestTushareCatalogInterface:
         ):
             result = iface.sync_date(date(2024, 1, 5))
 
-        assert result.status == SyncStatus.PENDING
+        assert result.status == SyncStatus.RATE_LIMITED
         assert result.details["quota_exceeded"] is True
 
     def test_static_catalog_stock_basic_uses_default_params(self):
