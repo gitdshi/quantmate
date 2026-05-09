@@ -155,6 +155,69 @@ def _get_backfill_source_semaphore(source: str) -> Semaphore | None:
     )
 
 
+def _running_stale_hours() -> int:
+    return get_runtime_int(
+        env_keys=("SYNC_STATUS_RUNNING_STALE_HOURS", "BACKFILL_LOCK_STALE_HOURS"),
+        db_key="datasync.sync_status_running_stale_hours",
+        default=get_runtime_int(
+            env_keys="BACKFILL_LOCK_STALE_HOURS",
+            db_key="datasync.backfill_lock_stale_hours",
+            default=6,
+        ),
+    )
+
+
+def _fresh_running_cutoff_minutes() -> int:
+    return max(
+        1,
+        get_runtime_int(
+            env_keys="SYNC_STATUS_RUNNING_FRESH_MINUTES",
+            db_key="datasync.sync_status_running_fresh_minutes",
+            default=30,
+        ),
+    )
+
+
+def normalize_stale_running_statuses(max_age_hours: int | None = None) -> int:
+    """Reopen stale running rows so only truly active work remains marked running."""
+    stale_hours = _running_stale_hours() if max_age_hours is None else max(int(max_age_hours), 0)
+    stale_seconds = stale_hours * 3600
+    engine = get_quantmate_engine()
+    with engine.begin() as conn:
+        result = conn.execute(
+            text(
+                """
+                UPDATE data_sync_status
+                SET status = :pending_status,
+                    error_message = CASE
+                        WHEN error_message IS NULL OR error_message = '' THEN :message
+                        ELSE CONCAT(:message, ' | ', error_message)
+                    END,
+                    started_at = NULL,
+                    finished_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE status = :running_status
+                  AND TIMESTAMPDIFF(SECOND, COALESCE(updated_at, started_at, created_at), CURRENT_TIMESTAMP) >= :stale_seconds
+                """
+            ),
+            {
+                "pending_status": SyncStatus.PENDING.value,
+                "running_status": SyncStatus.RUNNING.value,
+                "stale_seconds": stale_seconds,
+                "message": "Recovered stale running status for retry",
+            },
+        )
+    return int(result.rowcount or 0)
+
+
+def normalize_stale_running_statuses_best_effort(max_age_hours: int | None = None) -> int:
+    try:
+        return normalize_stale_running_statuses(max_age_hours=max_age_hours)
+    except Exception:
+        logger.exception("Failed to normalize stale running sync statuses")
+        return 0
+
+
 # ---------------------------------------------------------------------------
 # DAO helpers (operate on the new data_sync_status schema)
 # ---------------------------------------------------------------------------
@@ -259,20 +322,12 @@ def _get_failed_records(
 ) -> list[tuple[date, str, str, int, str | None]]:
     """Return retryable records with enough context to decide whether they should be reopened."""
     end = end_date or (date.today() - timedelta(days=1))
-    stale_hours = get_runtime_int(
-        env_keys=("SYNC_STATUS_RUNNING_STALE_HOURS", "BACKFILL_LOCK_STALE_HOURS"),
-        db_key="datasync.sync_status_running_stale_hours",
-        default=get_runtime_int(
-            env_keys="BACKFILL_LOCK_STALE_HOURS",
-            db_key="datasync.backfill_lock_stale_hours",
-            default=6,
-        ),
-    )
+    stale_hours = _running_stale_hours()
     stale_seconds = max(stale_hours, 0) * 3600
     where_clauses = [
         "sync_date <= :e",
         "("
-        "status IN ('error', 'partial', 'pending') "
+        "status IN ('error', 'partial', 'pending', 'rate_limited') "
         "OR ("
         "status = 'running' "
         "AND TIMESTAMPDIFF(SECOND, COALESCE(updated_at, started_at, created_at), CURRENT_TIMESTAMP) >= :stale_seconds"
@@ -323,10 +378,12 @@ def _backfill_status_priority(status: object) -> int:
         return 1
     if normalized == SyncStatus.ERROR.value:
         return 2
-    if normalized == SyncStatus.RUNNING.value:
+    if normalized == SyncStatus.RATE_LIMITED.value:
         return 3
-    if normalized == SyncStatus.SUCCESS.value:
+    if normalized == SyncStatus.RUNNING.value:
         return 4
+    if normalized == SyncStatus.SUCCESS.value:
+        return 5
     return 5
 
 
@@ -356,7 +413,7 @@ def _is_quota_cooldown_record(record: tuple[object, ...], now: datetime | None =
     error_message = record[4] if len(record) > 4 else None
     updated_at = record[7] if len(record) > 7 else None
 
-    if status != SyncStatus.PENDING.value or not error_message or updated_at is None:
+    if status != SyncStatus.RATE_LIMITED.value or not error_message or updated_at is None:
         return False
 
     retry_after_seconds = _parse_quota_retry_after_seconds(error_message)
@@ -373,7 +430,7 @@ def _is_quota_cooldown_record(record: tuple[object, ...], now: datetime | None =
 def _is_quota_pending_record(record: tuple[object, ...]) -> bool:
     status = record[5] if len(record) > 5 else None
     error_message = record[4] if len(record) > 4 else None
-    return status == SyncStatus.PENDING.value and _parse_quota_retry_after_seconds(error_message) is not None
+    return status == SyncStatus.RATE_LIMITED.value and _parse_quota_retry_after_seconds(error_message) is not None
 
 
 def _should_bypass_quota_filters(
@@ -1168,6 +1225,7 @@ def backfill_retry(
 
     results: dict[str, dict] = {}
     try:
+        normalize_stale_running_statuses_best_effort()
         enabled_backfill_keys = _get_enabled_backfill_keys()
         try:
             enabled_items = {(item["source"], item["item_key"]): item for item in _get_enabled_items()}

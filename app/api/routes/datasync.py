@@ -29,8 +29,11 @@ def _get_sync_status_response(
     offset: int,
 ):
     from sqlalchemy import text
+    from app.datasync.base import SyncStatus
+    from app.datasync.service.sync_engine import _fresh_running_cutoff_minutes, normalize_stale_running_statuses_best_effort
     from app.infrastructure.db.connections import get_quantmate_engine
 
+    normalize_stale_running_statuses_best_effort()
     engine = get_quantmate_engine()
 
     conditions = []
@@ -42,8 +45,16 @@ def _get_sync_status_response(
         conditions.append("source = :src")
         params["src"] = source
     if status:
-        conditions.append("status = :st")
-        params["st"] = status
+        if status == SyncStatus.RUNNING.value:
+            conditions.append("status = :st")
+            conditions.append(
+                "COALESCE(updated_at, started_at, created_at) >= (CURRENT_TIMESTAMP - INTERVAL :running_fresh_minutes MINUTE)"
+            )
+            params["st"] = status
+            params["running_fresh_minutes"] = _fresh_running_cutoff_minutes()
+        else:
+            conditions.append("status = :st")
+            params["st"] = status
 
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
@@ -75,7 +86,7 @@ class ManualSyncRequest(BaseModel):
 async def get_sync_status(
     sync_date: Optional[str] = Query(None, description="Filter by date (YYYY-MM-DD)"),
     source: Optional[str] = Query(None, description="Filter by source key"),
-    status: Optional[str] = Query(None, description="Filter by status: pending, running, success, error, partial"),
+    status: Optional[str] = Query(None, description="Filter by status: pending, running, success, error, partial, rate_limited"),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     current_user: TokenData = Depends(get_current_user),

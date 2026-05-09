@@ -79,11 +79,14 @@ class SyncStatusService:
     """Aggregates sync status from the new data_sync_status table."""
 
     def get_sync_status(self) -> Dict[str, Any]:
+        from app.datasync.service.sync_engine import _fresh_running_cutoff_minutes, normalize_stale_running_statuses_best_effort
         from app.datasync.service.init_service import get_coverage_window
 
+        normalize_stale_running_statuses_best_effort()
         engine = get_quantmate_engine()
         coverage_window = get_coverage_window()
         window_start = coverage_window["start_date"]
+        running_fresh_minutes = _fresh_running_cutoff_minutes()
 
         with engine.connect() as conn:
             # Latest finished record
@@ -93,14 +96,20 @@ class SyncStatusService:
             last_finished = row[0] if row else None
 
             # Running count
-            row = conn.execute(text("SELECT COUNT(*) FROM data_sync_status WHERE status = 'running'")).fetchone()
+            row = conn.execute(
+                text(
+                    "SELECT COUNT(*) FROM data_sync_status WHERE status = 'running' "
+                    "AND COALESCE(updated_at, started_at, created_at) >= (CURRENT_TIMESTAMP - INTERVAL :running_fresh_minutes MINUTE)"
+                ),
+                {"running_fresh_minutes": running_fresh_minutes},
+            ).fetchone()
             running_count = row[0] if row else 0
 
             # Failed / pending counts in the configured coverage window
             row = conn.execute(
                 text(
                     "SELECT COUNT(*) FROM data_sync_status "
-                    "WHERE sync_date >= :cutoff AND status IN ('error', 'partial', 'pending')"
+                    "WHERE sync_date >= :cutoff AND status IN ('error', 'partial', 'pending', 'rate_limited')"
                 ),
                 {"cutoff": window_start.isoformat()},
             ).fetchone()
@@ -111,9 +120,11 @@ class SyncStatusService:
             rows = conn.execute(
                 text(
                     "SELECT source, status, COUNT(*) FROM data_sync_status "
-                    "WHERE sync_date >= :cutoff GROUP BY source, status"
+                    "WHERE sync_date >= :cutoff "
+                    "AND (status != 'running' OR COALESCE(updated_at, started_at, created_at) >= (CURRENT_TIMESTAMP - INTERVAL :running_fresh_minutes MINUTE)) "
+                    "GROUP BY source, status"
                 ),
-                {"cutoff": cutoff7},
+                {"cutoff": cutoff7, "running_fresh_minutes": running_fresh_minutes},
             ).fetchall()
             source_summary: dict = {}
             for r in rows:
@@ -146,8 +157,10 @@ class DataSyncDashboardService:
     """Short-lived cached snapshot for the market page datasync widgets."""
 
     def get_summary(self, *, days: int = DEFAULT_DASHBOARD_SUMMARY_DAYS) -> Dict[str, Any]:
+        from app.datasync.service.sync_engine import normalize_stale_running_statuses_best_effort
         from app.infrastructure.db.connections import get_quantmate_engine as get_engine
 
+        normalize_stale_running_statuses_best_effort()
         cache_key = (days, id(get_engine))
         return _DATASYNC_SUMMARY_CACHE.get_or_load(
             cache_key,
@@ -158,8 +171,10 @@ class DataSyncDashboardService:
 
     def get_latest(self, *, days: int = DEFAULT_DASHBOARD_SUMMARY_DAYS) -> Dict[str, Any]:
         del days
+        from app.datasync.service.sync_engine import normalize_stale_running_statuses
         from app.infrastructure.db.connections import get_quantmate_engine as get_engine
 
+        normalize_stale_running_statuses()
         cache_key = id(get_engine)
         return _DATASYNC_LATEST_CACHE.get_or_load(
             cache_key,
@@ -184,9 +199,10 @@ class DataSyncDashboardService:
         from app.datasync.capabilities import is_item_sync_supported, load_source_config_map
         from app.datasync.registry import build_default_registry
         from app.datasync.service.init_service import get_coverage_window
-        from app.datasync.service.sync_engine import get_trade_calendar
+        from app.datasync.service.sync_engine import _fresh_running_cutoff_minutes, get_trade_calendar, normalize_stale_running_statuses_best_effort
         from app.infrastructure.db.connections import get_quantmate_engine as get_engine
 
+        normalize_stale_running_statuses_best_effort()
         coverage_window = get_coverage_window()
         start_date = coverage_window["start_date"]
         end_date = coverage_window["end_date"]
@@ -202,6 +218,7 @@ class DataSyncDashboardService:
         params: dict[str, Any] = {
             "start_date": start_date,
             "end_date": end_date,
+            "running_fresh_minutes": _fresh_running_cutoff_minutes(),
         }
         if source:
             clauses.append("dsi.source = :source")
@@ -248,8 +265,9 @@ class DataSyncDashboardService:
                     "SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS success_count, "
                     "SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS error_count, "
                     "SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending_count, "
-                    "SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) AS running_count, "
+                    "SUM(CASE WHEN status = 'running' AND COALESCE(updated_at, started_at, created_at) >= (CURRENT_TIMESTAMP - INTERVAL :running_fresh_minutes MINUTE) THEN 1 ELSE 0 END) AS running_count, "
                     "SUM(CASE WHEN status = 'partial' THEN 1 ELSE 0 END) AS partial_count, "
+                    "SUM(CASE WHEN status = 'rate_limited' THEN 1 ELSE 0 END) AS rate_limited_count, "
                     "COUNT(*) AS total_count, MAX(sync_date) AS latest_sync_date "
                     "FROM data_sync_status "
                     f"{status_where} "
@@ -273,8 +291,9 @@ class DataSyncDashboardService:
                 "pending": int(row[4] or 0),
                 "running": int(row[5] or 0),
                 "partial": int(row[6] or 0),
-                "total": int(row[7] or 0),
-                "latest_sync_date": row[8],
+                "rate_limited": int(row[7] or 0),
+                "total": int(row[8] or 0),
+                "latest_sync_date": row[9],
             }
             for row in status_rows
         }
@@ -364,6 +383,7 @@ class DataSyncDashboardService:
                         "pending": int(counts.get("pending", 0) or 0),
                         "running": int(counts.get("running", 0) or 0),
                         "partial": int(counts.get("partial", 0) or 0),
+                        "rate_limited": int(counts.get("rate_limited", 0) or 0),
                     },
                 }
             )
@@ -382,20 +402,23 @@ class DataSyncDashboardService:
         }
 
     def _build_summary(self, days: int) -> Dict[str, Any]:
+        from app.datasync.service.sync_engine import _fresh_running_cutoff_minutes
         from app.infrastructure.db.connections import get_quantmate_engine as get_engine
 
         engine = get_engine()
         cutoff = (date.today() - timedelta(days=days)).isoformat()
+        running_fresh_minutes = _fresh_running_cutoff_minutes()
 
         with engine.connect() as conn:
             rows = conn.execute(
                 text(
                     "SELECT sync_date, source, status, COUNT(*) as cnt "
                     "FROM data_sync_status WHERE sync_date >= :cutoff "
+                    "AND (status != 'running' OR COALESCE(updated_at, started_at, created_at) >= (CURRENT_TIMESTAMP - INTERVAL :running_fresh_minutes MINUTE)) "
                     "GROUP BY sync_date, source, status "
                     "ORDER BY sync_date DESC, source, status"
                 ),
-                {"cutoff": cutoff},
+                {"cutoff": cutoff, "running_fresh_minutes": running_fresh_minutes},
             ).fetchall()
 
             summary: dict[str, dict[str, dict[str, int]]] = {}
@@ -413,12 +436,20 @@ class DataSyncDashboardService:
                         "pending": 0,
                         "running": 0,
                         "partial": 0,
+                        "rate_limited": 0,
                     }
-                summary[sync_date][source][status] = count
+                if status == "running":
+                    summary[sync_date][source][status] = count
+                elif status in summary[sync_date][source]:
+                    summary[sync_date][source][status] = count
 
             overall_rows = conn.execute(
-                text("SELECT status, COUNT(*) FROM data_sync_status WHERE sync_date >= :cutoff GROUP BY status"),
-                {"cutoff": cutoff},
+                text(
+                    "SELECT status, COUNT(*) FROM data_sync_status WHERE sync_date >= :cutoff "
+                    "AND (status != 'running' OR COALESCE(updated_at, started_at, created_at) >= (CURRENT_TIMESTAMP - INTERVAL :running_fresh_minutes MINUTE)) "
+                    "GROUP BY status"
+                ),
+                {"cutoff": cutoff, "running_fresh_minutes": running_fresh_minutes},
             ).fetchall()
             overall_map = {row[0]: row[1] for row in overall_rows}
 

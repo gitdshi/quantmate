@@ -25,7 +25,7 @@ def is_param_error(error_message: str | None) -> bool:
 
 def is_quota_pause_result(result: SyncResult) -> bool:
     details = result.details or {}
-    return result.status == SyncStatus.PENDING and bool(details.get("quota_exceeded"))
+    return result.status == SyncStatus.RATE_LIMITED and bool(details.get("quota_exceeded"))
 
 
 def final_retry_count_for_result(result: SyncResult, attempt_retry_count: int) -> int:
@@ -49,7 +49,7 @@ def build_quota_pending_result(exc: Exception) -> SyncResult:
     if retry_after is not None:
         details["quota_retry_after"] = str(retry_after)
 
-    return SyncResult(SyncStatus.PENDING, 0, str(exc), details=details)
+    return SyncResult(SyncStatus.RATE_LIMITED, 0, str(exc), details=details)
 
 
 def handle_tushare_sync_exception(

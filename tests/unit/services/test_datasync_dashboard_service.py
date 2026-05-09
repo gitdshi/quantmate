@@ -4,11 +4,23 @@ from datetime import date
 from unittest.mock import MagicMock, patch
 
 
-def _engine_with_rows(*result_sets):
+def _engine_with_rows(*, item_rows, status_rows, init_rows):
     conn = MagicMock()
-    conn.execute.side_effect = [
-        MagicMock(fetchall=MagicMock(return_value=result_set)) for result_set in result_sets
-    ]
+
+    def _result(rows):
+        return MagicMock(fetchall=MagicMock(return_value=rows))
+
+    def _dispatch(statement, *_args, **_kwargs):
+        sql = getattr(statement, "text", str(statement))
+        if "FROM data_source_items" in sql:
+            return _result(item_rows)
+        if "FROM data_sync_status" in sql:
+            return _result(status_rows)
+        if "FROM sync_status_init" in sql:
+            return _result(init_rows)
+        return _result([])
+
+    conn.execute.side_effect = _dispatch
     ctx = MagicMock()
     ctx.__enter__ = MagicMock(return_value=conn)
     ctx.__exit__ = MagicMock(return_value=False)
@@ -25,12 +37,12 @@ def test_get_interface_coverage_deduplicates_duplicate_item_rows():
         ("tushare", "Tushare Pro", "stock_daily", "Stock Daily", 2, "daily", 120, "0", "backfill", "date"),
     ]
     status_rows = [
-        ("tushare", "stock_daily", 70, 5, 5, 0, 0, 80, date(2026, 4, 22)),
+        ("tushare", "stock_daily", 70, 5, 5, 0, 0, 2, 80, date(2026, 4, 22)),
     ]
     init_rows = [
         ("tushare", "stock_daily", date(2015, 1, 1), date(2026, 4, 22)),
     ]
-    engine = _engine_with_rows(item_rows, status_rows, init_rows)
+    engine = _engine_with_rows(item_rows=item_rows, status_rows=status_rows, init_rows=init_rows)
 
     registry = MagicMock()
     iface = MagicMock()
@@ -55,3 +67,4 @@ def test_get_interface_coverage_deduplicates_duplicate_item_rows():
     assert result["summary"]["items"] == 1
     assert result["items"][0]["item_key"] == "stock_daily"
     assert result["items"][0]["backfill_mode"] == "date"
+    assert result["items"][0]["counts"]["rate_limited"] == 2

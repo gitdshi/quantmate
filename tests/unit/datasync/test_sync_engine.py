@@ -52,6 +52,23 @@ class TestStatusHelpers:
         assert "finished_at=NOW()" in sql
         assert "started_at=COALESCE(started_at, NOW())" not in sql
 
+    def test_normalize_stale_running_statuses_reopens_rows_to_pending(self):
+        from app.datasync.service.sync_engine import normalize_stale_running_statuses
+
+        engine, conn = _conn_ctx()
+        conn.execute.return_value = MagicMock(rowcount=3)
+
+        with patch(f"{_MOD}.get_quantmate_engine", return_value=engine):
+            reopened = normalize_stale_running_statuses(max_age_hours=2)
+
+        sql = conn.execute.call_args.args[0].text
+        params = conn.execute.call_args.args[1]
+        assert "SET status = :pending_status" in sql
+        assert params["pending_status"] == "pending"
+        assert params["running_status"] == "running"
+        assert params["stale_seconds"] == 2 * 3600
+        assert reopened == 3
+
     def test_get_status_found(self):
         from app.datasync.service.sync_engine import _get_status
         engine, conn = _conn_ctx()
@@ -123,7 +140,7 @@ class TestGetFailedRecords:
         assert "status = 'success'" in sql
         assert "COALESCE(rows_synced, 0) = 0" in sql
 
-    def test_prioritizes_pending_then_partial_then_error(self):
+    def test_prioritizes_pending_then_partial_then_error_then_rate_limited(self):
         from app.datasync.service.sync_engine import _get_failed_records
 
         engine, conn = _conn_ctx()
@@ -131,13 +148,14 @@ class TestGetFailedRecords:
             (date(2024, 1, 6), "tushare", "daily", 0, None, "partial", 0, None),
             (date(2024, 1, 7), "tushare", "daily", 0, None, "error", 0, None),
             (date(2024, 1, 5), "tushare", "daily", 0, None, "pending", 0, None),
+            (date(2024, 1, 4), "tushare", "daily", 0, None, "rate_limited", 0, None),
         ]
         conn.execute.return_value = MagicMock(fetchall=MagicMock(return_value=rows))
 
         with patch(f"{_MOD}.get_quantmate_engine", return_value=engine):
             result = _get_failed_records(date(2024, 1, 1), date(2024, 1, 7))
 
-        assert [record[5] for record in result] == ["pending", "partial", "error"]
+        assert [record[5] for record in result] == ["pending", "partial", "error", "rate_limited"]
 
 
 class TestBackfillRetryFiltering:
@@ -151,7 +169,7 @@ class TestBackfillRetryFiltering:
             "us_daily",
             0,
             "抱歉，您每天最多访问该接口5次，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
-            "pending",
+            "rate_limited",
             0,
             updated_at,
         )
@@ -170,7 +188,7 @@ class TestBackfillRetryFiltering:
                 "us_daily",
                 0,
                 "抱歉，您每天最多访问该接口5次，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
-                "pending",
+                "rate_limited",
                 0,
                 updated_at,
             ),
@@ -180,7 +198,7 @@ class TestBackfillRetryFiltering:
                 "stock_daily",
                 0,
                 "some other error",
-                "pending",
+                "rate_limited",
                 0,
                 updated_at,
             ),
@@ -201,7 +219,7 @@ class TestBackfillRetryFiltering:
                 "report_rc",
                 0,
                 "抱歉，您每小时最多访问该接口10次，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
-                "pending",
+                "rate_limited",
                 0,
                 updated_at,
             ),
@@ -211,7 +229,7 @@ class TestBackfillRetryFiltering:
                 "report_rc",
                 0,
                 "抱歉，您每小时最多访问该接口10次，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
-                "pending",
+                "rate_limited",
                 0,
                 updated_at,
             ),
@@ -241,7 +259,7 @@ class TestBackfillRetryFiltering:
             "us_daily",
             0,
             "抱歉，您每天最多访问该接口5次，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
-            "pending",
+            "rate_limited",
             0,
             updated_at,
         )
@@ -732,7 +750,7 @@ class TestBackfillRetry:
         registry = MagicMock()
         iface = MagicMock()
         iface.sync_date.return_value = SyncResult(
-            status=SyncStatus.PENDING,
+            status=SyncStatus.RATE_LIMITED,
             rows_synced=0,
             error_message="daily quota",
             details={"quota_exceeded": True, "quota_scope": "day"},
@@ -747,7 +765,7 @@ class TestBackfillRetry:
              patch("app.domains.extdata.dao.data_sync_status_dao.is_backfill_locked", return_value=False):
             result = backfill_retry(registry, max_workers=1)
 
-        assert result["tushare/stock_daily@2024-01-03"]["status"] == "pending"
+        assert result["tushare/stock_daily@2024-01-03"]["status"] == "rate_limited"
         assert mock_write.call_args_list[0].kwargs["retry_count"] == 3
         assert mock_write.call_args_list[-1].kwargs["retry_count"] == 2
 
@@ -763,7 +781,7 @@ class TestBackfillRetry:
             "us_daily",
             0,
             "抱歉，您每天最多访问该接口5次，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
-            "pending",
+            "rate_limited",
             0,
             quota_updated_at,
         )
@@ -797,7 +815,7 @@ class TestBackfillRetry:
                 "report_rc",
                 0,
                 "抱歉，您每小时最多访问该接口10次，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
-                "pending",
+                "rate_limited",
                 0,
                 updated_at,
             ),
@@ -807,7 +825,7 @@ class TestBackfillRetry:
                 "report_rc",
                 0,
                 "抱歉，您每小时最多访问该接口10次，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
-                "pending",
+                "rate_limited",
                 0,
                 updated_at,
             ),
@@ -833,7 +851,7 @@ class TestBackfillRetry:
         registry = MagicMock()
         quota_iface = MagicMock()
         quota_iface.sync_date.return_value = SyncResult(
-            status=SyncStatus.PENDING,
+            status=SyncStatus.RATE_LIMITED,
             rows_synced=0,
             error_message="hour quota",
             details={"quota_exceeded": True, "quota_scope": "hour", "quota_retry_after": "360"},
@@ -869,7 +887,7 @@ class TestBackfillRetry:
 
         quota_iface.sync_date.assert_called_once_with(date(2024, 1, 4))
         other_iface.sync_date.assert_called_once_with(date(2024, 1, 4))
-        assert result["tushare/report_rc@2024-01-04"]["status"] == "pending"
+        assert result["tushare/report_rc@2024-01-04"]["status"] == "rate_limited"
         assert result["tushare/stock_daily@2024-01-04"]["status"] == "success"
         assert "tushare/report_rc@2024-01-03" not in result
 

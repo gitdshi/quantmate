@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 class SyncStatus(str, Enum):
     PENDING = "pending"
     RUNNING = "running"
+    RATE_LIMITED = "rate_limited"
     SUCCESS = "success"
     PARTIAL = "partial"
     ERROR = "error"
