@@ -1355,6 +1355,7 @@ class TushareBoxOfficeMonthlyInterface(_OneShotDateCatalogInterface):
                 api_name="bo_monthly",
                 target_table="bo_monthly",
                 sync_priority=820,
+                requires_permission="1",
             ),
             request_date_param="date",
         )
@@ -1372,6 +1373,7 @@ class TushareBoxOfficeWeeklyInterface(_OneShotDateCatalogInterface):
                 api_name="bo_weekly",
                 target_table="bo_weekly",
                 sync_priority=821,
+                requires_permission="1",
             ),
             request_date_param="date",
         )
@@ -1820,6 +1822,7 @@ _PERMISSION_REQUIRED_CATALOG_KEYS: frozenset[str] = frozenset({
     "realtime_quote",
     "realtime_tick",
     "film_record",
+    "stk_premarket",
     # These require non-standard params (freq, item) that need custom implementations
     "stk_weekly_monthly",
     "stk_week_month_adj",

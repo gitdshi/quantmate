@@ -383,7 +383,8 @@ class TestVnpySyncForDate:
             lambda d: (0, 0),
         )
         result = _vs.sync_vnpy_for_date(date(2024, 6, 1))
-        assert result.status.value == "partial"
+        assert result.status.value == "success"
+        assert result.error_message == "No new symbols synced"
 
     def test_exception(self, monkeypatch):
         monkeypatch.setattr(

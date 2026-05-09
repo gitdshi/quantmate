@@ -1216,6 +1216,15 @@ class TestTushareCatalogInterface:
         mock_call.assert_called_once_with(interface_key, date="20240105")
         assert mock_insert.call_args.kwargs["key_columns"] == expected_key_columns
 
+    def test_box_office_syncers_require_explicit_runtime_grant(self):
+        from app.datasync.sources.tushare.interfaces import (
+            TushareBoxOfficeMonthlyInterface,
+            TushareBoxOfficeWeeklyInterface,
+        )
+
+        assert TushareBoxOfficeMonthlyInterface().info.requires_permission == "1"
+        assert TushareBoxOfficeWeeklyInterface().info.requires_permission == "1"
+
     @pytest.mark.parametrize(
         ("cls_name", "interface_key", "date_column", "key_columns"),
         [
@@ -1725,6 +1734,7 @@ class TestTushareDataSourceRegistration:
         assert isinstance(interfaces["stk_rewards"], TusharePerSymbolDateCatalogInterface)
         assert interfaces["bo_monthly"].supports_scheduled_sync() is True
         assert interfaces["bo_monthly"].supports_backfill() is True
+        assert interfaces["bo_monthly"].info.requires_permission == "1"
         assert interfaces["income"].supports_scheduled_sync() is True
         assert interfaces["income"].supports_backfill() is True
         assert interfaces["fund_nav"].supports_scheduled_sync() is True

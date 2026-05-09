@@ -22,7 +22,7 @@ def sync_vnpy_for_date(sync_date: date) -> SyncResult:
         total_symbols, total_bars = sync_date_to_vnpy(sync_date)
         if total_symbols > 0:
             return SyncResult(SyncStatus.SUCCESS, total_bars)
-        return SyncResult(SyncStatus.PARTIAL, 0, "No symbols synced")
+        return SyncResult(SyncStatus.SUCCESS, 0, "No new symbols synced")
     except Exception as e:
         logger.exception("VNPy sync failed for %s: %s", sync_date, e)
         return SyncResult(SyncStatus.ERROR, 0, str(e))
