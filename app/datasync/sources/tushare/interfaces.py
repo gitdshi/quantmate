@@ -1220,7 +1220,7 @@ class TushareCyqChipsInterface(_ExplicitKeyCatalogInterface):
         return "date"
 
     def requires_nonempty_trading_day_data(self) -> bool:
-        return True
+        return False
 
     def _schema_date_column(self) -> str | None:
         return "trade_date"

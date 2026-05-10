@@ -665,6 +665,25 @@ class TestDailySync:
         assert result.status == SyncStatus.PENDING
         assert result.rows_synced == 0
 
+    def test_keeps_zero_row_success_for_sparse_trading_day_interface(self):
+        from app.datasync.service.sync_engine import _normalize_zero_row_success
+        from app.datasync.base import SyncResult, SyncStatus
+
+        iface = MagicMock()
+        iface.requires_nonempty_trading_day_data.return_value = False
+
+        with patch(f"{_MOD}.get_trade_calendar", return_value=[date(2024, 1, 5)]):
+            result = _normalize_zero_row_success(
+                iface,
+                date(2024, 1, 5),
+                "tushare",
+                "cyq_chips",
+                SyncResult(SyncStatus.SUCCESS, 0, None),
+            )
+
+        assert result.status == SyncStatus.SUCCESS
+        assert result.rows_synced == 0
+
 
 class TestBackfillRetry:
     def test_no_failed_records(self):

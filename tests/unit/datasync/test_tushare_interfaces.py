@@ -1230,7 +1230,7 @@ class TestTushareCatalogInterface:
         assert iface.supports_scheduled_sync() is True
         assert iface.supports_backfill() is True
         assert iface.backfill_mode() == "date"
-        assert iface.requires_nonempty_trading_day_data() is True
+        assert iface.requires_nonempty_trading_day_data() is False
         assert result.status == SyncStatus.SUCCESS
         assert result.rows_synced == 2
         mock_call.assert_any_call("cyq_chips", ts_code="000001.SZ", trade_date="20240105")
