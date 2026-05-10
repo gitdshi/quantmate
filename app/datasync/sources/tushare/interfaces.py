@@ -331,7 +331,7 @@ def _sync_catalog_by_entities(
             total_rows += rows
         except TushareQuotaExceededError as exc:
             return SyncResult(
-                SyncStatus.PENDING,
+                SyncStatus.RATE_LIMITED,
                 total_rows,
                 str(exc),
                 details=_build_entity_sync_details(
@@ -431,6 +431,8 @@ def _merge_sync_results_by_variant(results: list[tuple[str, SyncResult]]) -> Syn
 
     message = "; ".join(dict.fromkeys(error_messages[:5])) if error_messages else None
     statuses = [result.status for _variant, result in results]
+    if any(status == SyncStatus.RATE_LIMITED for status in statuses):
+        return SyncResult(SyncStatus.RATE_LIMITED, total_rows, message, details=details)
     if any(status == SyncStatus.PENDING for status in statuses):
         return SyncResult(SyncStatus.PENDING, total_rows, message, details=details)
     if any(status == SyncStatus.ERROR for status in statuses):
@@ -1262,7 +1264,7 @@ class TushareCyqChipsInterface(_ExplicitKeyCatalogInterface):
                 total_rows += rows
             except TushareQuotaExceededError as exc:
                 return SyncResult(
-                    SyncStatus.PENDING,
+                    SyncStatus.RATE_LIMITED,
                     total_rows,
                     str(exc),
                     details=self._build_symbol_sync_details(

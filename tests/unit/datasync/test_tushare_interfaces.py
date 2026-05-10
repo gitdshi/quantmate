@@ -1267,10 +1267,34 @@ class TestTushareCatalogInterface:
              patch(f"{_TS_DAO}.insert_catalog_rows", return_value=1):
             result = iface.sync_date(date(2024, 1, 5))
 
-        assert result.status == SyncStatus.PENDING
+        assert result.status == SyncStatus.RATE_LIMITED
         assert result.rows_synced == 1
         assert result.details["quota_exceeded"] is True
         assert result.details["processed_count"] == 1
+
+    def test_variant_merge_preserves_rate_limited_status(self):
+        from app.datasync.base import SyncResult
+        from app.datasync.sources.tushare.interfaces import _merge_sync_results_by_variant
+
+        result = _merge_sync_results_by_variant(
+            [
+                ("week", SyncResult(SyncStatus.SUCCESS, 3)),
+                (
+                    "month",
+                    SyncResult(
+                        SyncStatus.RATE_LIMITED,
+                        1,
+                        "daily quota",
+                        details={"quota_exceeded": True, "quota_retry_after": "3600"},
+                    ),
+                ),
+            ]
+        )
+
+        assert result.status == SyncStatus.RATE_LIMITED
+        assert result.rows_synced == 4
+        assert result.details["quota_exceeded"] is True
+        assert result.details["variant_statuses"] == {"week": "success", "month": "rate_limited"}
 
     @pytest.mark.parametrize(
         ("cls_name", "interface_key", "expected_key_columns"),
