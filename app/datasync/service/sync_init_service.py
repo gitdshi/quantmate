@@ -42,6 +42,18 @@ def _resolve_default_sync_window(end_date: date | None = None) -> tuple[date, da
         logger.exception("Failed to resolve env-aware sync init window; falling back to current end date")
         return resolved_end_date, resolved_end_date
 
+
+def _latest_trade_date_on_or_before(target_date: date) -> date | None:
+    from app.datasync.service.sync_engine import get_trade_calendar
+
+    window_start = target_date - timedelta(days=30)
+    try:
+        trade_days = get_trade_calendar(window_start, target_date)
+    except Exception:
+        logger.exception("Failed to resolve latest trade date on or before %s", target_date)
+        return None
+    return trade_days[-1] if trade_days else None
+
 SYNC_STATUS_INIT_SQL = """
 CREATE TABLE IF NOT EXISTS sync_status_init (
     source VARCHAR(50) NOT NULL,
@@ -178,7 +190,12 @@ def _resolve_reconcile_bounds(
         if resolved_start_date > resolved_end_date:
             resolved_start_date = resolved_end_date
     else:
-        resolved_start_date = resolved_end_date
+        latest_trade_date = _latest_trade_date_on_or_before(resolved_end_date)
+        if latest_trade_date is not None:
+            resolved_start_date = latest_trade_date
+            resolved_end_date = latest_trade_date
+        else:
+            resolved_start_date = resolved_end_date
 
     return resolved_start_date, resolved_end_date, inherited_source_bounds
 
@@ -346,6 +363,14 @@ def initialize_sync_status(
         start_date = default_start_date
     if end_date is None:
         end_date = default_end_date
+
+    if not use_trade_calendar:
+        latest_trade_date = _latest_trade_date_on_or_before(end_date)
+        if latest_trade_date is None:
+            logger.warning("No trade day found on or before %s for %s/%s", end_date, source, item_key)
+            return 0
+        start_date = latest_trade_date
+        end_date = latest_trade_date
 
     from app.datasync.service.sync_engine import get_trade_calendar
 
