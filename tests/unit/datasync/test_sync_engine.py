@@ -646,24 +646,89 @@ class TestDailySync:
         iface.sync_date.assert_called_once_with(date(2024, 1, 5))
         assert result["tushare/stock_daily"]["status"] == "success"
 
-    def test_converts_zero_row_success_to_pending_for_strict_trading_day_interface(self):
-        from app.datasync.service.sync_engine import _normalize_zero_row_success
+    def test_retries_zero_row_success_once_for_strict_trading_day_interface(self):
+        from app.datasync.service.sync_engine import _normalize_zero_row_success, _retry_zero_row_success_once
         from app.datasync.base import SyncResult, SyncStatus
 
         iface = MagicMock()
         iface.requires_nonempty_trading_day_data.return_value = True
 
         with patch(f"{_MOD}.get_trade_calendar", return_value=[date(2024, 1, 5)]):
+            retried = _retry_zero_row_success_once(
+                iface,
+                [date(2024, 1, 5)],
+                "tushare",
+                "stock_daily",
+                SyncResult(SyncStatus.SUCCESS, 0, "No trading data"),
+                lambda: SyncResult(SyncStatus.SUCCESS, 0, None),
+            )
             result = _normalize_zero_row_success(
                 iface,
                 date(2024, 1, 5),
                 "tushare",
                 "stock_daily",
-                SyncResult(SyncStatus.SUCCESS, 0, "No trading data"),
+                retried,
             )
 
-        assert result.status == SyncStatus.PENDING
+        assert result.status == SyncStatus.SUCCESS
         assert result.rows_synced == 0
+
+    def test_daily_sync_retries_zero_row_success_once(self):
+        from app.datasync.service.sync_engine import daily_sync
+        from app.datasync.base import SyncResult, SyncStatus
+
+        registry = MagicMock()
+        iface = MagicMock()
+        iface.requires_nonempty_trading_day_data.return_value = True
+        iface.sync_date.side_effect = [
+            SyncResult(status=SyncStatus.SUCCESS, rows_synced=0),
+            SyncResult(status=SyncStatus.SUCCESS, rows_synced=0),
+        ]
+        registry.get_interface.return_value = iface
+
+        with patch(f"{_MOD}._get_enabled_items", return_value=[
+            {"source": "tushare", "item_key": "stock_daily",
+             "target_database": "ts", "target_table": "stock_daily",
+             "table_created": 1, "sync_priority": 10},
+        ]), \
+            patch(f"{_MOD}._get_status_snapshot", return_value=(None, None)), \
+            patch(f"{_MOD}._write_status") as mock_write, \
+            patch(f"{_MOD}.ensure_table"), \
+            patch(f"{_MOD}.get_trade_calendar", return_value=[date(2024, 1, 5)]):
+            result = daily_sync(registry, target_date=date(2024, 1, 5))
+
+        assert iface.sync_date.call_count == 2
+        assert result["tushare/stock_daily"]["status"] == "success"
+        assert mock_write.call_args_list[-1].args[3] == "success"
+
+    def test_backfill_retries_zero_row_success_once(self):
+        from app.datasync.base import SyncResult, SyncStatus
+        from app.datasync.service.sync_engine import backfill_retry
+
+        registry = MagicMock()
+        iface = MagicMock()
+        iface.requires_nonempty_trading_day_data.return_value = True
+        iface.sync_date.side_effect = [
+            SyncResult(status=SyncStatus.SUCCESS, rows_synced=0),
+            SyncResult(status=SyncStatus.SUCCESS, rows_synced=0),
+        ]
+        registry.get_interface.return_value = iface
+
+        with patch(f"{_MOD}._get_enabled_backfill_keys", return_value={("tushare", "stock_daily")}), \
+             patch(f"{_MOD}._get_failed_records", return_value=[
+                 (date(2024, 1, 3), "tushare", "stock_daily", 0),
+             ]), \
+             patch(f"{_MOD}._write_status") as mock_write, \
+             patch(f"{_MOD}.get_trade_calendar", return_value=[date(2024, 1, 3)]), \
+             patch("app.domains.extdata.dao.data_sync_status_dao.acquire_backfill_lock"), \
+             patch("app.domains.extdata.dao.data_sync_status_dao.release_backfill_lock"), \
+             patch("app.domains.extdata.dao.data_sync_status_dao.is_backfill_locked", return_value=False), \
+             patch(f"{_MOD}.ensure_table"):
+            result = backfill_retry(registry, max_workers=1)
+
+        assert iface.sync_date.call_count == 2
+        assert result["tushare/stock_daily@2024-01-03"]["status"] == "success"
+        assert mock_write.call_args_list[-1].args[3] == "success"
 
     def test_keeps_zero_row_success_for_sparse_trading_day_interface(self):
         from app.datasync.service.sync_engine import _normalize_zero_row_success

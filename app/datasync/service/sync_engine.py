@@ -1029,6 +1029,55 @@ def _should_retry_zero_row_success(iface, sync_date: date, source: str, iface_ke
     return _requires_nonempty_trading_day_data(iface, source, iface_key) and _is_trading_day(sync_date)
 
 
+def _retry_zero_row_success_once(
+    iface,
+    sync_dates: list[date],
+    source: str,
+    iface_key: str,
+    result: SyncResult,
+    retry_once,
+) -> SyncResult:
+    if result.status != SyncStatus.SUCCESS or result.rows_synced != 0:
+        return result
+
+    retry_dates = [
+        sync_date
+        for sync_date in sync_dates
+        if _should_retry_zero_row_success(iface, sync_date, source, iface_key)
+    ]
+    if not retry_dates:
+        return result
+
+    logger.info(
+        "Retrying zero-row success once for %s/%s on %s",
+        source,
+        iface_key,
+        ", ".join(sync_date.isoformat() for sync_date in retry_dates),
+    )
+    try:
+        retry_result = retry_once()
+    except Exception as exc:
+        logger.exception(
+            "Zero-row success retry failed for %s/%s on %s: %s",
+            source,
+            iface_key,
+            ", ".join(sync_date.isoformat() for sync_date in retry_dates),
+            exc,
+        )
+        return SyncResult(SyncStatus.ERROR, 0, str(exc))
+
+    if retry_result.status == SyncStatus.SUCCESS and retry_result.rows_synced == 0:
+        details = dict(retry_result.details or {})
+        details["zero_row_retry_exhausted"] = True
+        return SyncResult(
+            SyncStatus.SUCCESS,
+            0,
+            retry_result.error_message,
+            details=details,
+        )
+    return retry_result
+
+
 def _normalize_zero_row_success(
     iface,
     sync_date: date,
@@ -1037,6 +1086,9 @@ def _normalize_zero_row_success(
     result: SyncResult,
 ) -> SyncResult:
     if result.status != SyncStatus.SUCCESS or result.rows_synced != 0:
+        return result
+
+    if result.details and result.details.get("zero_row_retry_exhausted"):
         return result
 
     if not _should_retry_zero_row_success(iface, sync_date, source, iface_key):
@@ -1126,6 +1178,14 @@ def _sync_one_item(
 
         try:
             result: SyncResult = iface.sync_date(target_date)
+            result = _retry_zero_row_success_once(
+                iface,
+                [target_date],
+                source,
+                item_key,
+                result,
+                lambda: iface.sync_date(target_date),
+            )
             result = _normalize_zero_row_success(iface, target_date, source, item_key, result)
             _write_status(
                 target_date, source, item_key,
@@ -1439,6 +1499,14 @@ def backfill_retry(
                     log_label = f"{task.source}/{task.iface_key}@{task.start_date}->{task.end_date}"
                 try:
                     result = future.result()
+                    result = _retry_zero_row_success_once(
+                        task.iface,
+                        list(task.dates),
+                        task.source,
+                        task.iface_key,
+                        result,
+                        lambda: _execute_backfill_task(task),
+                    )
                     if _is_quota_pause_result(result):
                         interface_key = (task.source, task.iface_key)
                         blocked_interfaces.add(interface_key)
