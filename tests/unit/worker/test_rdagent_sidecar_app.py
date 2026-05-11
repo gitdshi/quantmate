@@ -192,3 +192,66 @@ def test_cancel_endpoint_terminates_running_process(monkeypatch):
     assert response.status_code == 200
     assert response.get_json() == {"run_id": "run-1", "status": "cancelled"}
     assert terminated == [process]
+
+
+def test_parse_discovered_factors_falls_back_to_selector_log(tmp_path):
+    module = _load_sidecar_module()
+
+    (tmp_path / "selector.log").write_text(
+        """
+factor_name: volatility_20d
+factor_description: 20-day rolling volatility
+factor_formulation: std(return_1d, 20)
+
+factor_name: volume_ratio_20d
+factor_description: 20-day volume ratio
+factor_formulation: volume / mean(volume, 20)
+""".strip(),
+        encoding="utf-8",
+    )
+
+    factors = module._parse_discovered_factors(tmp_path)
+
+    assert factors == [
+        {
+            "name": "volatility_20d",
+            "expression": "std(return_1d, 20)",
+            "description": "20-day rolling volatility",
+        },
+        {
+            "name": "volume_ratio_20d",
+            "expression": "volume / mean(volume, 20)",
+            "description": "20-day volume ratio",
+        },
+    ]
+
+
+def test_parse_iterations_synthesizes_iteration_from_selector_log_and_factor_code(tmp_path):
+    module = _load_sidecar_module()
+
+    selector_log = tmp_path / "selector.log"
+    selector_log.write_text(
+        """
+factor_name: volatility_20d
+factor_description: 20-day rolling volatility
+factor_formulation: std(return_1d, 20)
+{"final_feedback": "The factor implementation now runs successfully."}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    factor_dir = tmp_path / "git_ignore_folder" / "RD-Agent_workspace" / "abc123"
+    factor_dir.mkdir(parents=True)
+    (factor_dir / "factor.py").write_text(
+        "def calculate_volatility_20d(df):\n    return df\n",
+        encoding="utf-8",
+    )
+
+    iterations = module._parse_iterations(tmp_path, max_iters=1)
+
+    assert len(iterations) == 1
+    assert iterations[0]["iteration"] == 1
+    assert iterations[0]["hypothesis"] == "Generated factors: volatility_20d"
+    assert iterations[0]["metrics"] == {"generated_factor_count": 1}
+    assert "runs successfully" in iterations[0]["feedback"]
+    assert "calculate_volatility_20d" in iterations[0]["code"]

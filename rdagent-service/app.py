@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -344,6 +345,41 @@ def _parse_iterations(run_dir: Path, max_iters: int) -> list[dict]:
         }
         iterations.append(iteration)
 
+    if iterations:
+        return iterations
+
+    selector_log = _read_text(run_dir / "selector.log")
+    if not selector_log:
+        return []
+
+    discovered = _parse_selector_log_factors(selector_log)
+    factor_files = _find_generated_factor_files(run_dir)
+    if not discovered and not factor_files:
+        return []
+
+    generated_names = [factor["name"] for factor in discovered if factor.get("name")]
+    if not generated_names:
+        generated_names = [name for name in (_extract_factor_name_from_code(path) for path in factor_files) if name]
+
+    hypothesis = None
+    if generated_names:
+        hypothesis = "Generated factors: " + ", ".join(generated_names)
+
+    experiment_code = _read_text(factor_files[0]) if factor_files else None
+
+    return [
+        {
+            "iteration": 1,
+            "hypothesis": hypothesis,
+            "code": experiment_code,
+            "metrics": {
+                "generated_factor_count": len(discovered) or len(factor_files),
+            },
+            "feedback": _extract_final_feedback(selector_log),
+            "status": "completed",
+        }
+    ]
+
     return iterations
 
 
@@ -362,6 +398,83 @@ def _parse_discovered_factors(run_dir: Path) -> list[dict]:
                 factors = data.get("factors", [])
         except (json.JSONDecodeError, OSError):
             pass
+
+    if factors:
+        return factors
+
+    selector_log = _read_text(run_dir / "selector.log")
+    if not selector_log:
+        return []
+
+    return _parse_selector_log_factors(selector_log)
+
+
+def _parse_selector_log_factors(log_text: str) -> list[dict]:
+    factors: list[dict] = []
+    current: dict[str, str] | None = None
+
+    for raw_line in log_text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        if line.startswith("factor_name:"):
+            if current and current.get("name"):
+                factors.append(current)
+            current = {"name": line.split(":", 1)[1].strip()}
+            continue
+
+        if current is None:
+            continue
+
+        if line.startswith("factor_description:"):
+            current["description"] = line.split(":", 1)[1].strip()
+        elif line.startswith("factor_formulation:"):
+            current["expression"] = line.split(":", 1)[1].strip()
+
+    if current and current.get("name"):
+        factors.append(current)
+
+    deduped: dict[str, dict] = {}
+    for factor in factors:
+        name = factor.get("name")
+        if not name:
+            continue
+        deduped[name] = {
+            "name": name,
+            "expression": factor.get("expression") or name,
+            "description": factor.get("description"),
+        }
+
+    return list(deduped.values())
+
+
+def _extract_final_feedback(log_text: str) -> str | None:
+    matches = re.findall(r'"final_feedback"\s*:\s*"((?:[^"\\]|\\.)*)"', log_text)
+    if not matches:
+        return None
+
+    try:
+        return json.loads(f'"{matches[-1]}"')[:10000]
+    except json.JSONDecodeError:
+        return matches[-1][:10000]
+
+
+def _find_generated_factor_files(run_dir: Path) -> list[Path]:
+    workspace_dir = run_dir / "git_ignore_folder" / "RD-Agent_workspace"
+    if not workspace_dir.exists():
+        return []
+    return sorted(workspace_dir.glob("*/factor.py"))
+
+
+def _extract_factor_name_from_code(path: Path) -> str | None:
+    code = _read_text(path)
+    if not code:
+        return None
+    match = re.search(r"def\s+calculate_([A-Za-z0-9_]+)\s*\(", code)
+    if match:
+        return match.group(1)
+    return None
     return factors
 
 
