@@ -77,6 +77,13 @@ def _build_seed_factor_frame(debug: bool) -> pd.DataFrame:
     return pd.DataFrame(data, index=index)
 
 
+def _normalize_openai_compatible_model(model: str) -> str:
+    normalized = model.strip()
+    if not normalized or "/" in normalized:
+        return normalized
+    return f"openai/{normalized}"
+
+
 def _seed_factor_prompt_data(run_dir: Path, env: dict[str, str]) -> None:
     targets = (
         (_resolve_relative_run_path(run_dir, env["FACTOR_CoSTEER_data_folder"]), _build_seed_factor_frame(False)),
@@ -106,7 +113,8 @@ def _resolve_chat_model(env: dict[str, str], requested_model: str) -> str:
     if env.get("OPENAI_API_KEY") and env.get("OPENAI_API_BASE") == env.get(
         "OPENCODE_AI_API_BASE", _OPENCODE_ZEN_API_BASE
     ):
-        return model or env.get("RDAGENT_OPENCODE_CHAT_MODEL", _OPENCODE_ZEN_CHAT_MODEL)
+        selected = model or env.get("RDAGENT_OPENCODE_CHAT_MODEL", _OPENCODE_ZEN_CHAT_MODEL)
+        return _normalize_openai_compatible_model(selected)
 
     if env.get("OPENAI_API_KEY"):
         return model or env.get("CHAT_MODEL", "gpt-4o-mini")

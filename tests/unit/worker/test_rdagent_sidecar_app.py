@@ -81,7 +81,21 @@ def test_build_rdagent_env_maps_opencode_key_to_openai(monkeypatch, tmp_path):
     assert env["LITELLM_CHAT_OPENAI_BASE_URL"] == "https://opencode.ai/zen/v1"
     assert env["LITELLM_EMBEDDING_OPENAI_API_KEY"] == "opencode-key"
     assert env["LITELLM_EMBEDDING_OPENAI_BASE_URL"] == "https://opencode.ai/zen/v1"
-    assert env["CHAT_MODEL"] == "minimax-m2.5-free"
+    assert env["CHAT_MODEL"] == "openai/minimax-m2.5-free"
+
+
+def test_build_rdagent_env_prefixes_requested_opencode_model_for_litellm(monkeypatch, tmp_path):
+    module = _load_sidecar_module()
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_BASE", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("OLLAMA_API_BASE", raising=False)
+    monkeypatch.setenv("OPENCODE_AI_API_KEY", "opencode-key")
+
+    env = module._build_rdagent_env(tmp_path, "minimax-m2.5-free")
+
+    assert env["CHAT_MODEL"] == "openai/minimax-m2.5-free"
 
 
 def test_build_rdagent_env_drops_empty_openai_vars(monkeypatch, tmp_path):
