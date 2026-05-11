@@ -13,6 +13,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
+import httpx
 from sqlalchemy import text
 
 from app.infrastructure.config import get_runtime_str
@@ -199,9 +200,19 @@ class RDAgentService:
         if run["status"] not in (RunStatus.QUEUED.value, RunStatus.RUNNING.value):
             raise ValueError(f"Cannot cancel run in status: {run['status']}")
 
+        queue_cancelled = _cancel_rq_job(run_id)
+        sidecar_cancelled = False
+        if run["status"] == RunStatus.RUNNING.value:
+            sidecar_cancelled = _cancel_sidecar_run(run_id)
+
         _update_run_status(run_id, RunStatus.CANCELLED.value)
         logger.info("[rdagent] Cancelled run %s", run_id)
-        return {"run_id": run_id, "status": RunStatus.CANCELLED.value}
+        return {
+            "run_id": run_id,
+            "status": RunStatus.CANCELLED.value,
+            "queue_cancelled": queue_cancelled,
+            "sidecar_cancelled": sidecar_cancelled,
+        }
 
     def get_iterations(self, user_id: int, run_id: str) -> list[dict[str, Any]]:
         """Get iterations for a mining run."""
@@ -328,6 +339,69 @@ def _update_run_status(
             {"rid": run_id, "status": status, "err": error_message},
         )
         conn.commit()
+
+
+def _get_run_status(run_id: str) -> Optional[str]:
+    with connection(_RDAGENT_DB) as conn:
+        _ensure_rdagent_schema(conn)
+        result = conn.execute(
+            text("SELECT status FROM rdagent_runs WHERE run_id = :rid"),
+            {"rid": run_id},
+        )
+        row = result.mappings().first()
+        return row["status"] if row else None
+
+
+def _cancel_rq_job(run_id: str) -> bool:
+    from rq.command import send_stop_job_command
+    from rq.job import Job
+
+    from app.api.services.job_storage_service import get_job_storage
+    from app.worker.service.config import get_queue
+
+    job_id = f"rdagent-{run_id}"
+    job_storage = get_job_storage()
+    try:
+        job = Job.fetch(job_id, connection=job_storage.redis)
+    except Exception:
+        logger.info("[rdagent] No RQ job found for run %s", run_id)
+        return False
+
+    status = job.get_status(refresh=True)
+    if status == "queued":
+        return job_storage.cancel_job(job_id, get_queue("rdagent"))
+    if status == "started":
+        try:
+            send_stop_job_command(job_storage.redis, job_id)
+            return True
+        except Exception:
+            logger.exception("[rdagent] Failed to stop running RQ job %s", job_id)
+            return False
+    return False
+
+
+def _cancel_sidecar_run(run_id: str) -> bool:
+    from app.infrastructure.config import get_runtime_float, get_settings
+
+    settings = get_settings()
+    sidecar_url = get_runtime_str(
+        env_keys="RDAGENT_SIDECAR_URL",
+        db_key="rdagent.sidecar_url",
+        default=getattr(settings, "rdagent_sidecar_url", "http://rdagent-service:8001"),
+    )
+
+    try:
+        with httpx.Client(timeout=httpx.Timeout(timeout=get_runtime_float(
+            env_keys="RDAGENT_REQUEST_TIMEOUT_SECONDS",
+            db_key="rdagent.request_timeout_seconds",
+            default=14400.0,
+        ))) as client:
+            resp = client.post(f"{sidecar_url}/runs/{run_id}/cancel")
+            resp.raise_for_status()
+            return resp.json().get("status") == "cancelled"
+    except Exception:
+        logger.exception("[rdagent] Failed to cancel sidecar run %s", run_id)
+        return False
 
 
 def save_iteration(

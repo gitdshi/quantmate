@@ -47,11 +47,13 @@ class TestRunRDAgentMiningTask:
 
     @patch("app.worker.service.rdagent_tasks._call_sidecar_mining")
     @patch("app.worker.service.rdagent_tasks._get_feature_descriptor")
+    @patch("app.domains.factors.rdagent_service._get_run_status")
     @patch("app.domains.factors.rdagent_service._update_run_status")
-    def test_sidecar_failure(self, mock_update_status, mock_get_fd, mock_sidecar):
+    def test_sidecar_failure(self, mock_update_status, mock_get_run_status, mock_get_fd, mock_sidecar):
         mock_fd = MagicMock()
         mock_fd.build_prompt_context.return_value = "test prompt"
         mock_get_fd.return_value = mock_fd
+        mock_get_run_status.return_value = "running"
 
         mock_sidecar.return_value = {
             "status": "failed",
@@ -66,6 +68,33 @@ class TestRunRDAgentMiningTask:
 
         assert result["status"] == "failed"
         assert result["error"] == "Sidecar crashed"
+
+    @patch("app.worker.service.rdagent_tasks._call_sidecar_mining")
+    @patch("app.worker.service.rdagent_tasks._get_feature_descriptor")
+    @patch("app.domains.factors.rdagent_service._get_run_status")
+    @patch("app.domains.factors.rdagent_service._update_run_status")
+    def test_sidecar_cancelled_preserves_cancelled_status(
+        self, mock_update_status, mock_get_run_status, mock_get_fd, mock_sidecar
+    ):
+        mock_fd = MagicMock()
+        mock_fd.build_prompt_context.return_value = "test prompt"
+        mock_get_fd.return_value = mock_fd
+        mock_get_run_status.return_value = "cancelled"
+
+        mock_sidecar.return_value = {
+            "status": "cancelled",
+            "error": "cancelled by user",
+        }
+
+        result = run_rdagent_mining_task(
+            user_id=1,
+            run_id="test-run-id",
+            config_dict={"scenario": "fin_factor"},
+        )
+
+        assert result["status"] == "cancelled"
+        mock_update_status.assert_any_call("test-run-id", "running")
+        mock_update_status.assert_any_call("test-run-id", "cancelled", "cancelled by user")
 
     @patch("app.worker.service.rdagent_tasks._call_sidecar_mining")
     @patch("app.worker.service.rdagent_tasks._get_feature_descriptor")

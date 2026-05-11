@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 import sys
+from unittest.mock import MagicMock
 
 import pandas as pd
 
@@ -172,3 +173,22 @@ def test_seed_factor_prompt_data_creates_expected_assets(tmp_path, monkeypatch):
     assert debug_path.exists()
     assert readme_path.exists()
     assert written_paths == [data_path, debug_path]
+
+
+def test_cancel_endpoint_terminates_running_process(monkeypatch):
+    module = _load_sidecar_module()
+
+    process = MagicMock()
+    process.poll.return_value = None
+    module._RUNNING_PROCESSES.clear()
+    module._RUNNING_PROCESSES["run-1"] = process
+
+    terminated = []
+    monkeypatch.setattr(module, "_terminate_process", lambda proc: terminated.append(proc))
+
+    client = module.app.test_client()
+    response = client.post("/runs/run-1/cancel")
+
+    assert response.status_code == 200
+    assert response.get_json() == {"run_id": "run-1", "status": "cancelled"}
+    assert terminated == [process]

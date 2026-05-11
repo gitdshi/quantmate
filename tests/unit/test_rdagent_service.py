@@ -165,14 +165,40 @@ class TestRDAgentServiceListRuns:
 
 class TestRDAgentServiceCancelRun:
 
+    @patch("app.domains.factors.rdagent_service._cancel_rq_job")
+    @patch("app.domains.factors.rdagent_service._cancel_sidecar_run")
     @patch("app.domains.factors.rdagent_service._update_run_status")
     @patch("app.domains.factors.rdagent_service.RDAgentService.get_run")
-    def test_cancel_queued_run(self, mock_get, mock_update):
+    def test_cancel_queued_run(self, mock_get, mock_update, mock_cancel_sidecar, mock_cancel_rq):
         mock_get.return_value = {"run_id": "r1", "status": "queued"}
+        mock_cancel_rq.return_value = True
 
         svc = RDAgentService()
         result = svc.cancel_run(user_id=1, run_id="r1")
         assert result["status"] == "cancelled"
+        assert result["queue_cancelled"] is True
+        assert result["sidecar_cancelled"] is False
+        mock_cancel_rq.assert_called_once_with("r1")
+        mock_cancel_sidecar.assert_not_called()
+        mock_update.assert_called_once_with("r1", "cancelled")
+
+    @patch("app.domains.factors.rdagent_service._cancel_rq_job")
+    @patch("app.domains.factors.rdagent_service._cancel_sidecar_run")
+    @patch("app.domains.factors.rdagent_service._update_run_status")
+    @patch("app.domains.factors.rdagent_service.RDAgentService.get_run")
+    def test_cancel_running_run_stops_sidecar(self, mock_get, mock_update, mock_cancel_sidecar, mock_cancel_rq):
+        mock_get.return_value = {"run_id": "r1", "status": "running"}
+        mock_cancel_rq.return_value = True
+        mock_cancel_sidecar.return_value = True
+
+        svc = RDAgentService()
+        result = svc.cancel_run(user_id=1, run_id="r1")
+
+        assert result["status"] == "cancelled"
+        assert result["queue_cancelled"] is True
+        assert result["sidecar_cancelled"] is True
+        mock_cancel_rq.assert_called_once_with("r1")
+        mock_cancel_sidecar.assert_called_once_with("r1")
         mock_update.assert_called_once_with("r1", "cancelled")
 
     @patch("app.domains.factors.rdagent_service.RDAgentService.get_run")

@@ -9,8 +9,10 @@ from __future__ import annotations
 import json
 import logging
 import os
+import signal
 import subprocess
 import sys
+import threading
 import traceback
 from pathlib import Path
 
@@ -20,6 +22,9 @@ from flask import Flask, jsonify, request
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("rdagent-sidecar")
+
+_RUNNING_PROCESSES: dict[str, subprocess.Popen[str]] = {}
+_RUNNING_PROCESSES_LOCK = threading.Lock()
 
 WORKSPACE = Path(os.getenv("RDAGENT_WORKSPACE", "/tmp/rdagent_workspace"))
 WORKSPACE.mkdir(parents=True, exist_ok=True)
@@ -105,6 +110,47 @@ def _seed_factor_prompt_data(run_dir: Path, env: dict[str, str]) -> None:
             readme_path.write_text(_SEEDED_FACTOR_README, encoding="utf-8")
 
 
+def _register_running_process(run_id: str, process: subprocess.Popen[str]) -> None:
+    with _RUNNING_PROCESSES_LOCK:
+        _RUNNING_PROCESSES[run_id] = process
+
+
+def _get_running_process(run_id: str) -> subprocess.Popen[str] | None:
+    with _RUNNING_PROCESSES_LOCK:
+        return _RUNNING_PROCESSES.get(run_id)
+
+
+def _pop_running_process(run_id: str) -> subprocess.Popen[str] | None:
+    with _RUNNING_PROCESSES_LOCK:
+        return _RUNNING_PROCESSES.pop(run_id, None)
+
+
+def _terminate_process(process: subprocess.Popen[str]) -> None:
+    if process.poll() is not None:
+        return
+
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+
+    try:
+        process.wait(timeout=5)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return
+
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        logger.warning("Timed out waiting for RD-Agent subprocess %s to exit", process.pid)
+
+
 def _resolve_chat_model(env: dict[str, str], requested_model: str) -> str:
     model = requested_model.strip() if requested_model else ""
     if model.startswith("ollama/"):
@@ -186,6 +232,17 @@ def health():
     return jsonify({"status": "ok"})
 
 
+@app.route("/runs/<run_id>/cancel", methods=["POST"])
+def cancel_run(run_id: str):
+    process = _get_running_process(run_id)
+    if process is None or process.poll() is not None:
+        return jsonify({"run_id": run_id, "status": "not_running"})
+
+    logger.info("Cancelling mining run %s", run_id)
+    _terminate_process(process)
+    return jsonify({"run_id": run_id, "status": "cancelled"})
+
+
 @app.route("/mine", methods=["POST"])
 def mine():
     """Execute an RD-Agent factor mining run.
@@ -220,36 +277,45 @@ def mine():
 
         cmd_parts = _build_rdagent_command(scenario, max_iterations)
 
-        result = subprocess.run(
+        process = subprocess.Popen(
             cmd_parts,
             cwd=str(run_dir),
             env=env,
             capture_output=True,
             text=True,
-            timeout=max_iterations * _TIMEOUT_PER_ITERATION_SECONDS,
+            start_new_session=True,
         )
+        _register_running_process(run_id, process)
+        stdout, stderr = process.communicate(timeout=max_iterations * _TIMEOUT_PER_ITERATION_SECONDS)
 
-        logger.info("rdagent exited with code %d", result.returncode)
-        if result.returncode != 0:
-            logger.warning("rdagent stderr: %s", result.stderr[:2000])
+        logger.info("rdagent exited with code %d", process.returncode)
+        if process.returncode != 0:
+            logger.warning("rdagent stderr: %s", stderr[:2000])
 
         # Parse results from workspace
         iterations = _parse_iterations(run_dir, max_iterations)
         discovered = _parse_discovered_factors(run_dir)
 
+        status = "cancelled" if process.returncode == -signal.SIGTERM else "completed" if process.returncode == 0 else "failed"
+
         return jsonify({
-            "status": "completed" if result.returncode == 0 else "failed",
+            "status": status,
             "iterations": iterations,
             "discovered_factors": discovered,
-            "error": result.stderr[:1000] if result.returncode != 0 else None,
+            "error": stderr[:1000] if process.returncode != 0 else None,
         })
 
     except subprocess.TimeoutExpired:
         logger.error("Mining run %s timed out", run_id)
+        process = _get_running_process(run_id)
+        if process is not None:
+            _terminate_process(process)
         return jsonify({"status": "failed", "error": "Mining run timed out", "iterations": [], "discovered_factors": []})
     except Exception as e:
         logger.exception("Mining run %s failed: %s", run_id, e)
         return jsonify({"status": "failed", "error": str(e), "traceback": traceback.format_exc(), "iterations": [], "discovered_factors": []})
+    finally:
+        _pop_running_process(run_id)
 
 
 def _parse_iterations(run_dir: Path, max_iters: int) -> list[dict]:

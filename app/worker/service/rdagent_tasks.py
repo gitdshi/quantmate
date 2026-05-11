@@ -36,6 +36,16 @@ def _get_feature_descriptor():
     return _feature_descriptor
 
 
+def _is_run_cancelled(run_id: str) -> bool:
+    try:
+        from app.domains.factors.rdagent_service import _get_run_status
+
+        return _get_run_status(run_id) == "cancelled"
+    except Exception:
+        logger.debug("[rdagent-worker] Could not load run status for %s", run_id, exc_info=True)
+        return False
+
+
 def run_rdagent_mining_task(
     user_id: int,
     run_id: str,
@@ -70,6 +80,14 @@ def run_rdagent_mining_task(
             config=config_dict,
             prompt_context=prompt_context,
         )
+
+        if result.get("status") == "cancelled" or _is_run_cancelled(run_id):
+            _update_run_status(run_id, "cancelled", result.get("error"))
+            return {
+                "run_id": run_id,
+                "status": "cancelled",
+                "error": result.get("error"),
+            }
 
         if result.get("status") == "failed":
             _update_run_status(run_id, "failed", result.get("error"))
@@ -120,7 +138,8 @@ def run_rdagent_mining_task(
         try:
             from app.domains.factors.rdagent_service import _update_run_status
 
-            _update_run_status(run_id, "failed", str(e))
+            if not _is_run_cancelled(run_id):
+                _update_run_status(run_id, "failed", str(e))
         except Exception:
             logger.exception("[rdagent-worker] Failed to update run status")
         return {
