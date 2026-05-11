@@ -282,3 +282,25 @@ def test_parse_discovered_factors_reads_embedded_log_blocks(tmp_path):
             "description": "[Volatility Factor] Intraday range scaled by open",
         },
     ]
+
+
+def test_parse_discovered_factors_reads_past_default_text_limit(tmp_path):
+    module = _load_sidecar_module()
+
+    filler = "x" * 12050
+    (tmp_path / "selector.log").write_text(
+        filler
+        + "\n"
+        + '2026-05-11 12:42:25.183 | INFO | embed - Creating embedding for: ["factor_name: Volatility_5d\\nfactor_description: [Volatility Factor] 5-day rolling volatility\\nfactor_formulation: rolling_std(return, 5)\\nvariables: {}"]',
+        encoding="utf-8",
+    )
+
+    factors = module._parse_discovered_factors(tmp_path)
+
+    assert factors == [
+        {
+            "name": "Volatility_5d",
+            "expression": "rolling_std(return, 5)",
+            "description": "[Volatility Factor] 5-day rolling volatility",
+        }
+    ]

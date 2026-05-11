@@ -348,7 +348,7 @@ def _parse_iterations(run_dir: Path, max_iters: int) -> list[dict]:
     if iterations:
         return iterations
 
-    selector_log = _read_text(run_dir / "selector.log")
+    selector_log = _read_text(run_dir / "selector.log", limit=None)
     if not selector_log:
         return []
 
@@ -402,7 +402,7 @@ def _parse_discovered_factors(run_dir: Path) -> list[dict]:
     if factors:
         return factors
 
-    selector_log = _read_text(run_dir / "selector.log")
+    selector_log = _read_text(run_dir / "selector.log", limit=None)
     if not selector_log:
         return []
 
@@ -496,10 +496,13 @@ def _extract_factor_name_from_code(path: Path) -> str | None:
     return None
 
 
-def _read_text(path: Path) -> str | None:
+def _read_text(path: Path, limit: int | None = 10000) -> str | None:
     if path.exists():
         try:
-            return path.read_text(encoding="utf-8")[:10000]
+            content = path.read_text(encoding="utf-8")
+            if limit is None:
+                return content
+            return content[:limit]
         except OSError:
             return None
     return None
