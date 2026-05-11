@@ -49,8 +49,11 @@ services:
       - "8001:8001"
     environment:
       RDAGENT_WORKSPACE: /tmp/rdagent_workspace
-      CHAT_MODEL: ${RDAGENT_LLM_MODEL:-gpt-4o-mini}
+      CHAT_MODEL: ${RDAGENT_LLM_MODEL:-minimax-m2.5-free}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENCODE_AI_API_KEY: ${OPENCODE_AI_API_KEY:-}
+      OPENCODE_AI_API_BASE: ${OPENCODE_AI_API_BASE:-https://opencode.ai/zen/v1}
+      RDAGENT_OPENCODE_CHAT_MODEL: ${RDAGENT_OPENCODE_CHAT_MODEL:-minimax-m2.5-free}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./.data/rdagent:/tmp/rdagent_workspace

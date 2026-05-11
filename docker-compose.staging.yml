@@ -25,7 +25,7 @@ services:
       - TUSHARE_GRANTED_API_NAMES=${TUSHARE_GRANTED_API_NAMES:-}
       - SYNC_INIT_DEFAULT_START_DATE=${SYNC_INIT_DEFAULT_START_DATE:-}
       - TUSHARE_DATABASE=tushare
-      - RDAGENT_LLM_MODEL=${RDAGENT_LLM_MODEL:-ollama/mistral:7b}
+      - RDAGENT_LLM_MODEL=${RDAGENT_LLM_MODEL:-minimax-m2.5-free}
       - RDAGENT_SIDECAR_URL=http://rdagent-service:8001
       # Redis Settings
       - REDIS_HOST=redis
@@ -106,7 +106,7 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - DEBUG=false
-      - RDAGENT_LLM_MODEL=${RDAGENT_LLM_MODEL:-ollama/mistral:7b}
+      - RDAGENT_LLM_MODEL=${RDAGENT_LLM_MODEL:-minimax-m2.5-free}
     command: ["python", "-m", "app.datasync.scheduler", "--daemon"]
     networks:
       - quantmate_network
@@ -146,10 +146,13 @@ services:
     restart: unless-stopped
     environment:
       - RDAGENT_WORKSPACE=/tmp/rdagent_workspace
-      - CHAT_MODEL=${RDAGENT_LLM_MODEL:-gpt-4o-mini}
+      - CHAT_MODEL=${RDAGENT_LLM_MODEL:-minimax-m2.5-free}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENCODE_AI_API_KEY=${OPENCODE_AI_API_KEY:-}
+      - OPENCODE_AI_API_BASE=${OPENCODE_AI_API_BASE:-https://opencode.ai/zen/v1}
       - OLLAMA_API_BASE=${OLLAMA_API_BASE:-http://172.17.0.1:11434}
-      - RDAGENT_OLLAMA_CHAT_MODEL=${RDAGENT_OLLAMA_CHAT_MODEL:-ollama/mistral:7b}
+      - RDAGENT_OLLAMA_CHAT_MODEL=${RDAGENT_OLLAMA_CHAT_MODEL:-ollama/qwen2.5:0.5b}
+      - RDAGENT_OPENCODE_CHAT_MODEL=${RDAGENT_OPENCODE_CHAT_MODEL:-minimax-m2.5-free}
       - RDAGENT_OLLAMA_EMBEDDING_MODEL=${RDAGENT_OLLAMA_EMBEDDING_MODEL:-ollama/nomic-embed-text:latest}
       - LITELLM_CHAT_STREAM=${LITELLM_CHAT_STREAM:-false}
       - RDAGENT_TIMEOUT_PER_ITERATION_SECONDS=${RDAGENT_TIMEOUT_PER_ITERATION_SECONDS:-1800}

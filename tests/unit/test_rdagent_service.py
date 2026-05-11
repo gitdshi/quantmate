@@ -30,7 +30,7 @@ class TestRDAgentMiningConfig:
         cfg = RDAgentMiningConfig()
         assert cfg.scenario == "fin_factor"
         assert cfg.max_iterations == 10
-        assert cfg.llm_model == "gpt-4o-mini"
+        assert cfg.llm_model == "minimax-m2.5-free"
         assert cfg.universe == "csi300"
         assert cfg.feature_columns == []
         assert cfg.hypothesis_type == "factor"

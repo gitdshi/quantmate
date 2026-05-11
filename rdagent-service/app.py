@@ -26,7 +26,9 @@ WORKSPACE.mkdir(parents=True, exist_ok=True)
 
 _FACTOR_DATA_DIR = "git_ignore_folder/factor_implementation_source_data"
 _FACTOR_DATA_DEBUG_DIR = "git_ignore_folder/factor_implementation_source_data_debug"
-_OLLAMA_CHAT_MODEL = "ollama/mistral:7b"
+_OPENCODE_ZEN_API_BASE = "https://opencode.ai/zen/v1"
+_OPENCODE_ZEN_CHAT_MODEL = "minimax-m2.5-free"
+_OLLAMA_CHAT_MODEL = "ollama/qwen2.5:0.5b"
 _OLLAMA_EMBEDDING_MODEL = "ollama/nomic-embed-text:latest"
 _TIMEOUT_PER_ITERATION_SECONDS = int(os.getenv("RDAGENT_TIMEOUT_PER_ITERATION_SECONDS", "1800"))
 _SEEDED_FACTOR_COLUMNS = {
@@ -101,6 +103,11 @@ def _resolve_chat_model(env: dict[str, str], requested_model: str) -> str:
     if model.startswith("ollama/"):
         return model
 
+    if env.get("OPENAI_API_KEY") and env.get("OPENAI_API_BASE") == env.get(
+        "OPENCODE_AI_API_BASE", _OPENCODE_ZEN_API_BASE
+    ):
+        return model or env.get("RDAGENT_OPENCODE_CHAT_MODEL", _OPENCODE_ZEN_CHAT_MODEL)
+
     if env.get("OPENAI_API_KEY"):
         return model or env.get("CHAT_MODEL", "gpt-4o-mini")
 
@@ -112,13 +119,23 @@ def _resolve_chat_model(env: dict[str, str], requested_model: str) -> str:
 
 def _build_rdagent_env(run_dir: Path, llm_model: str) -> dict[str, str]:
     env = os.environ.copy()
+    for key in ("OPENAI_API_KEY", "OPENAI_API_BASE", "OPENAI_BASE_URL", "OPENCODE_AI_API_KEY", "OPENCODE_AI_API_BASE"):
+        if env.get(key) == "":
+            env.pop(key, None)
+
     env["RDAGENT_WORKSPACE"] = str(run_dir)
     env["CONDA_DEFAULT_ENV"] = env.get("CONDA_DEFAULT_ENV") or "base"
+    env["BACKEND"] = env.get("BACKEND") or "rdagent.oai.backend.LiteLLMAPIBackend"
     env["FACTOR_CoSTEER_python_bin"] = env.get("FACTOR_CoSTEER_python_bin") or sys.executable
     env["FACTOR_CoSTEER_data_folder"] = env.get("FACTOR_CoSTEER_data_folder") or _FACTOR_DATA_DIR
     env["FACTOR_CoSTEER_data_folder_debug"] = (
         env.get("FACTOR_CoSTEER_data_folder_debug") or _FACTOR_DATA_DEBUG_DIR
     )
+
+    if not env.get("OPENAI_API_KEY") and env.get("OPENCODE_AI_API_KEY"):
+        env["OPENAI_API_KEY"] = env["OPENCODE_AI_API_KEY"]
+        env["OPENAI_API_BASE"] = env.get("OPENCODE_AI_API_BASE") or _OPENCODE_ZEN_API_BASE
+        env["OPENAI_BASE_URL"] = env["OPENAI_API_BASE"]
 
     if not env.get("OPENAI_API_KEY") and env.get("OLLAMA_API_BASE"):
         env["EMBEDDING_MODEL"] = env.get("EMBEDDING_MODEL") or env.get(

@@ -103,7 +103,7 @@ def get_default_rdagent_llm_model() -> str:
     return get_runtime_str(
         env_keys="RDAGENT_LLM_MODEL",
         db_key="rdagent.llm_model",
-        default="gpt-4o-mini",
+        default="minimax-m2.5-free",
     )
 
 

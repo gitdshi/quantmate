@@ -45,22 +45,65 @@ def test_build_rdagent_env_prefers_local_ollama_without_openai_key(monkeypatch, 
     module = _load_sidecar_module()
 
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_BASE", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENCODE_AI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENCODE_AI_API_BASE", raising=False)
     monkeypatch.setenv("OLLAMA_API_BASE", "http://127.0.0.1:11434")
 
     env = module._build_rdagent_env(tmp_path, "gpt-4o-mini")
 
-    assert env["CHAT_MODEL"] == "ollama/mistral:7b"
+    assert env["CHAT_MODEL"] == "ollama/qwen2.5:0.5b"
     assert env["EMBEDDING_MODEL"] == "ollama/nomic-embed-text:latest"
     assert env["LITELLM_CHAT_STREAM"] == "false"
     assert env["LITELLM_ENABLE_RESPONSE_SCHEMA"] == "false"
     assert env["CONDA_DEFAULT_ENV"] == "base"
     assert env["FACTOR_CoSTEER_python_bin"] == sys.executable
+    assert env["BACKEND"] == "rdagent.oai.backend.LiteLLMAPIBackend"
+
+
+def test_build_rdagent_env_maps_opencode_key_to_openai(monkeypatch, tmp_path):
+    module = _load_sidecar_module()
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_BASE", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("OLLAMA_API_BASE", raising=False)
+    monkeypatch.setenv("OPENCODE_AI_API_KEY", "opencode-key")
+
+    env = module._build_rdagent_env(tmp_path, "")
+
+    assert env["OPENAI_API_KEY"] == "opencode-key"
+    assert env["OPENAI_API_BASE"] == "https://opencode.ai/zen/v1"
+    assert env["OPENAI_BASE_URL"] == "https://opencode.ai/zen/v1"
+    assert env["CHAT_MODEL"] == "minimax-m2.5-free"
+
+
+def test_build_rdagent_env_drops_empty_openai_vars(monkeypatch, tmp_path):
+    module = _load_sidecar_module()
+
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+    monkeypatch.setenv("OPENAI_API_BASE", "")
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENCODE_AI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENCODE_AI_API_BASE", raising=False)
+    monkeypatch.setenv("OLLAMA_API_BASE", "http://127.0.0.1:11434")
+
+    env = module._build_rdagent_env(tmp_path, "")
+
+    assert env["CHAT_MODEL"] == "ollama/qwen2.5:0.5b"
+    assert "OPENAI_API_KEY" not in env
+    assert "OPENAI_API_BASE" not in env
 
 
 def test_build_rdagent_env_preserves_openai_model_when_key_present(monkeypatch, tmp_path):
     module = _load_sidecar_module()
 
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.delenv("OPENAI_API_BASE", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENCODE_AI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENCODE_AI_API_BASE", raising=False)
     monkeypatch.delenv("OLLAMA_API_BASE", raising=False)
 
     env = module._build_rdagent_env(tmp_path, "gpt-4o-mini")
