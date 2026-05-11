@@ -281,8 +281,9 @@ def mine():
             cmd_parts,
             cwd=str(run_dir),
             env=env,
-            capture_output=True,
             text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             start_new_session=True,
         )
         _register_running_process(run_id, process)
