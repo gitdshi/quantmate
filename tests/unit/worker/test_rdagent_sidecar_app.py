@@ -76,6 +76,11 @@ def test_build_rdagent_env_maps_opencode_key_to_openai(monkeypatch, tmp_path):
     assert env["OPENAI_API_KEY"] == "opencode-key"
     assert env["OPENAI_API_BASE"] == "https://opencode.ai/zen/v1"
     assert env["OPENAI_BASE_URL"] == "https://opencode.ai/zen/v1"
+    assert env["LITELLM_OPENAI_API_KEY"] == "opencode-key"
+    assert env["LITELLM_CHAT_OPENAI_API_KEY"] == "opencode-key"
+    assert env["LITELLM_CHAT_OPENAI_BASE_URL"] == "https://opencode.ai/zen/v1"
+    assert env["LITELLM_EMBEDDING_OPENAI_API_KEY"] == "opencode-key"
+    assert env["LITELLM_EMBEDDING_OPENAI_BASE_URL"] == "https://opencode.ai/zen/v1"
     assert env["CHAT_MODEL"] == "minimax-m2.5-free"
 
 

@@ -119,7 +119,18 @@ def _resolve_chat_model(env: dict[str, str], requested_model: str) -> str:
 
 def _build_rdagent_env(run_dir: Path, llm_model: str) -> dict[str, str]:
     env = os.environ.copy()
-    for key in ("OPENAI_API_KEY", "OPENAI_API_BASE", "OPENAI_BASE_URL", "OPENCODE_AI_API_KEY", "OPENCODE_AI_API_BASE"):
+    for key in (
+        "OPENAI_API_KEY",
+        "OPENAI_API_BASE",
+        "OPENAI_BASE_URL",
+        "OPENCODE_AI_API_KEY",
+        "OPENCODE_AI_API_BASE",
+        "LITELLM_OPENAI_API_KEY",
+        "LITELLM_CHAT_OPENAI_API_KEY",
+        "LITELLM_CHAT_OPENAI_BASE_URL",
+        "LITELLM_EMBEDDING_OPENAI_API_KEY",
+        "LITELLM_EMBEDDING_OPENAI_BASE_URL",
+    ):
         if env.get(key) == "":
             env.pop(key, None)
 
@@ -136,6 +147,20 @@ def _build_rdagent_env(run_dir: Path, llm_model: str) -> dict[str, str]:
         env["OPENAI_API_KEY"] = env["OPENCODE_AI_API_KEY"]
         env["OPENAI_API_BASE"] = env.get("OPENCODE_AI_API_BASE") or _OPENCODE_ZEN_API_BASE
         env["OPENAI_BASE_URL"] = env["OPENAI_API_BASE"]
+
+    openai_api_key = env.get("OPENAI_API_KEY")
+    openai_api_base = env.get("OPENAI_API_BASE") or env.get("OPENAI_BASE_URL")
+    if openai_api_key:
+        env["LITELLM_OPENAI_API_KEY"] = env.get("LITELLM_OPENAI_API_KEY") or openai_api_key
+        env["LITELLM_CHAT_OPENAI_API_KEY"] = env.get("LITELLM_CHAT_OPENAI_API_KEY") or openai_api_key
+        env["LITELLM_EMBEDDING_OPENAI_API_KEY"] = env.get("LITELLM_EMBEDDING_OPENAI_API_KEY") or openai_api_key
+    if openai_api_base:
+        env["OPENAI_API_BASE"] = openai_api_base
+        env["OPENAI_BASE_URL"] = openai_api_base
+        env["LITELLM_CHAT_OPENAI_BASE_URL"] = env.get("LITELLM_CHAT_OPENAI_BASE_URL") or openai_api_base
+        env["LITELLM_EMBEDDING_OPENAI_BASE_URL"] = (
+            env.get("LITELLM_EMBEDDING_OPENAI_BASE_URL") or openai_api_base
+        )
 
     if not env.get("OPENAI_API_KEY") and env.get("OLLAMA_API_BASE"):
         env["EMBEDDING_MODEL"] = env.get("EMBEDDING_MODEL") or env.get(
