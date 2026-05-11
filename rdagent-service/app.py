@@ -411,6 +411,22 @@ def _parse_discovered_factors(run_dir: Path) -> list[dict]:
 
 def _parse_selector_log_factors(log_text: str) -> list[dict]:
     factors: list[dict] = []
+    block_matches = re.finditer(
+        r"factor_name:\s*(?P<name>[^\n\\\"]+?)\s*(?:\\n|\n)"
+        r"factor_description:\s*(?P<description>.+?)\s*(?:\\n|\n)"
+        r"factor_formulation:\s*(?P<expression>.+?)(?:(?:\\n|\n)variables:|\")",
+        log_text,
+        re.DOTALL,
+    )
+    for match in block_matches:
+        factors.append(
+            {
+                "name": match.group("name").strip(),
+                "description": match.group("description").strip(),
+                "expression": match.group("expression").strip(),
+            }
+        )
+
     current: dict[str, str] | None = None
 
     for raw_line in log_text.splitlines():
@@ -434,6 +450,9 @@ def _parse_selector_log_factors(log_text: str) -> list[dict]:
 
     if current and current.get("name"):
         factors.append(current)
+
+    if not factors:
+        factors = []
 
     deduped: dict[str, dict] = {}
     for factor in factors:
@@ -475,7 +494,6 @@ def _extract_factor_name_from_code(path: Path) -> str | None:
     if match:
         return match.group(1)
     return None
-    return factors
 
 
 def _read_text(path: Path) -> str | None:

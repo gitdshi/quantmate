@@ -255,3 +255,30 @@ factor_formulation: std(return_1d, 20)
     assert iterations[0]["metrics"] == {"generated_factor_count": 1}
     assert "runs successfully" in iterations[0]["feedback"]
     assert "calculate_volatility_20d" in iterations[0]["code"]
+
+
+def test_parse_discovered_factors_reads_embedded_log_blocks(tmp_path):
+    module = _load_sidecar_module()
+
+    (tmp_path / "selector.log").write_text(
+        """
+2026-05-11 12:05:43.724 | INFO | embed - Creating embedding for: ["factor_name: daily_return\nfactor_description: [Momentum Factor] Daily return from open to close\nfactor_formulation: (close - open) / open\nvariables: {'open': 'Opening price', 'close': 'Closing price'}"]
+2026-05-11 12:05:43.800 | INFO | embed - Creating embedding for: ["factor_name: intraday_volatility\nfactor_description: [Volatility Factor] Intraday range scaled by open\nfactor_formulation: (high - low) / open\nvariables: {'high': 'High price', 'low': 'Low price', 'open': 'Opening price'}"]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    factors = module._parse_discovered_factors(tmp_path)
+
+    assert factors == [
+        {
+            "name": "daily_return",
+            "expression": "(close - open) / open",
+            "description": "[Momentum Factor] Daily return from open to close",
+        },
+        {
+            "name": "intraday_volatility",
+            "expression": "(high - low) / open",
+            "description": "[Volatility Factor] Intraday range scaled by open",
+        },
+    ]
