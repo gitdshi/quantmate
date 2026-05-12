@@ -438,6 +438,24 @@ class TestDiscoveredFactorExpressionNormalization:
 
         assert result == "(ts_mean(vwap, 5)) / (close)"
 
+    def test_normalize_assignment_style_momentum_expression(self):
+        import app.worker.service.rdagent_tasks as mod
+
+        result = mod._normalize_discovered_factor_expression(
+            r"momentum\_20d = \frac{close_t}{close_{t-20}} - 1"
+        )
+
+        assert result == "(close) / (delay(close, 20)) - 1"
+
+    def test_normalize_assignment_style_volume_ratio_expression(self):
+        import app.worker.service.rdagent_tasks as mod
+
+        result = mod._normalize_discovered_factor_expression(
+            r"volume\_ratio\_20d = \frac{volume_t}{\frac{1}{20}\sum_{i=0}^{19} volume_{t-i}}"
+        )
+
+        assert result == "volume / ts_mean(volume, 20)"
+
 
 class TestLazyLoaders:
     """Tests for _get_rdagent_service and _get_feature_descriptor lazy loaders."""

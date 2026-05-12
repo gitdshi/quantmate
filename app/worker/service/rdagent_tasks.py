@@ -394,6 +394,7 @@ def _evaluate_discovered_factor_metrics(
 
 def _normalize_discovered_factor_expression(expression: str) -> str:
     normalized = expression.strip().replace("$", "")
+    normalized = normalized.replace(r"\_", "_")
     compact = re.sub(r"\s+", " ", normalized)
     compact = re.sub(r"\s*where\s+.*$", "", compact, flags=re.IGNORECASE)
 
@@ -416,6 +417,7 @@ def _normalize_discovered_factor_expression(expression: str) -> str:
         compact = re.sub(rf"\b{source}\b", target, compact)
 
     compact = re.sub(r"^[A-Za-z_]+_\{[^}]+\}\s*=\s*", "", compact)
+    compact = re.sub(r"^[A-Za-z_][A-Za-z0-9_]*\s*=\s*", "", compact)
     compact = re.sub(
         r"\\sigma\s*\(\s*R_\{t-(\d+):t\}\s*\)",
         lambda match: f"ts_std(ret_1d, {int(match.group(1)) + 1})",
