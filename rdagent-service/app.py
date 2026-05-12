@@ -62,6 +62,11 @@ Implementation requirements for generated factor code:
 - For volume_ratio_20d, compute current day's volume divided by the 20-day rolling mean of volume,
   including the current row in the rolling window.
 """
+_SENSITIVE_ERROR_PATTERNS = (
+        re.compile(r"(?i)(authorization['\"]?\s*[:=]\s*['\"]?bearer\s+)([^'\"\s,]+)"),
+        re.compile(r"(?i)((?:openai|opencode|litellm)[a-z0-9_]*api[_-]?key['\"]?\s*[:=]\s*['\"]?)([^'\"\s,]+)"),
+        re.compile(r"(?i)\bsk-[A-Za-z0-9_-]{8,}\b"),
+)
 
 
 def _build_rdagent_command(scenario: str, max_iterations: int) -> list[str]:
@@ -71,6 +76,38 @@ def _build_rdagent_command(scenario: str, max_iterations: int) -> list[str]:
         "fin_quant": "fin_quant",
     }.get(scenario, "fin_factor")
     return ["rdagent", command, "--step-n", str(max_iterations)]
+
+
+def _redact_sensitive_error_text(error_text: str | None) -> str | None:
+    if error_text is None:
+        return None
+
+    sanitized = str(error_text)
+    for pattern in _SENSITIVE_ERROR_PATTERNS[:2]:
+        sanitized = pattern.sub(r"\1[REDACTED]", sanitized)
+    sanitized = _SENSITIVE_ERROR_PATTERNS[2].sub("sk-[REDACTED]", sanitized)
+    return sanitized
+
+
+def _summarize_process_error(stderr: str | None, *, limit: int = 1000) -> str | None:
+    sanitized = _redact_sensitive_error_text(stderr)
+    if not sanitized:
+        return None
+
+    lines = [line.strip() for line in sanitized.splitlines() if line.strip()]
+    if not lines:
+        return None
+
+    interesting = [
+        line
+        for line in lines
+        if re.search(
+            r"(?i)(error|exception|traceback|failed|invalid|unauthor|forbidden|rate limit|timeout|429|5\d\d|4\d\d)",
+            line,
+        )
+    ]
+    selected = interesting[-8:] if interesting else lines[-8:]
+    return "\n".join(selected)[:limit]
 
 
 def _resolve_relative_run_path(run_dir: Path, configured_path: str) -> Path:
@@ -313,8 +350,9 @@ def mine():
         stdout, stderr = process.communicate(timeout=max_iterations * _TIMEOUT_PER_ITERATION_SECONDS)
 
         logger.info("rdagent exited with code %d", process.returncode)
+        error_summary = _summarize_process_error(stderr)
         if process.returncode != 0:
-            logger.warning("rdagent stderr: %s", stderr[:2000])
+            logger.warning("rdagent stderr summary: %s", error_summary)
 
         # Parse results from workspace
         iterations = _parse_iterations(run_dir, max_iterations)
@@ -326,7 +364,7 @@ def mine():
             "status": status,
             "iterations": iterations,
             "discovered_factors": discovered,
-            "error": stderr[:1000] if process.returncode != 0 else None,
+            "error": error_summary if process.returncode != 0 else None,
         })
 
     except subprocess.TimeoutExpired:
@@ -337,7 +375,13 @@ def mine():
         return jsonify({"status": "failed", "error": "Mining run timed out", "iterations": [], "discovered_factors": []})
     except Exception as e:
         logger.exception("Mining run %s failed: %s", run_id, e)
-        return jsonify({"status": "failed", "error": str(e), "traceback": traceback.format_exc(), "iterations": [], "discovered_factors": []})
+        return jsonify({
+            "status": "failed",
+            "error": _redact_sensitive_error_text(str(e)),
+            "traceback": _redact_sensitive_error_text(traceback.format_exc()),
+            "iterations": [],
+            "discovered_factors": [],
+        })
     finally:
         _pop_running_process(run_id)
 

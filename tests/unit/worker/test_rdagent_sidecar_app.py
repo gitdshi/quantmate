@@ -42,6 +42,37 @@ def test_build_rdagent_command_falls_back_to_fin_factor():
     assert command == ["rdagent", "fin_factor", "--step-n", "1"]
 
 
+def test_redact_sensitive_error_text_masks_api_keys():
+    module = _load_sidecar_module()
+
+    sanitized = module._redact_sensitive_error_text(
+        "openai_api_key='sk-secret-token' Authorization: Bearer sk-another-secret"
+    )
+
+    assert sanitized is not None
+    assert "sk-secret-token" not in sanitized
+    assert "sk-another-secret" not in sanitized
+    assert "[REDACTED]" in sanitized
+
+
+def test_summarize_process_error_prefers_tail_and_redacts_secrets():
+    module = _load_sidecar_module()
+
+    stderr = "\n".join(
+        [
+            "2026-05-12 06:53:01 INFO init openai_api_key='sk-secret-token'",
+            "2026-05-12 06:53:02 INFO token count: 370",
+            "2026-05-12 06:53:03 ERROR upstream returned 401 unauthorized",
+        ]
+    )
+
+    summary = module._summarize_process_error(stderr)
+
+    assert summary is not None
+    assert "401 unauthorized" in summary
+    assert "sk-secret-token" not in summary
+
+
 def test_build_rdagent_env_prefers_local_ollama_without_openai_key(monkeypatch, tmp_path):
     module = _load_sidecar_module()
 

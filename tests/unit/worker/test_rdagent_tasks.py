@@ -127,6 +127,38 @@ class TestRunRDAgentMiningTask:
     @patch("app.worker.service.rdagent_tasks._get_feature_descriptor")
     @patch("app.domains.factors.rdagent_service._get_run_status")
     @patch("app.domains.factors.rdagent_service._update_run_status")
+    def test_sidecar_failure_redacts_secret_tokens(
+        self,
+        mock_update_status,
+        mock_get_run_status,
+        mock_get_fd,
+        mock_sidecar,
+    ):
+        mock_fd = MagicMock()
+        mock_fd.build_prompt_context.return_value = "test prompt"
+        mock_get_fd.return_value = mock_fd
+        mock_get_run_status.return_value = "running"
+
+        mock_sidecar.return_value = {
+            "status": "failed",
+            "error": "openai_api_key='sk-secret-token' Authorization: Bearer sk-another-secret",
+        }
+
+        result = run_rdagent_mining_task(
+            user_id=1,
+            run_id="test-run-id",
+            config_dict={"scenario": "fin_factor"},
+        )
+
+        assert result["status"] == "failed"
+        assert "sk-secret-token" not in result["error"]
+        assert "sk-another-secret" not in result["error"]
+        assert "[REDACTED]" in result["error"]
+
+    @patch("app.worker.service.rdagent_tasks._call_sidecar_mining")
+    @patch("app.worker.service.rdagent_tasks._get_feature_descriptor")
+    @patch("app.domains.factors.rdagent_service._get_run_status")
+    @patch("app.domains.factors.rdagent_service._update_run_status")
     def test_sidecar_cancelled_preserves_cancelled_status(
         self, mock_update_status, mock_get_run_status, mock_get_fd, mock_sidecar
     ):
@@ -266,6 +298,37 @@ class TestCallSidecarMining:
         )
         assert result["status"] == "failed"
         assert "500" in result["error"]
+
+    @patch("app.infrastructure.config.config.get_settings")
+    @patch("httpx.Client")
+    def test_http_error_redacts_secret_text(self, MockClient, mock_settings):
+        import httpx
+
+        mock_settings.return_value = MagicMock(rdagent_sidecar_url="http://test:8001")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        mock_response.text = "openai_api_key='sk-secret-token'"
+        mock_response.json.return_value = {"error": "Authorization: Bearer sk-secret-token"}
+
+        mock_client_instance = MagicMock()
+        mock_client_instance.post.return_value = mock_response
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "Server Error", request=MagicMock(), response=mock_response
+        )
+        mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
+        mock_client_instance.__exit__ = MagicMock(return_value=False)
+        MockClient.return_value = mock_client_instance
+
+        result = _call_sidecar_mining(
+            run_id="r1",
+            config={},
+            prompt_context="test",
+        )
+
+        assert result["status"] == "failed"
+        assert "sk-secret-token" not in result["error"]
+        assert "[REDACTED]" in result["error"]
 
     @patch("app.infrastructure.config.config.get_settings")
     @patch("httpx.Client")

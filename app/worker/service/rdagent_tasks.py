@@ -15,6 +15,12 @@ from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
+_SENSITIVE_ERROR_PATTERNS = (
+    re.compile(r"(?i)(authorization['\"]?\s*[:=]\s*['\"]?bearer\s+)([^'\"\s,]+)"),
+    re.compile(r"(?i)((?:openai|opencode|litellm)[a-z0-9_]*api[_-]?key['\"]?\s*[:=]\s*['\"]?)([^'\"\s,]+)"),
+    re.compile(r"(?i)\bsk-[A-Za-z0-9_-]{8,}\b"),
+)
+
 # Lazy-loaded references
 _RDAgentService = None
 _feature_descriptor = None
@@ -53,6 +59,17 @@ def _is_run_cancelled(run_id: str) -> bool:
         return False
 
 
+def _sanitize_error_text(error_text: Any) -> Optional[str]:
+    if error_text is None:
+        return None
+
+    sanitized = str(error_text)
+    for pattern in _SENSITIVE_ERROR_PATTERNS[:2]:
+        sanitized = pattern.sub(r"\1[REDACTED]", sanitized)
+    sanitized = _SENSITIVE_ERROR_PATTERNS[2].sub("sk-[REDACTED]", sanitized)
+    return sanitized
+
+
 def run_rdagent_mining_task(
     user_id: int,
     run_id: str,
@@ -87,6 +104,10 @@ def run_rdagent_mining_task(
             config=config_dict,
             prompt_context=prompt_context,
         )
+
+        sanitized_error = _sanitize_error_text(result.get("error"))
+        if sanitized_error is not None:
+            result["error"] = sanitized_error
 
         if result.get("status") == "cancelled" or _is_run_cancelled(run_id):
             _update_run_status(run_id, "cancelled", result.get("error"))
@@ -155,17 +176,18 @@ def run_rdagent_mining_task(
 
     except Exception as e:
         logger.exception("[rdagent-worker] Mining run %s failed: %s", run_id, e)
+        sanitized_error = _sanitize_error_text(str(e))
         try:
             from app.domains.factors.rdagent_service import _update_run_status
 
             if not _is_run_cancelled(run_id):
-                _update_run_status(run_id, "failed", str(e))
+                _update_run_status(run_id, "failed", sanitized_error)
         except Exception:
             logger.exception("[rdagent-worker] Failed to update run status")
         return {
             "run_id": run_id,
             "status": "failed",
-            "error": str(e),
+            "error": sanitized_error,
             "traceback": traceback.format_exc(),
         }
 
@@ -211,9 +233,18 @@ def _call_sidecar_mining(
             resp.raise_for_status()
             return resp.json()
     except httpx.HTTPStatusError as exc:
+        error_text = exc.response.text[:500]
+        try:
+            payload = exc.response.json()
+            if isinstance(payload, dict):
+                error_text = payload.get("error") or payload.get("detail") or error_text
+        except ValueError:
+            pass
         return {
             "status": "failed",
-            "error": f"Sidecar returned {exc.response.status_code}: {exc.response.text[:500]}",
+            "error": _sanitize_error_text(
+                f"Sidecar returned {exc.response.status_code}: {error_text}"
+            ),
         }
     except httpx.ConnectError:
         return {
@@ -223,7 +254,7 @@ def _call_sidecar_mining(
     except Exception as exc:
         return {
             "status": "failed",
-            "error": f"Sidecar call failed: {exc}",
+            "error": _sanitize_error_text(f"Sidecar call failed: {exc}"),
         }
 
 
