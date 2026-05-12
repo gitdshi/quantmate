@@ -531,6 +531,42 @@ class TestDiscoveredFactorExpressionNormalization:
 
         assert result == "(volume - delay(volume, 20)) / (delay(volume, 20))"
 
+    def test_normalize_staging_price_return_expression_with_field_superscript(self):
+        import app.worker.service.rdagent_tasks as mod
+
+        result = mod._normalize_discovered_factor_expression(
+            r"r_t = \frac{P_t^{close} - P_{t-1}^{close}}{P_{t-1}^{close}}"
+        )
+
+        assert result == "(close - delay(close, 1)) / (delay(close, 1))"
+
+    def test_normalize_staging_momentum_expression_with_field_superscript(self):
+        import app.worker.service.rdagent_tasks as mod
+
+        result = mod._normalize_discovered_factor_expression(
+            r"Mom_{10d,t} = \frac{P_t^{close} - P_{t-10}^{close}}{P_{t-10}^{close}}"
+        )
+
+        assert result == "(close - delay(close, 10)) / (delay(close, 10))"
+
+    def test_normalize_staging_volume_ratio_expression_with_symbol_aliases(self):
+        import app.worker.service.rdagent_tasks as mod
+
+        result = mod._normalize_discovered_factor_expression(
+            r"VolRatio_{20d,t} = \frac{V_t}{\frac{1}{20}\sum_{i=0}^{19} V_{t-i}}"
+        )
+
+        assert result == "volume / ts_mean(volume, 20)"
+
+    def test_normalize_staging_volatility_expression(self):
+        import app.worker.service.rdagent_tasks as mod
+
+        result = mod._normalize_discovered_factor_expression(
+            r"Vol_{10d,t} = \sqrt{\frac{1}{9}\sum_{i=0}^{9}(r_{t-i} - \bar{r}_{10d})^2}"
+        )
+
+        assert result == "ts_std(ret_1d, 10)"
+
 
 class TestResolveEvalInstruments:
 

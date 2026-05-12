@@ -481,6 +481,7 @@ def _normalize_discovered_factor_expression(expression: str) -> str:
     compact = re.sub(r"\s*where\s+.*$", "", compact, flags=re.IGNORECASE)
     compact = re.sub(r"\\text\{([^{}]+)\}", r"\1", compact)
     compact = compact.replace("}]", "}")
+    compact = re.sub(r"([A-Za-z]+(?:_t|_\{[^}]+\}))\^\{[^}]+\}", r"\1", compact)
 
     for source, target in {
         "Close": "close",
@@ -517,8 +518,28 @@ def _normalize_discovered_factor_expression(expression: str) -> str:
         compact,
     )
     compact = re.sub(
+        r"\\frac\{V_t\}\{\\frac\{1\}\{(\d+)\}\s*\\sum_\{i=0\}\^\{\d+\}\s*V_\{t-i\}\}",
+        lambda match: f"volume / ts_mean(volume, {match.group(1)})",
+        compact,
+    )
+    compact = re.sub(
+        r"\\frac\{V_t\}\{\\frac\{1\}\{(\d+)\}.*?V_\{t-i\}\}",
+        lambda match: f"volume / ts_mean(volume, {match.group(1)})",
+        compact,
+    )
+    compact = re.sub(
         r"\\frac\{volume(?:_t)?\}\{mean\((\w+)_\{t-(\d+):t\}\}\s*",
         lambda match: f"(volume) / (ts_mean({match.group(1).lower()}, {int(match.group(2)) + 1}))",
+        compact,
+    )
+    compact = re.sub(
+        r"\\sqrt\{\\frac\{1\}\{\d+\}\s*\\sum_\{i=0\}\^\{\d+\}\s*\(r_\{t-i\}\s*-\s*\\bar\{r\}_\{(\d+)d\}\)\^2\}",
+        lambda match: f"ts_std(ret_1d, {match.group(1)})",
+        compact,
+    )
+    compact = re.sub(
+        r"\\sqrt\{\\frac\{1\}\{\d+\}.*?\\bar\{r\}_\{(\d+)d\}.*?\}",
+        lambda match: f"ts_std(ret_1d, {match.group(1)})",
         compact,
     )
     compact = re.sub(
@@ -584,6 +605,22 @@ def _normalize_discovered_factor_expression(expression: str) -> str:
         if updated == compact:
             break
         compact = updated
+
+    compact = re.sub(
+        r"\\frac\{volume\}\{\(1\)\s*/\s*\((\d+)\)\s*\\sum_\{i=0\}(?:\^\{\d+\})?\s*volume_\{t-i\}\}",
+        lambda match: f"volume / ts_mean(volume, {match.group(1)})",
+        compact,
+    )
+    compact = re.sub(
+        r"\\frac\{volume\}\{\(1\)\s*/\s*\((\d+)\)\s*\\sum_\{i=0\}(?:\^\{\d+\})?\s*V_\{t-i\}\}",
+        lambda match: f"volume / ts_mean(volume, {match.group(1)})",
+        compact,
+    )
+    compact = re.sub(
+        r"\\frac\{close\}\{\(1\)\s*/\s*\((\d+)\)\s*\\sum_\{i=0\}(?:\^\{\d+\})?\s*close_\{t-i\}\}\s*-\s*1",
+        lambda match: f"(close) / (ts_mean(close, {match.group(1)})) - 1",
+        compact,
+    )
 
     latex_patterns = (
         (
