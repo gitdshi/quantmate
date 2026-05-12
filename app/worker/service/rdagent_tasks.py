@@ -394,6 +394,36 @@ def _evaluate_discovered_factor_metrics(
 
 def _normalize_discovered_factor_expression(expression: str) -> str:
     normalized = expression.strip()
+    compact = re.sub(r"\s+", " ", normalized)
+
+    latex_patterns = (
+        (
+            re.compile(r"^M_\{(\d+)d\}\s*=\s*\\frac\{close_t\}\{close_\{t-(\d+)\}\}\s*-\s*1$"),
+            lambda match: f"ret_{match.group(1)}d" if match.group(1) == match.group(2) else normalized,
+        ),
+        (
+            re.compile(
+                r"^VR_\{(\d+)d\}\s*=\s*\\frac\{volume_t\}\{\\frac\{1\}\{\d+\}\s*\\sum_\{i=0\}\^\{\d+\}\s*volume_\{t-i\}\}$"
+            ),
+            lambda match: f"volume / ts_mean(volume, {match.group(1)})",
+        ),
+        (
+            re.compile(r"^CR_\{HL\}\s*=\s*\\frac\{close_t\s*-\s*low_t\}\{high_t\s*-\s*low_t\}$"),
+            lambda match: "(close - low) / (high - low)",
+        ),
+        (
+            re.compile(r"^\\sigma_\{(\d+)d\}\s*=.*$"),
+            lambda match: f"ts_std(ret_1d, {match.group(1)})",
+        ),
+    )
+    for pattern, replacement in latex_patterns:
+        match = pattern.match(compact)
+        if match:
+            replaced = replacement(match)
+            if isinstance(replaced, str) and replaced != normalized:
+                normalized = replaced
+                break
+
     normalized = re.sub(r"\$(\w+)", r"\1", normalized)
     replacements = {
         r"(?<![\w.])rolling_mean\s*\(": "ts_mean(",

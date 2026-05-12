@@ -375,6 +375,42 @@ class TestDiscoveredFactorExpressionNormalization:
 
         assert result == "volume / ts_mean(volume, 20) + ts_std(ret_1d, 5)"
 
+    def test_normalize_latex_momentum_expression(self):
+        import app.worker.service.rdagent_tasks as mod
+
+        result = mod._normalize_discovered_factor_expression(
+            r"M_{20d} = \frac{close_t}{close_{t-20}} - 1"
+        )
+
+        assert result == "ret_20d"
+
+    def test_normalize_latex_volatility_expression(self):
+        import app.worker.service.rdagent_tasks as mod
+
+        result = mod._normalize_discovered_factor_expression(
+            r"\sigma_{20d} = \sqrt{\frac{1}{19} \sum_{i=0}^{19} (r_{t-i} - \bar{r}_{20d})^2} \text{ where } r_{t-i} = \frac{close_{t-i}}{close_{t-i-1}} - 1"
+        )
+
+        assert result == "ts_std(ret_1d, 20)"
+
+    def test_normalize_latex_volume_ratio_expression(self):
+        import app.worker.service.rdagent_tasks as mod
+
+        result = mod._normalize_discovered_factor_expression(
+            r"VR_{20d} = \frac{volume_t}{\frac{1}{20} \sum_{i=0}^{19} volume_{t-i}}"
+        )
+
+        assert result == "volume / ts_mean(volume, 20)"
+
+    def test_normalize_latex_close_range_expression(self):
+        import app.worker.service.rdagent_tasks as mod
+
+        result = mod._normalize_discovered_factor_expression(
+            r"CR_{HL} = \frac{close_t - low_t}{high_t - low_t}"
+        )
+
+        assert result == "(close - low) / (high - low)"
+
 
 class TestLazyLoaders:
     """Tests for _get_rdagent_service and _get_feature_descriptor lazy loaders."""
