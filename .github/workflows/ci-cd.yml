@@ -190,6 +190,7 @@ jobs:
           cp .github/scripts/merge_env_from_example.py .deploy_bundle/.github/scripts/merge_env_from_example.py
           cp -R rdagent-service .deploy_bundle/rdagent-service
           tar -czf .deploy_bundle/rdagent-service.tgz -C .deploy_bundle rdagent-service
+          shasum -a 256 .deploy_bundle/rdagent-service/app.py | awk '{print $1}' > .deploy_bundle/rdagent-service.app.py.sha256
 
       # Push the latest docker-compose.staging.yml and nginx config to the server
       - name: Copy config files to staging server
@@ -198,7 +199,7 @@ jobs:
           host: ${{ secrets.STAGING_HOST }}
           username: ${{ secrets.STAGING_USER }}
           key: ${{ secrets.STAGING_SSH_KEY }}
-          source: ".deploy_bundle/docker-compose.staging.yml,.deploy_bundle/.env.example.incoming,.deploy_bundle/nginx/staging.conf,.deploy_bundle/.github/scripts/merge_env_from_example.py,.deploy_bundle/rdagent-service.tgz"
+          source: ".deploy_bundle/docker-compose.staging.yml,.deploy_bundle/.env.example.incoming,.deploy_bundle/nginx/staging.conf,.deploy_bundle/.github/scripts/merge_env_from_example.py,.deploy_bundle/rdagent-service.tgz,.deploy_bundle/rdagent-service.app.py.sha256"
           target: /opt/quantmate
           strip_components: 1
 
@@ -222,6 +223,7 @@ jobs:
             ENV_FILE=.env
             EXAMPLE_FILE=.env.example
             INCOMING_EXAMPLE_FILE=.env.example.incoming
+            RDAGENT_APP_CHECKSUM_FILE=rdagent-service.app.py.sha256
 
             rebuild_env_from_example_if_needed() {
               if [ ! -f "$INCOMING_EXAMPLE_FILE" ]; then
@@ -283,6 +285,52 @@ jobs:
               fi
             }
 
+            verify_rdagent_source_checksum() {
+              if [ ! -f "$RDAGENT_APP_CHECKSUM_FILE" ]; then
+                echo "==> No rdagent-service checksum uploaded; skipping source verification"
+                return
+              fi
+              expected_checksum=$(tr -d '[:space:]' < "$RDAGENT_APP_CHECKSUM_FILE")
+              actual_checksum=$(shasum -a 256 rdagent-service/app.py | awk '{print $1}')
+              echo "==> rdagent-service/app.py checksum: $actual_checksum"
+              if [ "$actual_checksum" != "$expected_checksum" ]; then
+                echo "rdagent-service source checksum mismatch: expected $expected_checksum"
+                exit 1
+              fi
+            }
+
+            verify_rdagent_container_checksum() {
+              if [ "$REBUILD_RDAGENT" != "true" ] || [ ! -f "$RDAGENT_APP_CHECKSUM_FILE" ]; then
+                return
+              fi
+
+              expected_checksum=$(tr -d '[:space:]' < "$RDAGENT_APP_CHECKSUM_FILE")
+              container_ok=0
+              for i in $(seq 1 12); do
+                if docker exec quantmate-rdagent-service-1 sh -lc "shasum -a 256 /app/app.py >/tmp/rdagent_app.sha 2>/dev/null" >/dev/null 2>&1; then
+                  container_ok=1
+                  break
+                fi
+                echo "Waiting for rdagent-service container checksum retry $i/12..."
+                sleep 5
+              done
+
+              if [ "$container_ok" -ne 1 ]; then
+                echo "rdagent-service container did not become ready for checksum verification"
+                docker compose -f docker-compose.staging.yml ps
+                docker logs --tail=200 quantmate-rdagent-service-1 || true
+                exit 1
+              fi
+
+              actual_checksum=$(docker exec quantmate-rdagent-service-1 sh -lc "shasum -a 256 /app/app.py | awk '{print \\$1}'")
+              echo "==> container /app/app.py checksum: $actual_checksum"
+              if [ "$actual_checksum" != "$expected_checksum" ]; then
+                echo "rdagent-service container checksum mismatch: expected $expected_checksum"
+                docker logs --tail=200 quantmate-rdagent-service-1 || true
+                exit 1
+              fi
+            }
+
             print_disk_diagnostics() {
               echo "==> Filesystem usage"
               df -h || true
@@ -302,6 +350,7 @@ jobs:
             }
 
             refresh_rdagent_sidecar_bundle
+            verify_rdagent_source_checksum
 
             restart_nginx() {
               echo "==> Restarting nginx to refresh upstream container IPs"
@@ -391,6 +440,8 @@ jobs:
               cleanup_docker_artifacts
               restart_services
             fi
+
+            verify_rdagent_container_checksum
 
             echo "==> Waiting for API to remain healthy after full restart"
             ok=0

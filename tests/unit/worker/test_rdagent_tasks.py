@@ -456,6 +456,24 @@ class TestDiscoveredFactorExpressionNormalization:
 
         assert result == "volume / ts_mean(volume, 20)"
 
+    def test_normalize_text_wrapped_volume_ratio_expression(self):
+        import app.worker.service.rdagent_tasks as mod
+
+        result = mod._normalize_discovered_factor_expression(
+            r"$VR_{20d} = \frac{volume_t}{\text{mean}(volume_{t-19:t}]}$"
+        )
+
+        assert result == "(volume) / (ts_mean(volume, 20))"
+
+    def test_normalize_price_relative_ma_expression(self):
+        import app.worker.service.rdagent_tasks as mod
+
+        result = mod._normalize_discovered_factor_expression(
+            r"$P_{MA20} = \frac{close_t}{\text{MA}_{20,t}} - 1 = \frac{close_t}{\frac{1}{20}\sum_{i=0}^{19}close_{t-i}} - 1$"
+        )
+
+        assert result == "(close) / (ts_mean(close, 20)) - 1"
+
 
 class TestLazyLoaders:
     """Tests for _get_rdagent_service and _get_feature_descriptor lazy loaders."""

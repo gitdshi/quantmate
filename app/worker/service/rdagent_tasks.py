@@ -397,6 +397,8 @@ def _normalize_discovered_factor_expression(expression: str) -> str:
     normalized = normalized.replace(r"\_", "_")
     compact = re.sub(r"\s+", " ", normalized)
     compact = re.sub(r"\s*where\s+.*$", "", compact, flags=re.IGNORECASE)
+    compact = re.sub(r"\\text\{([^{}]+)\}", r"\1", compact)
+    compact = compact.replace("}]", "}")
 
     for source, target in {
         "Close": "close",
@@ -413,11 +415,14 @@ def _normalize_discovered_factor_expression(expression: str) -> str:
         "VolumeRatio": "volume_ratio",
         "HighLowRange": "high_low_range",
         "VWAPCloseRatio": "vwap_close_ratio",
+        "MA": "ma",
     }.items():
         compact = re.sub(rf"\b{source}\b", target, compact)
 
     compact = re.sub(r"^[A-Za-z_]+_\{[^}]+\}\s*=\s*", "", compact)
     compact = re.sub(r"^[A-Za-z_][A-Za-z0-9_]*\s*=\s*", "", compact)
+    if " = " in compact and not compact.lstrip().startswith(r"\sigma"):
+        compact = compact.rsplit(" = ", 1)[-1].strip()
     compact = re.sub(
         r"\\sigma\s*\(\s*R_\{t-(\d+):t\}\s*\)",
         lambda match: f"ts_std(ret_1d, {int(match.group(1)) + 1})",
@@ -426,6 +431,26 @@ def _normalize_discovered_factor_expression(expression: str) -> str:
     compact = re.sub(
         r"\\frac\{volume(?:_t)?\}\{\\frac\{1\}\{(\d+)\}\s*\\sum_\{i=0\}\^\{\d+\}\s*volume_\{t-i\}\}",
         lambda match: f"volume / ts_mean(volume, {match.group(1)})",
+        compact,
+    )
+    compact = re.sub(
+        r"\\frac\{volume(?:_t)?\}\{mean\((\w+)_\{t-(\d+):t\}\}\s*",
+        lambda match: f"(volume) / (ts_mean({match.group(1).lower()}, {int(match.group(2)) + 1}))",
+        compact,
+    )
+    compact = re.sub(
+        r"\\frac\{close_t\}\{\\frac\{1\}\{(\d+)\}\s*\\sum_\{i=0\}\^\{\d+\}\s*close_\{t-i\}\}\s*-\s*1",
+        lambda match: f"(close) / (ts_mean(close, {match.group(1)})) - 1",
+        compact,
+    )
+    compact = re.sub(
+        r"([A-Za-z]+)_\{(\d+),t\}",
+        lambda match: f"{match.group(1).lower()}_{match.group(2)}d",
+        compact,
+    )
+    compact = re.sub(
+        r"\\frac\{close_t\}\{ma_(\d+)d\}\s*-\s*1",
+        lambda match: f"(close) / (ts_mean(close, {match.group(1)})) - 1",
         compact,
     )
 
