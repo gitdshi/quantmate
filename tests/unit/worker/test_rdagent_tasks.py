@@ -382,7 +382,7 @@ class TestDiscoveredFactorExpressionNormalization:
             r"M_{20d} = \frac{close_t}{close_{t-20}} - 1"
         )
 
-        assert result == "ret_20d"
+        assert result == "(close) / (delay(close, 20)) - 1"
 
     def test_normalize_latex_volatility_expression(self):
         import app.worker.service.rdagent_tasks as mod
@@ -410,6 +410,33 @@ class TestDiscoveredFactorExpressionNormalization:
         )
 
         assert result == "(close - low) / (high - low)"
+
+    def test_normalize_stage_like_momentum_expression(self):
+        import app.worker.service.rdagent_tasks as mod
+
+        result = mod._normalize_discovered_factor_expression(
+            r"$Momentum_{5d} = \frac{Close_t}{Close_{t-5}} - 1$"
+        )
+
+        assert result == "(close) / (delay(close, 5)) - 1"
+
+    def test_normalize_stage_like_volume_ratio_expression(self):
+        import app.worker.service.rdagent_tasks as mod
+
+        result = mod._normalize_discovered_factor_expression(
+            r"$VolumeRatio_{20d} = \frac{Volume_t}{Mean(Volume_{t-19:t})}$"
+        )
+
+        assert result == "(volume) / (ts_mean(volume, 20))"
+
+    def test_normalize_stage_like_vwap_ratio_expression(self):
+        import app.worker.service.rdagent_tasks as mod
+
+        result = mod._normalize_discovered_factor_expression(
+            r"$VWAPCloseRatio_{5d} = \frac{Mean(VWAP_{t-4:t})}{Close_t}$"
+        )
+
+        assert result == "(ts_mean(vwap, 5)) / (close)"
 
 
 class TestLazyLoaders:

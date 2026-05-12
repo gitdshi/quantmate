@@ -393,8 +393,68 @@ def _evaluate_discovered_factor_metrics(
 
 
 def _normalize_discovered_factor_expression(expression: str) -> str:
-    normalized = expression.strip()
+    normalized = expression.strip().replace("$", "")
     compact = re.sub(r"\s+", " ", normalized)
+    compact = re.sub(r"\s*where\s+.*$", "", compact, flags=re.IGNORECASE)
+
+    for source, target in {
+        "Close": "close",
+        "High": "high",
+        "Low": "low",
+        "Open": "open",
+        "Volume": "volume",
+        "VWAP": "vwap",
+        "Mean": "mean",
+        "Max": "max",
+        "Min": "min",
+        "Momentum": "momentum",
+        "Volatility": "volatility",
+        "VolumeRatio": "volume_ratio",
+        "HighLowRange": "high_low_range",
+        "VWAPCloseRatio": "vwap_close_ratio",
+    }.items():
+        compact = re.sub(rf"\b{source}\b", target, compact)
+
+    compact = re.sub(r"^[A-Za-z_]+_\{[^}]+\}\s*=\s*", "", compact)
+    compact = re.sub(
+        r"\\sigma\s*\(\s*R_\{t-(\d+):t\}\s*\)",
+        lambda match: f"ts_std(ret_1d, {int(match.group(1)) + 1})",
+        compact,
+    )
+    compact = re.sub(
+        r"\\frac\{volume(?:_t)?\}\{\\frac\{1\}\{(\d+)\}\s*\\sum_\{i=0\}\^\{\d+\}\s*volume_\{t-i\}\}",
+        lambda match: f"volume / ts_mean(volume, {match.group(1)})",
+        compact,
+    )
+
+    window_functions = {
+        "mean": "ts_mean",
+        "max": "ts_max",
+        "min": "ts_min",
+    }
+    for function_name, replacement in window_functions.items():
+        compact = re.sub(
+            rf"{function_name}\((\w+)_\{{t-(\d+):t\}}\)",
+            lambda match: f"{replacement}({match.group(1).lower()}, {int(match.group(2)) + 1})",
+            compact,
+        )
+
+    compact = re.sub(
+        r"([A-Za-z]+)_\{t-(\d+)\}",
+        lambda match: f"delay({match.group(1).lower()}, {match.group(2)})",
+        compact,
+    )
+    compact = re.sub(
+        r"([A-Za-z]+)_t",
+        lambda match: match.group(1).lower(),
+        compact,
+    )
+
+    while True:
+        updated = re.sub(r"\\frac\{([^{}]+)\}\{([^{}]+)\}", r"(\1) / (\2)", compact)
+        if updated == compact:
+            break
+        compact = updated
 
     latex_patterns = (
         (
@@ -423,6 +483,8 @@ def _normalize_discovered_factor_expression(expression: str) -> str:
             if isinstance(replaced, str) and replaced != normalized:
                 normalized = replaced
                 break
+    else:
+        normalized = compact
 
     normalized = re.sub(r"\$(\w+)", r"\1", normalized)
     replacements = {
