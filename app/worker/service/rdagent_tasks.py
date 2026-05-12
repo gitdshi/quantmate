@@ -123,7 +123,13 @@ def run_rdagent_mining_task(
                 sharpe=f.get("sharpe"),
             )
 
-        _update_run_status(run_id, "completed")
+        completed_iterations = _count_completed_iterations(iterations)
+        _update_run_status(
+            run_id,
+            "completed",
+            current_iteration=completed_iterations,
+            total_iterations=_resolve_total_iterations(config_dict, completed_iterations),
+        )
 
         return {
             "run_id": run_id,
@@ -213,3 +219,24 @@ def _serialize(obj: Any) -> Optional[str]:
     import json
 
     return json.dumps(obj, ensure_ascii=False, default=str)
+
+
+def _count_completed_iterations(iterations: list[Dict[str, Any]]) -> int:
+    observed_numbers = [
+        int(it["iteration"])
+        for it in iterations
+        if isinstance(it, dict) and isinstance(it.get("iteration"), int)
+    ]
+    if observed_numbers:
+        return max(observed_numbers)
+    return len(iterations)
+
+
+def _resolve_total_iterations(config_dict: Dict[str, Any], completed_iterations: int) -> int:
+    configured_total = config_dict.get("max_iterations") if isinstance(config_dict, dict) else None
+    try:
+        if configured_total is not None:
+            return max(int(configured_total), completed_iterations)
+    except (TypeError, ValueError):
+        pass
+    return completed_iterations

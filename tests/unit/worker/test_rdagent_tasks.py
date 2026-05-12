@@ -44,6 +44,7 @@ class TestRunRDAgentMiningTask:
         assert result["discovered_factors"] == 1
         assert mock_save_iter.call_count == 2
         assert mock_save_factor.call_count == 1
+        mock_update_status.assert_any_call("test-run-id", "completed", current_iteration=2, total_iterations=2)
 
     @patch("app.worker.service.rdagent_tasks._call_sidecar_mining")
     @patch("app.worker.service.rdagent_tasks._get_feature_descriptor")
@@ -139,6 +140,7 @@ class TestRunRDAgentMiningTask:
         assert result["discovered_factors"] == 0
         mock_save_iter.assert_not_called()
         mock_save_factor.assert_not_called()
+        mock_update_status.assert_any_call("empty-run", "completed", current_iteration=0, total_iterations=0)
 
 
 class TestCallSidecarMining:

@@ -7,6 +7,7 @@ Each mining job runs an R&D loop: HypothesisGen → Experiment → CoSTEER → F
 from __future__ import annotations
 
 import logging
+import json
 import uuid
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
@@ -142,8 +143,8 @@ class RDAgentService:
             conn.execute(
                 text(
                     "INSERT INTO rdagent_runs "
-                    "(run_id, user_id, scenario, config, status, created_at) "
-                    "VALUES (:rid, :uid, :scenario, :config, :status, :created_at)"
+                    "(run_id, user_id, scenario, config, status, current_iteration, total_iterations, created_at) "
+                    "VALUES (:rid, :uid, :scenario, :config, :status, :current_iteration, :total_iterations, :created_at)"
                 ),
                 {
                     "rid": run_id,
@@ -151,6 +152,8 @@ class RDAgentService:
                     "scenario": config.scenario,
                     "config": _serialize_json(config.to_dict()),
                     "status": RunStatus.QUEUED.value,
+                    "current_iteration": 0,
+                    "total_iterations": config.max_iterations,
                     "created_at": now,
                 },
             )
@@ -173,7 +176,12 @@ class RDAgentService:
                 {"rid": run_id, "uid": user_id},
             )
             row = result.mappings().first()
-            return dict(row) if row else None
+            if not row:
+                return None
+
+            run = dict(row)
+            self._hydrate_run_progress(conn, [run])
+            return run
 
     def list_runs(
         self, user_id: int, limit: int = 20, offset: int = 0
@@ -183,14 +191,47 @@ class RDAgentService:
             _ensure_rdagent_schema(conn)
             result = conn.execute(
                 text(
-                    "SELECT run_id, scenario, status, current_iteration, "
+                    "SELECT run_id, scenario, config, status, current_iteration, "
                     "total_iterations, created_at, completed_at "
                     "FROM rdagent_runs WHERE user_id = :uid "
                     "ORDER BY created_at DESC LIMIT :lim OFFSET :off"
                 ),
                 {"uid": user_id, "lim": limit, "off": offset},
             )
-            return [dict(r) for r in result.mappings().all()]
+            runs = [dict(r) for r in result.mappings().all()]
+            self._hydrate_run_progress(conn, runs)
+            return runs
+
+    def _hydrate_run_progress(self, conn, runs: list[dict[str, Any]]) -> None:
+        if not runs:
+            return
+
+        run_ids = [str(run["run_id"]) for run in runs if run.get("run_id")]
+        iteration_counts = _get_iteration_counts(conn, run_ids)
+
+        for run in runs:
+            config = _parse_run_config(run.get("config"))
+            configured_total = _coerce_int(config.get("max_iterations"), default=0)
+            observed_current = max(
+                _coerce_int(run.get("current_iteration"), default=0),
+                iteration_counts.get(str(run.get("run_id")), 0),
+            )
+            observed_total = _coerce_int(run.get("total_iterations"), default=0)
+
+            if observed_current > 0:
+                run["current_iteration"] = observed_current
+            else:
+                run["current_iteration"] = 0
+
+            if observed_total <= 0:
+                observed_total = configured_total
+            if observed_total <= 0:
+                observed_total = observed_current
+            if observed_current > observed_total:
+                observed_total = observed_current
+
+            run["total_iterations"] = observed_total
+            run.pop("config", None)
 
     def cancel_run(self, user_id: int, run_id: str) -> dict[str, Any]:
         """Cancel a running or queued mining run."""
@@ -327,18 +368,72 @@ def _update_run_status(
     run_id: str,
     status: str,
     error_message: Optional[str] = None,
+    current_iteration: Optional[int] = None,
+    total_iterations: Optional[int] = None,
 ) -> None:
     """Update the status of a mining run."""
+    set_clauses = ["status = :status", "error_message = :err"]
+    params: dict[str, Any] = {"rid": run_id, "status": status, "err": error_message}
+
+    if current_iteration is not None:
+        set_clauses.append("current_iteration = :current_iteration")
+        params["current_iteration"] = current_iteration
+
+    if total_iterations is not None:
+        set_clauses.append("total_iterations = :total_iterations")
+        params["total_iterations"] = total_iterations
+
     with connection(_RDAGENT_DB) as conn:
         _ensure_rdagent_schema(conn)
         conn.execute(
             text(
-                "UPDATE rdagent_runs SET status = :status, "
-                "error_message = :err WHERE run_id = :rid"
+                f"UPDATE rdagent_runs SET {', '.join(set_clauses)} WHERE run_id = :rid"
             ),
-            {"rid": run_id, "status": status, "err": error_message},
+            params,
         )
         conn.commit()
+
+
+def _get_iteration_counts(conn, run_ids: list[str]) -> dict[str, int]:
+    if not run_ids:
+        return {}
+
+    bind_names = [f"rid_{index}" for index, _ in enumerate(run_ids)]
+    placeholders = ", ".join(f":{name}" for name in bind_names)
+    params = {name: run_id for name, run_id in zip(bind_names, run_ids, strict=False)}
+    result = conn.execute(
+        text(
+            "SELECT run_id, COUNT(*) AS iteration_count "
+            f"FROM rdagent_iterations WHERE run_id IN ({placeholders}) "
+            "GROUP BY run_id"
+        ),
+        params,
+    )
+    return {
+        str(row["run_id"]): _coerce_int(row["iteration_count"], default=0)
+        for row in result.mappings().all()
+    }
+
+
+def _parse_run_config(config: Any) -> dict[str, Any]:
+    if isinstance(config, dict):
+        return config
+    if isinstance(config, str) and config:
+        try:
+            parsed = json.loads(config)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _coerce_int(value: Any, default: int = 0) -> int:
+    try:
+        if value is None:
+            return default
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _get_run_status(run_id: str) -> Optional[str]:
@@ -472,6 +567,4 @@ def save_discovered_factor(
 
 def _serialize_json(obj: Any) -> str:
     """Serialize a dict/list to JSON string for storage."""
-    import json
-
     return json.dumps(obj, ensure_ascii=False, default=str)

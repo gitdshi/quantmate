@@ -89,6 +89,9 @@ class TestRDAgentServiceStartMining:
         mock_conn_ctx.assert_called_once_with("qlib")
         mock_conn.execute.assert_called_once()
         mock_conn.commit.assert_called_once()
+        params = mock_conn.execute.call_args.args[1]
+        assert params["current_iteration"] == 0
+        assert params["total_iterations"] == 10
 
 
 class TestRDAgentServiceGetRun:
@@ -123,6 +126,40 @@ class TestRDAgentServiceGetRun:
         mock_conn_ctx.assert_called_once_with("qlib")
 
     @patch("app.domains.factors.rdagent_service.connection")
+    def test_get_run_hydrates_progress_from_iterations_and_config(self, mock_conn_ctx):
+        mock_conn = MagicMock()
+        mock_conn_ctx.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn_ctx.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_run_result = MagicMock()
+        mock_run_result.mappings.return_value.first.return_value = {
+            "run_id": "abc-123",
+            "user_id": 1,
+            "scenario": "fin_factor",
+            "config": json.dumps({"max_iterations": 6}),
+            "status": "completed",
+            "current_iteration": 0,
+            "total_iterations": 0,
+            "error_message": None,
+            "created_at": "2024-01-01T00:00:00",
+            "started_at": None,
+            "completed_at": None,
+        }
+        mock_count_result = MagicMock()
+        mock_count_result.mappings.return_value.all.return_value = [
+            {"run_id": "abc-123", "iteration_count": 4},
+        ]
+        mock_conn.execute.side_effect = [mock_run_result, mock_count_result]
+
+        svc = RDAgentService()
+        run = svc.get_run(user_id=1, run_id="abc-123")
+
+        assert run is not None
+        assert run["current_iteration"] == 4
+        assert run["total_iterations"] == 6
+        assert "config" not in run
+
+    @patch("app.domains.factors.rdagent_service.connection")
     def test_get_run_not_found(self, mock_conn_ctx):
         mock_conn = MagicMock()
         mock_conn_ctx.return_value.__enter__ = MagicMock(return_value=mock_conn)
@@ -145,18 +182,25 @@ class TestRDAgentServiceListRuns:
         mock_conn_ctx.return_value.__enter__ = MagicMock(return_value=mock_conn)
         mock_conn_ctx.return_value.__exit__ = MagicMock(return_value=False)
 
-        mock_result = MagicMock()
-        mock_result.mappings.return_value.all.return_value = [
-            {"run_id": "r1", "scenario": "fin_factor", "status": "completed",
-             "current_iteration": 10, "total_iterations": 10,
+        mock_runs_result = MagicMock()
+        mock_runs_result.mappings.return_value.all.return_value = [
+            {"run_id": "r1", "scenario": "fin_factor", "config": json.dumps({"max_iterations": 12}), "status": "completed",
+             "current_iteration": 0, "total_iterations": 0,
              "created_at": "2024-01-01", "completed_at": "2024-01-02"},
         ]
-        mock_conn.execute.return_value = mock_result
+        mock_count_result = MagicMock()
+        mock_count_result.mappings.return_value.all.return_value = [
+            {"run_id": "r1", "iteration_count": 3},
+        ]
+        mock_conn.execute.side_effect = [mock_runs_result, mock_count_result]
 
         svc = RDAgentService()
         runs = svc.list_runs(user_id=1, limit=10, offset=0)
         assert len(runs) == 1
         assert runs[0]["run_id"] == "r1"
+        assert runs[0]["current_iteration"] == 3
+        assert runs[0]["total_iterations"] == 12
+        assert "config" not in runs[0]
         mock_conn_ctx.assert_called_once_with("qlib")
 
 
