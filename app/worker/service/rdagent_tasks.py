@@ -543,7 +543,7 @@ def _normalize_discovered_factor_expression(expression: str) -> str:
     }
     for function_name, replacement in window_functions.items():
         compact = re.sub(
-            rf"{function_name}\((\w+)_\{{t-(\d+):t\}}\)",
+            rf"{function_name}\((\w+)_\{{t-(\d+):t(?:\+\d+)?\}}\)",
             lambda match: f"{replacement}({match.group(1).lower()}, {int(match.group(2)) + 1})",
             compact,
         )
@@ -625,6 +625,18 @@ def _normalize_discovered_factor_expression(expression: str) -> str:
     }
     for pattern, replacement in aliases.items():
         normalized = re.sub(pattern, replacement, normalized)
+
+    symbol_aliases = {
+        r"(?<![\w.])p(?![\w.])": "close",
+        r"(?<![\w.])v(?![\w.])": "volume",
+        r"(?<![\w.])o(?![\w.])": "open",
+        r"(?<![\w.])h(?![\w.])": "high",
+        r"(?<![\w.])l(?![\w.])": "low",
+        r"(?<![\w.])c(?![\w.])": "close",
+    }
+    for pattern, replacement in symbol_aliases.items():
+        normalized = re.sub(pattern, replacement, normalized)
+
     return normalized
 
 

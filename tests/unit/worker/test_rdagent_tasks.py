@@ -477,6 +477,33 @@ class TestDiscoveredFactorExpressionNormalization:
 
         assert result == "(close) / (ts_mean(close, 20)) - 1"
 
+    def test_normalize_price_return_expression_with_symbol_aliases(self):
+        import app.worker.service.rdagent_tasks as mod
+
+        result = mod._normalize_discovered_factor_expression(
+            r"r_{10d} = \frac{P_t - P_{t-10}}{P_{t-10}}"
+        )
+
+        assert result == "(close - delay(close, 10)) / (delay(close, 10))"
+
+    def test_normalize_longer_price_return_expression_with_symbol_aliases(self):
+        import app.worker.service.rdagent_tasks as mod
+
+        result = mod._normalize_discovered_factor_expression(
+            r"r_{20d} = \frac{P_t - P_{t-20}}{P_{t-20}}"
+        )
+
+        assert result == "(close - delay(close, 20)) / (delay(close, 20))"
+
+    def test_normalize_volume_ratio_expression_with_future_window_notation(self):
+        import app.worker.service.rdagent_tasks as mod
+
+        result = mod._normalize_discovered_factor_expression(
+            r"VR_{20d} = \frac{V_t}{\text{mean}(V_{t-19:t+1})}"
+        )
+
+        assert result == "(volume) / (ts_mean(volume, 20))"
+
 
 class TestResolveEvalInstruments:
 
