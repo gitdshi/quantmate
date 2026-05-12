@@ -26,7 +26,6 @@ from app.datasync.capabilities import is_item_sync_supported, load_source_config
 from app.datasync.registry import DataSourceRegistry, build_default_registry
 from app.datasync.sync_mode import (
     backfill_mode_uses_trade_calendar,
-    infer_backfill_mode_from_interface,
     infer_sync_mode_from_interface,
     normalize_backfill_mode,
     normalize_sync_mode,
