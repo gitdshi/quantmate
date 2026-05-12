@@ -56,7 +56,7 @@ class SentimentService:
         return self._get_snapshot()["fear_greed"]
 
     def _get_snapshot(self) -> dict[str, Any]:
-        cache_key = ("cn_a_share", id(ak))
+        cache_key = ("cn_a_share", ak)
         return _SENTIMENT_CACHE.get_or_load(
             cache_key,
             self._build_snapshot,
