@@ -10,7 +10,7 @@ import logging
 import math
 import re
 import traceback
-from datetime import date as date_type, datetime
+from datetime import date as date_type, datetime, timedelta
 from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
@@ -308,7 +308,15 @@ def _build_discovered_factor_eval_context(config_dict: Dict[str, Any]) -> Option
         instruments = _resolve_eval_instruments(config_dict.get("universe"), end_date)
         ohlcv = fetch_ohlcv(start_date=start_date, end_date=end_date, instruments=instruments)
         if ohlcv.empty:
-            return None
+            fallback_dates = _resolve_eval_fallback_dates(instruments, start_date, end_date)
+            if fallback_dates is None:
+                return None
+
+            fallback_start, fallback_end = fallback_dates
+            ohlcv = fetch_ohlcv(start_date=fallback_start, end_date=fallback_end, instruments=instruments)
+            if ohlcv.empty:
+                return None
+
         eval_ohlcv = _augment_eval_ohlcv(ohlcv)
         return {
             "ohlcv": eval_ohlcv,
@@ -373,6 +381,66 @@ def _resolve_eval_instruments(universe: Any, end_date: date_type) -> Optional[li
     except Exception:
         logger.debug("[rdagent-worker] Failed to resolve universe %s", universe, exc_info=True)
         return None
+
+
+def _resolve_eval_fallback_dates(
+    instruments: Optional[list[str]],
+    start_date: date_type,
+    end_date: date_type,
+) -> Optional[tuple[date_type, date_type]]:
+    try:
+        from sqlalchemy import bindparam, text
+
+        from app.infrastructure.db.connections import connection
+
+        query = "SELECT MIN(trade_date), MAX(trade_date) FROM stock_daily WHERE 1=1"
+        params: dict[str, Any] = {}
+        statement = text(query)
+
+        if instruments:
+            query += " AND ts_code IN :instruments"
+            params["instruments"] = tuple(instruments)
+            statement = text(query).bindparams(bindparam("instruments", expanding=True))
+
+        with connection("tushare") as conn:
+            row = conn.execute(statement, params).first()
+
+        if not row or row[0] is None or row[1] is None:
+            return None
+
+        available_start = _coerce_trade_date(row[0])
+        available_end = _coerce_trade_date(row[1])
+        if available_start is None or available_end is None:
+            return None
+
+        if available_end < start_date or available_start > end_date:
+            requested_span = max((end_date - start_date).days, 0)
+            fallback_end = available_end
+            fallback_start = max(available_start, fallback_end - timedelta(days=requested_span))
+            return fallback_start, fallback_end
+
+        overlap_start = max(start_date, available_start)
+        overlap_end = min(end_date, available_end)
+        if overlap_start > overlap_end:
+            return None
+
+        return overlap_start, overlap_end
+    except Exception:
+        logger.debug("[rdagent-worker] Failed to resolve fallback eval dates", exc_info=True)
+        return None
+
+
+def _coerce_trade_date(value: Any) -> Optional[date_type]:
+    if isinstance(value, date_type):
+        return value
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, str):
+        try:
+            return date_type.fromisoformat(value)
+        except ValueError:
+            return None
+    return None
 
 
 def _augment_eval_ohlcv(ohlcv):

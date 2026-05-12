@@ -3,6 +3,8 @@ import json
 from datetime import date
 from unittest.mock import patch, MagicMock
 
+import pandas as pd
+
 from app.worker.service.rdagent_tasks import (
     run_rdagent_mining_task,
     _call_sidecar_mining,
@@ -502,6 +504,72 @@ class TestResolveEvalInstruments:
         instruments = mod._resolve_eval_instruments("csi300", date(2024, 3, 31))
 
         assert instruments == ["000001.SZ", "000002.SZ"]
+
+
+class TestBuildDiscoveredFactorEvalContext:
+
+    @patch("app.domains.factors.expression_engine.compute_forward_returns")
+    @patch("app.domains.factors.expression_engine.fetch_ohlcv")
+    @patch("app.infrastructure.db.connections.connection")
+    @patch("app.worker.service.rdagent_tasks._resolve_eval_instruments")
+    def test_retries_with_latest_available_window_when_requested_range_is_empty(
+        self,
+        mock_resolve_instruments,
+        mock_connection,
+        mock_fetch_ohlcv,
+        mock_compute_forward_returns,
+    ):
+        import app.worker.service.rdagent_tasks as mod
+
+        mock_resolve_instruments.return_value = ["000001.SZ"]
+
+        mock_conn = MagicMock()
+        mock_context = MagicMock()
+        mock_context.__enter__.return_value = mock_conn
+        mock_context.__exit__.return_value = False
+        mock_connection.return_value = mock_context
+
+        range_result = MagicMock()
+        range_result.first.return_value = ("2024-12-30", "2025-03-31")
+        mock_conn.execute.return_value = range_result
+
+        fetched = pd.DataFrame(
+            {
+                "open": [10.0, 10.5],
+                "high": [10.2, 10.7],
+                "low": [9.8, 10.1],
+                "close": [10.1, 10.6],
+                "volume": [100, 120],
+                "amount": [1000, 1100],
+                "factor": [1.0, 1.0],
+            },
+            index=pd.MultiIndex.from_tuples(
+                [
+                    ("000001.SZ", pd.Timestamp("2025-03-30")),
+                    ("000001.SZ", pd.Timestamp("2025-03-31")),
+                ],
+                names=["instrument", "date"],
+            ),
+        )
+        mock_fetch_ohlcv.side_effect = [pd.DataFrame(), fetched]
+        mock_compute_forward_returns.return_value = pd.Series([0.01, 0.02], index=fetched.index)
+
+        result = mod._build_discovered_factor_eval_context(
+            {
+                "universe": "csi300",
+                "start_date": "2024-01-01",
+                "end_date": "2024-03-31",
+            }
+        )
+
+        assert result is not None
+        assert mock_fetch_ohlcv.call_count == 2
+        assert mock_fetch_ohlcv.call_args_list[1].kwargs == {
+            "start_date": date(2024, 12, 31),
+            "end_date": date(2025, 3, 31),
+            "instruments": ["000001.SZ"],
+        }
+        assert list(result["forward_returns"]) == [0.01, 0.02]
 
 
 class TestLazyLoaders:
