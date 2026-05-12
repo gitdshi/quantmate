@@ -212,6 +212,37 @@ def test_seed_factor_prompt_data_creates_expected_assets(tmp_path, monkeypatch):
     readme_text = readme_path.read_text(encoding="utf-8")
     assert "Do not import or use h5py" in readme_text
     assert "pd.read_hdf('daily_pv.h5', key='data')" in readme_text
+    assert (tmp_path / "sitecustomize.py").exists()
+
+
+def test_sitecustomize_falls_back_to_default_hdf_key(tmp_path, monkeypatch):
+    module = _load_sidecar_module()
+
+    index = pd.MultiIndex.from_product(
+        [pd.to_datetime(["2024-01-02"]), ["SH600000"]],
+        names=["datetime", "instrument"],
+    )
+    frame = pd.DataFrame({"$close": [10.2]}, index=index)
+    data_path = tmp_path / "daily_pv.h5"
+
+    def fake_read_hdf(path_or_buf, key=None, *args, **kwargs):
+        if Path(path_or_buf).name != "daily_pv.h5":
+            raise AssertionError("unexpected path")
+        if key is None:
+            raise ValueError("key must be provided when HDF5 file contains multiple datasets.")
+        if key == "data":
+            return frame
+        raise KeyError(key)
+
+    original_read_hdf = pd.read_hdf
+    try:
+        monkeypatch.setattr(pd, "read_hdf", fake_read_hdf)
+        exec(module._build_sitecustomize_content(), {})
+        reloaded = pd.read_hdf(data_path)
+    finally:
+        monkeypatch.setattr(pd, "read_hdf", original_read_hdf)
+
+    pd.testing.assert_frame_equal(reloaded, frame)
 
 
 def test_build_prompt_context_appends_factor_io_guidance():
