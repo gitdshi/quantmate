@@ -307,7 +307,7 @@ jobs:
               expected_checksum=$(tr -d '[:space:]' < "$RDAGENT_APP_CHECKSUM_FILE")
               container_ok=0
               for i in $(seq 1 12); do
-                if docker exec quantmate-rdagent-service-1 sh -lc "shasum -a 256 /app/app.py >/tmp/rdagent_app.sha 2>/dev/null" >/dev/null 2>&1; then
+                if docker exec quantmate-rdagent-service-1 python -c "import hashlib, pathlib; print(hashlib.sha256(pathlib.Path('/app/app.py').read_bytes()).hexdigest())" >/dev/null 2>&1; then
                   container_ok=1
                   break
                 fi
@@ -322,7 +322,7 @@ jobs:
                 exit 1
               fi
 
-              actual_checksum=$(docker exec quantmate-rdagent-service-1 sh -lc "shasum -a 256 /app/app.py | awk '{print \\$1}'")
+              actual_checksum=$(docker exec quantmate-rdagent-service-1 python -c "import hashlib, pathlib; print(hashlib.sha256(pathlib.Path('/app/app.py').read_bytes()).hexdigest())")
               echo "==> container /app/app.py checksum: $actual_checksum"
               if [ "$actual_checksum" != "$expected_checksum" ]; then
                 echo "rdagent-service container checksum mismatch: expected $expected_checksum"
