@@ -159,7 +159,7 @@ def test_seed_factor_prompt_data_creates_expected_assets(tmp_path, monkeypatch):
     def fake_to_hdf(self, path, key="data", mode="w"):
         path = Path(path)
         path.write_text("seeded", encoding="utf-8")
-        written_paths.append(path)
+        written_paths.append((path, key, mode))
 
     env = module._build_rdagent_env(tmp_path, "gpt-4o-mini")
     monkeypatch.setattr(pd.DataFrame, "to_hdf", fake_to_hdf, raising=False)
@@ -172,7 +172,25 @@ def test_seed_factor_prompt_data_creates_expected_assets(tmp_path, monkeypatch):
     assert data_path.exists()
     assert debug_path.exists()
     assert readme_path.exists()
-    assert written_paths == [data_path, debug_path]
+    assert written_paths == [
+        (data_path, "data", "w"),
+        (data_path, "df", "a"),
+        (debug_path, "data", "w"),
+        (debug_path, "df", "a"),
+    ]
+    readme_text = readme_path.read_text(encoding="utf-8")
+    assert "Do not import or use h5py" in readme_text
+    assert "pd.read_hdf('daily_pv.h5', key='data')" in readme_text
+
+
+def test_build_prompt_context_appends_factor_io_guidance():
+    module = _load_sidecar_module()
+
+    prompt = module._build_prompt_context("Existing prompt context")
+
+    assert "Existing prompt context" in prompt
+    assert "Use pandas only for HDF5 IO" in prompt
+    assert "volume_ratio_20d" in prompt
 
 
 def test_cancel_endpoint_terminates_running_process(monkeypatch):
@@ -217,13 +235,60 @@ factor_formulation: volume / mean(volume, 20)
             "name": "volatility_20d",
             "expression": "std(return_1d, 20)",
             "description": "20-day rolling volatility",
+                        "ic_mean": 0.0,
+                        "icir": 0.0,
+                        "sharpe": 0.0,
         },
         {
             "name": "volume_ratio_20d",
             "expression": "volume / mean(volume, 20)",
             "description": "20-day volume ratio",
+                        "ic_mean": 0.0,
+                        "icir": 0.0,
+                        "sharpe": 0.0,
         },
     ]
+
+
+def test_parse_discovered_factors_normalizes_nested_metrics_from_results_json(tmp_path):
+        module = _load_sidecar_module()
+
+        results_dir = tmp_path / "results"
+        results_dir.mkdir()
+        (results_dir / "factors.json").write_text(
+                """
+{
+    "factors": [
+        {
+            "factor_name": "volume_ratio_20d",
+            "factor_formulation": "volume / mean(volume, 20)",
+            "factor_description": "20-day volume ratio",
+            "evaluation": {
+                "metrics": {
+                    "ic_mean": "0.1234",
+                    "ic_ir": 1.234,
+                    "sharpe_ratio": "0.88"
+                }
+            }
+        }
+    ]
+}
+""".strip(),
+                encoding="utf-8",
+        )
+
+        factors = module._parse_discovered_factors(tmp_path)
+
+        assert factors == [
+                {
+                        "name": "volume_ratio_20d",
+                        "expression": "volume / mean(volume, 20)",
+                        "description": "20-day volume ratio",
+                        "ic_mean": 0.1234,
+                        "icir": 1.234,
+                        "sharpe": 0.88,
+                }
+        ]
 
 
 def test_parse_iterations_synthesizes_iteration_from_selector_log_and_factor_code(tmp_path):
@@ -275,11 +340,17 @@ def test_parse_discovered_factors_reads_embedded_log_blocks(tmp_path):
             "name": "daily_return",
             "expression": "(close - open) / open",
             "description": "[Momentum Factor] Daily return from open to close",
+            "ic_mean": 0.0,
+            "icir": 0.0,
+            "sharpe": 0.0,
         },
         {
             "name": "intraday_volatility",
             "expression": "(high - low) / open",
             "description": "[Volatility Factor] Intraday range scaled by open",
+            "ic_mean": 0.0,
+            "icir": 0.0,
+            "sharpe": 0.0,
         },
     ]
 
@@ -302,5 +373,8 @@ def test_parse_discovered_factors_reads_past_default_text_limit(tmp_path):
             "name": "Volatility_5d",
             "expression": "rolling_std(return, 5)",
             "description": "[Volatility Factor] 5-day rolling volatility",
+            "ic_mean": 0.0,
+            "icir": 0.0,
+            "sharpe": 0.0,
         }
     ]

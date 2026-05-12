@@ -7,8 +7,10 @@ dict return with status.
 from __future__ import annotations
 
 import logging
+import math
+import re
 import traceback
-from datetime import datetime
+from datetime import date as date_type, datetime
 from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
@@ -16,6 +18,11 @@ logger = logging.getLogger(__name__)
 # Lazy-loaded references
 _RDAgentService = None
 _feature_descriptor = None
+_UNIVERSE_INDEX_CODES = {
+    "csi300": "000300.SH",
+    "csi500": "000905.SH",
+    "csi1000": "000852.SH",
+}
 
 
 def _get_rdagent_service():
@@ -112,15 +119,22 @@ def run_rdagent_mining_task(
 
         # Save discovered factors
         factors = result.get("discovered_factors", [])
+        eval_context = _build_discovered_factor_eval_context(config_dict)
         for f in factors:
+            evaluated_metrics = None
+            if _needs_metric_evaluation(f):
+                evaluated_metrics = _evaluate_discovered_factor_metrics(
+                    f.get("expression", ""),
+                    eval_context,
+                )
             save_discovered_factor(
                 run_id=run_id,
                 factor_name=f.get("name", "unnamed"),
                 expression=f.get("expression", ""),
                 description=f.get("description"),
-                ic_mean=f.get("ic_mean"),
-                icir=f.get("icir"),
-                sharpe=f.get("sharpe"),
+                ic_mean=_coalesce_metric(f.get("ic_mean"), evaluated_metrics, "ic_mean"),
+                icir=_coalesce_metric(f.get("icir"), evaluated_metrics, "icir"),
+                sharpe=_coalesce_metric(f.get("sharpe"), evaluated_metrics, "sharpe"),
             )
 
         completed_iterations = _count_completed_iterations(iterations)
@@ -219,6 +233,203 @@ def _serialize(obj: Any) -> Optional[str]:
     import json
 
     return json.dumps(obj, ensure_ascii=False, default=str)
+
+
+def _needs_metric_evaluation(factor: Dict[str, Any]) -> bool:
+    return all(_is_effectively_missing_metric(factor.get(key)) for key in ("ic_mean", "icir", "sharpe"))
+
+
+def _is_effectively_missing_metric(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, bool):
+        return True
+    if isinstance(value, (int, float)):
+        return math.isclose(float(value), 0.0, abs_tol=1e-12)
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return True
+        try:
+            return math.isclose(float(stripped), 0.0, abs_tol=1e-12)
+        except ValueError:
+            return True
+    return True
+
+
+def _coalesce_metric(raw_value: Any, evaluated: Optional[Dict[str, float]], key: str) -> Optional[float]:
+    if not _is_effectively_missing_metric(raw_value):
+        try:
+            return float(raw_value)
+        except (TypeError, ValueError):
+            pass
+    if evaluated is None:
+        return 0.0 if _is_effectively_missing_metric(raw_value) else None
+    return float(evaluated.get(key, 0.0))
+
+
+def _build_discovered_factor_eval_context(config_dict: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    try:
+        from app.domains.factors.expression_engine import compute_forward_returns, fetch_ohlcv
+
+        start_date = date_type.fromisoformat(config_dict.get("start_date", "2023-01-01"))
+        end_date = date_type.fromisoformat(config_dict.get("end_date", "2024-12-31"))
+        instruments = _resolve_eval_instruments(config_dict.get("universe"), end_date)
+        ohlcv = fetch_ohlcv(start_date=start_date, end_date=end_date, instruments=instruments)
+        if ohlcv.empty:
+            return None
+        eval_ohlcv = _augment_eval_ohlcv(ohlcv)
+        return {
+            "ohlcv": eval_ohlcv,
+            "forward_returns": compute_forward_returns(eval_ohlcv, periods=1),
+        }
+    except Exception:
+        logger.debug("[rdagent-worker] Failed to build evaluation context", exc_info=True)
+        return None
+
+
+def _resolve_eval_instruments(universe: Any, end_date: date_type) -> Optional[list[str]]:
+    if not isinstance(universe, str):
+        return None
+
+    normalized = universe.strip().lower()
+    if not normalized or normalized in {"all", "all_a", "all-a", "market"}:
+        return None
+
+    if "," in normalized:
+        instruments = [item.strip().upper() for item in universe.split(",") if item.strip()]
+        return instruments or None
+
+    index_code = _UNIVERSE_INDEX_CODES.get(normalized)
+    if not index_code:
+        return None
+
+    try:
+        from sqlalchemy import text
+
+        from app.infrastructure.db.connections import connection
+
+        with connection("tushare") as conn:
+            result = conn.execute(
+                text(
+                    "SELECT DISTINCT con_code "
+                    "FROM index_weight "
+                    "WHERE index_code = :index_code "
+                    "AND trade_date = ("
+                    "  SELECT MAX(trade_date) FROM index_weight "
+                    "  WHERE index_code = :index_code AND trade_date <= :trade_date"
+                    ") "
+                    "ORDER BY con_code"
+                ),
+                {"index_code": index_code, "trade_date": end_date},
+            )
+            instruments = [str(row[0]).strip() for row in result.fetchall() if str(row[0]).strip()]
+            return instruments or None
+    except Exception:
+        logger.debug("[rdagent-worker] Failed to resolve universe %s", universe, exc_info=True)
+        return None
+
+
+def _augment_eval_ohlcv(ohlcv):
+    eval_ohlcv = ohlcv.copy()
+    for periods in (1, 5, 10, 20):
+        series = eval_ohlcv.groupby(level=0)["close"].pct_change(periods=periods)
+        eval_ohlcv[f"ret_{periods}d"] = series
+    return eval_ohlcv
+
+
+def _evaluate_discovered_factor_metrics(
+    expression: str,
+    eval_context: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, float]]:
+    if not expression or eval_context is None:
+        return None
+
+    try:
+        from app.domains.factors.expression_engine import compute_custom_factor, compute_factor_metrics
+
+        normalized_expression = _normalize_discovered_factor_expression(expression)
+        factor_values = compute_custom_factor(normalized_expression, eval_context["ohlcv"])
+        metrics = compute_factor_metrics(factor_values, eval_context["forward_returns"])
+        return {
+            "ic_mean": float(metrics.get("ic_mean", 0.0)),
+            "icir": float(metrics.get("ic_ir", 0.0)),
+            "sharpe": _compute_long_short_sharpe(factor_values, eval_context["forward_returns"]),
+        }
+    except Exception:
+        logger.debug("[rdagent-worker] Failed to evaluate discovered factor expression: %s", expression, exc_info=True)
+        return None
+
+
+def _normalize_discovered_factor_expression(expression: str) -> str:
+    normalized = expression.strip()
+    normalized = re.sub(r"\$(\w+)", r"\1", normalized)
+    replacements = {
+        r"(?<![\w.])rolling_mean\s*\(": "ts_mean(",
+        r"(?<![\w.])rolling_std\s*\(": "ts_std(",
+        r"(?<![\w.])rolling_sum\s*\(": "ts_sum(",
+        r"(?<![\w.])rolling_max\s*\(": "ts_max(",
+        r"(?<![\w.])rolling_min\s*\(": "ts_min(",
+        r"(?<![\w.])mean\s*\(": "ts_mean(",
+        r"(?<![\w.])std\s*\(": "ts_std(",
+        r"(?<![\w.])sum\s*\(": "ts_sum(",
+        r"(?<![\w.])max\s*\(": "ts_max(",
+        r"(?<![\w.])min\s*\(": "ts_min(",
+        r"(?<![\w.])corr\s*\(": "ts_corr(",
+    }
+    for pattern, replacement in replacements.items():
+        normalized = re.sub(pattern, replacement, normalized)
+
+    aliases = {
+        r"\bdaily_return\b": "ret_1d",
+        r"\breturn_1d\b": "ret_1d",
+        r"\breturn_5d\b": "ret_5d",
+        r"\breturn_10d\b": "ret_10d",
+        r"\breturn_20d\b": "ret_20d",
+        r"\bmomentum_5d\b": "ret_5d",
+        r"\bmomentum_10d\b": "ret_10d",
+        r"\bmomentum_20d\b": "ret_20d",
+        r"\breturn\b": "ret_1d",
+    }
+    for pattern, replacement in aliases.items():
+        normalized = re.sub(pattern, replacement, normalized)
+    return normalized
+
+
+def _compute_long_short_sharpe(factor_values, forward_returns) -> float:
+    import pandas as pd
+    import numpy as np
+
+    aligned = pd.DataFrame({"factor": factor_values, "return": forward_returns}).dropna()
+    if aligned.empty or len(aligned) < 10:
+        return 0.0
+
+    if "date" in aligned.index.names:
+        dates = aligned.index.get_level_values("date")
+    elif "datetime" in aligned.index.names:
+        dates = aligned.index.get_level_values("datetime")
+    else:
+        dates = aligned.index.get_level_values(1)
+    aligned["_date"] = dates
+
+    spreads = []
+    for _, group in aligned.groupby("_date"):
+        if len(group) < 10:
+            continue
+        ranked = group.sort_values("factor")
+        bucket_size = max(len(ranked) // 5, 1)
+        spreads.append(ranked["return"].iloc[-bucket_size:].mean() - ranked["return"].iloc[:bucket_size].mean())
+
+    if len(spreads) < 2:
+        return 0.0
+
+    spread_series = pd.Series(spreads, dtype=float).dropna()
+    if len(spread_series) < 2:
+        return 0.0
+    spread_std = float(spread_series.std())
+    if spread_std <= 1e-9:
+        return 0.0
+    return round(float(spread_series.mean()) / spread_std * np.sqrt(252.0), 4)
 
 
 def _count_completed_iterations(iterations: list[Dict[str, Any]]) -> int:

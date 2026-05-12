@@ -323,6 +323,31 @@ class TestRDAgentServiceDiscoveredFactors:
         assert factors[0]["factor_name"] == "Alpha1"
         mock_conn_ctx.assert_called_once_with("qlib")
 
+    @patch("app.domains.factors.rdagent_service.connection")
+    @patch("app.domains.factors.rdagent_service.RDAgentService.get_run")
+    def test_get_discovered_factors_normalizes_missing_metrics(self, mock_get, mock_conn_ctx):
+        mock_get.return_value = {"run_id": "r1", "status": "completed"}
+
+        mock_conn = MagicMock()
+        mock_conn_ctx.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn_ctx.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_result = MagicMock()
+        mock_result.mappings.return_value.all.return_value = [
+            {"id": 1, "run_id": "r1", "factor_name": "Alpha1",
+             "expression": "Rank(close/open)", "description": "test",
+             "ic_mean": None, "icir": "", "sharpe": "not-a-number",
+             "status": "discovered", "created_at": "2024-01-01"},
+        ]
+        mock_conn.execute.return_value = mock_result
+
+        svc = RDAgentService()
+        factors = svc.get_discovered_factors(user_id=1, run_id="r1")
+
+        assert factors[0]["ic_mean"] == 0.0
+        assert factors[0]["icir"] == 0.0
+        assert factors[0]["sharpe"] == 0.0
+
     @patch("app.domains.factors.rdagent_service.RDAgentService.get_run")
     def test_get_discovered_factors_run_not_found(self, mock_get):
         mock_get.return_value = None

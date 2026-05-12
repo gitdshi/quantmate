@@ -12,15 +12,19 @@ from app.worker.service.rdagent_tasks import (
 class TestRunRDAgentMiningTask:
 
     @patch("app.worker.service.rdagent_tasks._call_sidecar_mining")
+    @patch("app.worker.service.rdagent_tasks._evaluate_discovered_factor_metrics")
+    @patch("app.worker.service.rdagent_tasks._build_discovered_factor_eval_context")
     @patch("app.worker.service.rdagent_tasks._get_feature_descriptor")
     @patch("app.domains.factors.rdagent_service._update_run_status")
     @patch("app.domains.factors.rdagent_service.save_discovered_factor")
     @patch("app.domains.factors.rdagent_service.save_iteration")
     def test_successful_mining(self, mock_save_iter, mock_save_factor, mock_update_status,
-                                mock_get_fd, mock_sidecar):
+                                mock_get_fd, mock_build_eval_context, mock_eval_metrics, mock_sidecar):
         mock_fd = MagicMock()
         mock_fd.build_prompt_context.return_value = "test prompt"
         mock_get_fd.return_value = mock_fd
+        mock_build_eval_context.return_value = {"ohlcv": object(), "forward_returns": object()}
+        mock_eval_metrics.return_value = {"ic_mean": 0.12, "icir": 0.34, "sharpe": 1.56}
 
         mock_sidecar.return_value = {
             "status": "completed",
@@ -44,7 +48,56 @@ class TestRunRDAgentMiningTask:
         assert result["discovered_factors"] == 1
         assert mock_save_iter.call_count == 2
         assert mock_save_factor.call_count == 1
+        mock_eval_metrics.assert_not_called()
         mock_update_status.assert_any_call("test-run-id", "completed", current_iteration=2, total_iterations=2)
+
+    @patch("app.worker.service.rdagent_tasks._call_sidecar_mining")
+    @patch("app.worker.service.rdagent_tasks._evaluate_discovered_factor_metrics")
+    @patch("app.worker.service.rdagent_tasks._build_discovered_factor_eval_context")
+    @patch("app.worker.service.rdagent_tasks._get_feature_descriptor")
+    @patch("app.domains.factors.rdagent_service._update_run_status")
+    @patch("app.domains.factors.rdagent_service.save_discovered_factor")
+    @patch("app.domains.factors.rdagent_service.save_iteration")
+    def test_missing_factor_metrics_are_backfilled_from_real_evaluation(
+        self,
+        mock_save_iter,
+        mock_save_factor,
+        mock_update_status,
+        mock_get_fd,
+        mock_build_eval_context,
+        mock_eval_metrics,
+        mock_sidecar,
+    ):
+        mock_fd = MagicMock()
+        mock_fd.build_prompt_context.return_value = "test prompt"
+        mock_get_fd.return_value = mock_fd
+        mock_build_eval_context.return_value = {"ohlcv": object(), "forward_returns": object()}
+        mock_eval_metrics.return_value = {"ic_mean": 0.12, "icir": 0.34, "sharpe": 1.56}
+
+        mock_sidecar.return_value = {
+            "status": "completed",
+            "iterations": [],
+            "discovered_factors": [
+                {"name": "Alpha1", "expression": "volume / mean(volume, 20)", "description": "test", "ic_mean": 0.0, "icir": 0.0, "sharpe": 0.0},
+            ],
+        }
+
+        run_rdagent_mining_task(
+            user_id=1,
+            run_id="test-run-id",
+            config_dict={"scenario": "fin_factor", "max_iterations": 2, "universe": "csi300"},
+        )
+
+        mock_eval_metrics.assert_called_once()
+        mock_save_factor.assert_called_once_with(
+            run_id="test-run-id",
+            factor_name="Alpha1",
+            expression="volume / mean(volume, 20)",
+            description="test",
+            ic_mean=0.12,
+            icir=0.34,
+            sharpe=1.56,
+        )
 
     @patch("app.worker.service.rdagent_tasks._call_sidecar_mining")
     @patch("app.worker.service.rdagent_tasks._get_feature_descriptor")
@@ -248,6 +301,16 @@ class TestSerialize:
         result = _serialize([1, 2])
         parsed = json.loads(result)
         assert parsed == [1, 2]
+
+
+class TestDiscoveredFactorExpressionNormalization:
+
+    def test_normalize_discovered_factor_expression(self):
+        import app.worker.service.rdagent_tasks as mod
+
+        result = mod._normalize_discovered_factor_expression("$volume / mean(volume, 20) + rolling_std(return, 5)")
+
+        assert result == "volume / ts_mean(volume, 20) + ts_std(ret_1d, 5)"
 
 
 class TestLazyLoaders:

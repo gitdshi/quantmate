@@ -294,7 +294,7 @@ class RDAgentService:
                 ),
                 {"rid": run_id},
             )
-            return [dict(r) for r in result.mappings().all()]
+            return [_normalize_discovered_factor_row(dict(r)) for r in result.mappings().all()]
 
     def import_factor(
         self, user_id: int, run_id: str, factor_id: int
@@ -563,6 +563,28 @@ def save_discovered_factor(
         )
         conn.commit()
         return result.lastrowid  # type: ignore[return-value]
+
+
+def _normalize_discovered_factor_row(row: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(row)
+    for key in ("ic_mean", "icir", "sharpe"):
+        normalized[key] = _coerce_metric_value(normalized.get(key))
+    return normalized
+
+
+def _coerce_metric_value(value: Any) -> float:
+    if isinstance(value, bool):
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped:
+            try:
+                return float(stripped)
+            except ValueError:
+                return 0.0
+    return 0.0
 
 
 def _serialize_json(obj: Any) -> str:

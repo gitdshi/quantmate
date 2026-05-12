@@ -107,6 +107,42 @@ class TestExpressionHelpers:
         result = _ee._ts_corr(x, y, 5)
         assert abs(result.iloc[4] - 1.0) < 1e-9
 
+    def test_delay_respects_multiindex_instruments(self):
+        index = pd.MultiIndex.from_tuples(
+            [
+                ("AAA", pd.Timestamp("2024-01-01")),
+                ("AAA", pd.Timestamp("2024-01-02")),
+                ("BBB", pd.Timestamp("2024-01-01")),
+                ("BBB", pd.Timestamp("2024-01-02")),
+            ],
+            names=["instrument", "date"],
+        )
+        s = pd.Series([10, 20, 100, 200], index=index)
+
+        result = _ee._delay(s, 1)
+
+        assert pd.isna(result.iloc[0])
+        assert result.iloc[1] == 10
+        assert pd.isna(result.iloc[2])
+        assert result.iloc[3] == 100
+
+    def test_ts_mean_respects_multiindex_instruments(self):
+        index = pd.MultiIndex.from_tuples(
+            [
+                ("AAA", pd.Timestamp("2024-01-01")),
+                ("AAA", pd.Timestamp("2024-01-02")),
+                ("BBB", pd.Timestamp("2024-01-01")),
+                ("BBB", pd.Timestamp("2024-01-02")),
+            ],
+            names=["instrument", "date"],
+        )
+        s = pd.Series([10, 20, 100, 200], index=index)
+
+        result = _ee._ts_mean(s, window=2)
+
+        assert result.iloc[1] == 15
+        assert result.iloc[3] == 150
+
 
 @pytest.mark.unit
 class TestComputeCustomFactor:

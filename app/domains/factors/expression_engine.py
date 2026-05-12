@@ -38,12 +38,38 @@ _UNSAFE_PATTERN = re.compile(
     r"(__\w+__|import\s|exec\s*\(|eval\s*\(|open\s*\(|compile\s*\(|getattr|setattr|delattr|globals|locals)",
     re.IGNORECASE,
 )
+_VALID_IDENTIFIER = re.compile(r"^[A-Za-z_]\w*$")
 
 
 def _validate_expression(expr: str) -> None:
     """Reject obviously unsafe expressions."""
     if _UNSAFE_PATTERN.search(expr):
         raise ValueError(f"Expression contains forbidden constructs: {expr[:80]}")
+
+
+def _instrument_level(index: pd.Index) -> int | None:
+    if not isinstance(index, pd.MultiIndex):
+        return None
+    if "instrument" in index.names:
+        return index.names.index("instrument")
+    return 0 if index.nlevels >= 2 else None
+
+
+def _date_level(index: pd.Index) -> int | None:
+    if not isinstance(index, pd.MultiIndex):
+        return None
+    if "date" in index.names:
+        return index.names.index("date")
+    if "datetime" in index.names:
+        return index.names.index("datetime")
+    return 1 if index.nlevels >= 2 else None
+
+
+def _apply_by_instrument(series: pd.Series, operation) -> pd.Series:
+    level = _instrument_level(series.index)
+    if level is None:
+        return operation(series)
+    return series.groupby(level=level, group_keys=False).apply(operation)
 
 
 # ---------------------------------------------------------------------------
@@ -53,40 +79,49 @@ def _validate_expression(expr: str) -> None:
 
 def _delay(series: pd.Series, periods: int = 1) -> pd.Series:
     """Shift series forward (lag)."""
-    return series.shift(periods)
+    return _apply_by_instrument(series, lambda value: value.shift(periods))
 
 
 def _delta(series: pd.Series, periods: int = 1) -> pd.Series:
     """Difference: series - delay(series, periods)."""
-    return series - series.shift(periods)
+    return series - _delay(series, periods)
 
 
 def _rank(series: pd.Series) -> pd.Series:
     """Cross-sectional rank (percentile)."""
-    return series.rank(pct=True)
+    level = _date_level(series.index)
+    if level is None:
+        return series.rank(pct=True)
+    return series.groupby(level=level, group_keys=False).rank(pct=True)
 
 
 def _ts_mean(series: pd.Series, window: int = 5) -> pd.Series:
-    return series.rolling(window, min_periods=1).mean()
+    return _apply_by_instrument(series, lambda value: value.rolling(window, min_periods=1).mean())
 
 
 def _ts_std(series: pd.Series, window: int = 5) -> pd.Series:
-    return series.rolling(window, min_periods=1).std()
+    return _apply_by_instrument(series, lambda value: value.rolling(window, min_periods=1).std())
 
 
 def _ts_max(series: pd.Series, window: int = 5) -> pd.Series:
-    return series.rolling(window, min_periods=1).max()
+    return _apply_by_instrument(series, lambda value: value.rolling(window, min_periods=1).max())
 
 
 def _ts_min(series: pd.Series, window: int = 5) -> pd.Series:
-    return series.rolling(window, min_periods=1).min()
+    return _apply_by_instrument(series, lambda value: value.rolling(window, min_periods=1).min())
 
 
 def _ts_sum(series: pd.Series, window: int = 5) -> pd.Series:
-    return series.rolling(window, min_periods=1).sum()
+    return _apply_by_instrument(series, lambda value: value.rolling(window, min_periods=1).sum())
 
 
 def _ts_corr(x: pd.Series, y: pd.Series, window: int = 5) -> pd.Series:
+    level = _instrument_level(x.index)
+    if level is not None and _instrument_level(y.index) is not None:
+        aligned = pd.DataFrame({"x": x, "y": y})
+        return aligned.groupby(level=level, group_keys=False).apply(
+            lambda group: group["x"].rolling(window, min_periods=2).corr(group["y"])
+        )
     return x.rolling(window, min_periods=2).corr(y)
 
 
@@ -126,8 +161,8 @@ def compute_custom_factor(
 
     # Make column names available as variables
     local_vars = dict(_EVAL_LOCALS)
-    for col in ("open", "high", "low", "close", "volume", "amount", "factor"):
-        if col in ohlcv.columns:
+    for col in ohlcv.columns:
+        if isinstance(col, str) and _VALID_IDENTIFIER.match(col):
             local_vars[col] = ohlcv[col]
 
     try:
