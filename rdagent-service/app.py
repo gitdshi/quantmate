@@ -288,6 +288,8 @@ def _build_rdagent_env(run_dir: Path, llm_model: str) -> dict[str, str]:
             env.pop(key, None)
 
     env["RDAGENT_WORKSPACE"] = str(run_dir)
+    existing_pythonpath = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = str(run_dir) if not existing_pythonpath else f"{run_dir}{os.pathsep}{existing_pythonpath}"
     env["CONDA_DEFAULT_ENV"] = env.get("CONDA_DEFAULT_ENV") or "base"
     env["BACKEND"] = env.get("BACKEND") or "rdagent.oai.backend.LiteLLMAPIBackend"
     env["FACTOR_CoSTEER_python_bin"] = env.get("FACTOR_CoSTEER_python_bin") or sys.executable

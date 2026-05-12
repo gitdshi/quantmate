@@ -90,6 +90,7 @@ def test_build_rdagent_env_prefers_local_ollama_without_openai_key(monkeypatch, 
     assert env["LITELLM_CHAT_STREAM"] == "false"
     assert env["LITELLM_ENABLE_RESPONSE_SCHEMA"] == "false"
     assert env["CONDA_DEFAULT_ENV"] == "base"
+    assert env["PYTHONPATH"].split(":", 1)[0] == str(tmp_path)
     assert env["FACTOR_CoSTEER_python_bin"] == sys.executable
     assert env["BACKEND"] == "rdagent.oai.backend.LiteLLMAPIBackend"
 
