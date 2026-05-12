@@ -243,6 +243,26 @@ class TestFetchOhlcv:
         result = _ee.fetch_ohlcv(start_date=date(2024, 1, 1), end_date=date(2024, 1, 2))
         assert len(result) >= 0
 
+    def test_fetch_ohlcv_uses_expanding_bind_for_instruments(self, monkeypatch):
+        captured = {}
+
+        def _read_sql(query, conn, params=None):
+            captured["query"] = query
+            captured["params"] = params
+            return pd.DataFrame()
+
+        monkeypatch.setattr(_ee, "connection", lambda n: _Ctx(_FC()))
+        monkeypatch.setattr(pd, "read_sql", _read_sql)
+
+        _ee.fetch_ohlcv(
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 1, 2),
+            instruments=["A", "B"],
+        )
+
+        assert captured["params"]["instruments"] == ("A", "B")
+        assert captured["query"]._bindparams["instruments"].expanding is True
+
     def test_fetch_ohlcv_empty(self, monkeypatch):
         monkeypatch.setattr(_ee, "connection", lambda n: _Ctx(_FC()))
         monkeypatch.setattr(pd, "read_sql", lambda *a, **kw: pd.DataFrame())

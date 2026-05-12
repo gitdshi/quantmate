@@ -17,7 +17,7 @@ from typing import Any, Optional
 import numpy as np
 import pandas as pd
 from scipy import stats
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 
 from app.infrastructure.db.connections import connection
 
@@ -271,8 +271,12 @@ def fetch_ohlcv(
         ORDER BY d.ts_code, d.trade_date
     """
 
+    statement = text(query)
+    if instruments:
+        statement = statement.bindparams(bindparam("instruments", expanding=True))
+
     with connection("tushare") as conn:
-        df = pd.read_sql(text(query), conn, params=params)
+        df = pd.read_sql(statement, conn, params=params)
 
     if df.empty:
         return df
