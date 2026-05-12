@@ -400,6 +400,9 @@ jobs:
 
             rebuild_env_from_example_if_needed
             ensure_env_key GITHUB_OWNER "$GITHUB_OWNER"
+            echo "==> Persisting target image tag into .env before compose operations"
+            upsert_env_key GITHUB_OWNER "$GITHUB_OWNER"
+            upsert_env_key IMAGE_TAG "$IMAGE_TAG"
             require_env_key PORTAL_IMAGE_TAG
             print_disk_diagnostics
 
