@@ -501,6 +501,7 @@ def _normalize_discovered_factor_expression(expression: str) -> str:
     }.items():
         compact = re.sub(rf"\b{source}\b", target, compact)
 
+    compact = re.sub(r"^[A-Za-z_][A-Za-z0-9_]*_\{[^}]+\}\s*=\s*", "", compact)
     compact = re.sub(r"^[A-Za-z_]+_\{[^}]+\}\s*=\s*", "", compact)
     compact = re.sub(r"^[A-Za-z_][A-Za-z0-9_]*\s*=\s*", "", compact)
     if " = " in compact and not compact.lstrip().startswith(r"\sigma"):
@@ -518,6 +519,15 @@ def _normalize_discovered_factor_expression(expression: str) -> str:
     compact = re.sub(
         r"\\frac\{volume(?:_t)?\}\{mean\((\w+)_\{t-(\d+):t\}\}\s*",
         lambda match: f"(volume) / (ts_mean({match.group(1).lower()}, {int(match.group(2)) + 1}))",
+        compact,
+    )
+    compact = re.sub(
+        r"mean\((\w+)_\{i,t-(\d+)\}:(\w+)_\{i,t\}\)",
+        lambda match: (
+            f"ts_mean({match.group(1).lower()}, {int(match.group(2)) + 1})"
+            if match.group(1).lower() == match.group(3).lower()
+            else match.group(0)
+        ),
         compact,
     )
     compact = re.sub(
@@ -548,6 +558,16 @@ def _normalize_discovered_factor_expression(expression: str) -> str:
             compact,
         )
 
+    compact = re.sub(
+        r"([A-Za-z]+)_\{i,t-(\d+)\}",
+        lambda match: f"delay({match.group(1).lower()}, {match.group(2)})",
+        compact,
+    )
+    compact = re.sub(
+        r"([A-Za-z]+)_\{i,t\}",
+        lambda match: match.group(1).lower(),
+        compact,
+    )
     compact = re.sub(
         r"([A-Za-z]+)_\{t-(\d+)\}",
         lambda match: f"delay({match.group(1).lower()}, {match.group(2)})",

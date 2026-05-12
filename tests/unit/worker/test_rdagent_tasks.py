@@ -504,6 +504,33 @@ class TestDiscoveredFactorExpressionNormalization:
 
         assert result == "(volume) / (ts_mean(volume, 20))"
 
+    def test_normalize_indexed_momentum_expression(self):
+        import app.worker.service.rdagent_tasks as mod
+
+        result = mod._normalize_discovered_factor_expression(
+            r"momentum\_5d_{i,t} = \frac{close_{i,t} - close_{i,t-5}}{close_{i,t-5}}"
+        )
+
+        assert result == "(close - delay(close, 5)) / (delay(close, 5))"
+
+    def test_normalize_indexed_volume_ratio_expression(self):
+        import app.worker.service.rdagent_tasks as mod
+
+        result = mod._normalize_discovered_factor_expression(
+            r"volume\_ratio\_20d_{i,t} = \frac{volume_{i,t}}{\text{mean}(volume_{i,t-19}:volume_{i,t})}"
+        )
+
+        assert result == "(volume) / (ts_mean(volume, 20))"
+
+    def test_normalize_indexed_volume_momentum_expression(self):
+        import app.worker.service.rdagent_tasks as mod
+
+        result = mod._normalize_discovered_factor_expression(
+            r"volume\_momentum\_20d_{i,t} = \frac{volume_{i,t} - volume_{i,t-20}}{volume_{i,t-20}}"
+        )
+
+        assert result == "(volume - delay(volume, 20)) / (delay(volume, 20))"
+
 
 class TestResolveEvalInstruments:
 
