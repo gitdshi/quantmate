@@ -486,6 +486,11 @@ def _normalize_discovered_factor_expression(expression: str) -> str:
         lambda match: f"ts_std(ret_1d, {match.group(1)})",
         compact,
     )
+    compact = re.sub(
+        r"\\sigma_\{(\d+)\}\(t\)\s*=.*$",
+        lambda match: f"ts_std(ret_1d, {match.group(1)})",
+        compact,
+    )
     compact = compact.replace("}]", "}")
     compact = re.sub(r"([A-Za-z]+(?:_t|_\{[^}]+\}))\^\{[^}]+\}", r"\1", compact)
 
@@ -573,8 +578,33 @@ def _normalize_discovered_factor_expression(expression: str) -> str:
         compact,
     )
     compact = re.sub(
+        r"R_\{(\d+)\}\(t\)\s*=\s*\\frac\{Close\(t\)\}\{Close\(t-(\d+)\)\}\s*-\s*1",
+        lambda match: f"(close) / (delay(close, {match.group(2)})) - 1",
+        compact,
+    )
+    compact = re.sub(
+        r"VR_\{(\d+)\}\(t\)\s*=\s*\\frac\{Volume\(t\)\}\{MA_\{(\d+)\}\(Volume\)\}",
+        lambda match: f"volume / ts_mean(volume, {match.group(2)})",
+        compact,
+    )
+    compact = re.sub(
+        r"SMA_\{ratio\}\(t\)\s*=\s*\\frac\{Close\(t\)\}\{SMA_\{(\d+)\}\(Close\)\}",
+        lambda match: f"close / ts_mean(close, {match.group(1)})",
+        compact,
+    )
+    compact = re.sub(
+        r"HL_\{(\d+)\}\(t\)\s*=\s*\\frac\{1\}\{\d+\}\s*\\sum_\{i=0\}\^\{\d+\}\s*\\frac\{High\(t-i\)\s*-\s*Low\(t-i\)\}\{Close\(t-i\)\}",
+        lambda match: f"ts_mean((high - low) / close, {match.group(1)})",
+        compact,
+    )
+    compact = re.sub(
         r"\\frac\{close_t\}\{ma_(\d+)d\}\s*-\s*1",
         lambda match: f"(close) / (ts_mean(close, {match.group(1)})) - 1",
+        compact,
+    )
+    compact = re.sub(
+        r"(?:MA|SMA)_\{(\d+)\}\((\w+)\)",
+        lambda match: f"ts_mean({match.group(2).lower()}, {match.group(1)})",
         compact,
     )
 
@@ -603,6 +633,16 @@ def _normalize_discovered_factor_expression(expression: str) -> str:
     compact = re.sub(
         r"([A-Za-z]+)_\{t-(\d+)\}",
         lambda match: f"delay({match.group(1).lower()}, {match.group(2)})",
+        compact,
+    )
+    compact = re.sub(
+        r"([A-Za-z]+)\(t-(\d+)\)",
+        lambda match: f"delay({match.group(1).lower() if match.group(1) != 'R' else 'ret_1d'}, {match.group(2)})",
+        compact,
+    )
+    compact = re.sub(
+        r"([A-Za-z]+)\(t\)",
+        lambda match: "ret_1d" if match.group(1) == "R" else match.group(1).lower(),
         compact,
     )
     compact = re.sub(
@@ -635,6 +675,11 @@ def _normalize_discovered_factor_expression(expression: str) -> str:
     compact = re.sub(
         r"\\frac\{close\}\{\(1\)\s*/\s*\((\d+)\)\s*\\sum_\{i=0\}(?:\^\{\d+\})?\s*close_\{t-i\}\}\s*-\s*1",
         lambda match: f"(close) / (ts_mean(close, {match.group(1)})) - 1",
+        compact,
+    )
+    compact = re.sub(
+        r"\(1\)\s*/\s*\((\d+)\)\s*\\sum_\{i=0\}(?:\^\{\d+\})?\s*\(high\(t-i\)\s*-\s*low\(t-i\)\)\s*/\s*\(close\(t-i\)\)",
+        lambda match: f"ts_mean((high - low) / close, {match.group(1)})",
         compact,
     )
 
@@ -694,6 +739,8 @@ def _normalize_discovered_factor_expression(expression: str) -> str:
         r"\bmomentum_5d\b": "ret_5d",
         r"\bmomentum_10d\b": "ret_10d",
         r"\bmomentum_20d\b": "ret_20d",
+        r"\\bar\{R\}_\{(\d+)\}": lambda match: f"ts_mean(ret_1d, {match.group(1)})",
+        r"\\bar\{R\}": "ts_mean(ret_1d, 1)",
         r"\breturn\b": "ret_1d",
     }
     for pattern, replacement in aliases.items():

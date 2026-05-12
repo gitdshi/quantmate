@@ -585,6 +585,51 @@ class TestDiscoveredFactorExpressionNormalization:
 
         assert result == "ts_std(ret_1d, 20)"
 
+    def test_normalize_function_style_return_expression(self):
+        import app.worker.service.rdagent_tasks as mod
+
+        result = mod._normalize_discovered_factor_expression(
+            r"R_{10}(t) = \frac{Close(t)}{Close(t-10)} - 1"
+        )
+
+        assert result == "(close) / (delay(close, 10)) - 1"
+
+    def test_normalize_function_style_volume_ratio_expression(self):
+        import app.worker.service.rdagent_tasks as mod
+
+        result = mod._normalize_discovered_factor_expression(
+            r"VR_{20}(t) = \frac{Volume(t)}{MA_{20}(Volume)}"
+        )
+
+        assert result == "(volume) / (ts_mean(volume, 20))"
+
+    def test_normalize_function_style_sigma_expression(self):
+        import app.worker.service.rdagent_tasks as mod
+
+        result = mod._normalize_discovered_factor_expression(
+            r"\sigma_{10}(t) = \sqrt{\frac{1}{9} \sum_{i=0}^{9} (R(t-i) - \bar{R}_{10})^2}"
+        )
+
+        assert result == "ts_std(ret_1d, 10)"
+
+    def test_normalize_function_style_sma_ratio_expression(self):
+        import app.worker.service.rdagent_tasks as mod
+
+        result = mod._normalize_discovered_factor_expression(
+            r"SMA_{ratio}(t) = \frac{Close(t)}{SMA_{20}(Close)}"
+        )
+
+        assert result == "(close) / (ts_mean(close, 20))"
+
+    def test_normalize_function_style_high_low_mean_expression(self):
+        import app.worker.service.rdagent_tasks as mod
+
+        result = mod._normalize_discovered_factor_expression(
+            r"HL_{10}(t) = \frac{1}{10} \sum_{i=0}^{9} \frac{High(t-i) - Low(t-i)}{Close(t-i)}"
+        )
+
+        assert result == "ts_mean((high - low) / close, 10)"
+
 
 class TestResolveEvalInstruments:
 
