@@ -189,6 +189,7 @@ jobs:
           cp nginx/staging.conf .deploy_bundle/nginx/staging.conf
           cp .github/scripts/merge_env_from_example.py .deploy_bundle/.github/scripts/merge_env_from_example.py
           cp -R rdagent-service .deploy_bundle/rdagent-service
+          tar -czf .deploy_bundle/rdagent-service.tgz -C .deploy_bundle rdagent-service
 
       # Push the latest docker-compose.staging.yml and nginx config to the server
       - name: Copy config files to staging server
@@ -197,7 +198,7 @@ jobs:
           host: ${{ secrets.STAGING_HOST }}
           username: ${{ secrets.STAGING_USER }}
           key: ${{ secrets.STAGING_SSH_KEY }}
-          source: ".deploy_bundle/docker-compose.staging.yml,.deploy_bundle/.env.example.incoming,.deploy_bundle/nginx/staging.conf,.deploy_bundle/.github/scripts/merge_env_from_example.py,.deploy_bundle/rdagent-service/**"
+          source: ".deploy_bundle/docker-compose.staging.yml,.deploy_bundle/.env.example.incoming,.deploy_bundle/nginx/staging.conf,.deploy_bundle/.github/scripts/merge_env_from_example.py,.deploy_bundle/rdagent-service.tgz"
           target: /opt/quantmate
           strip_components: 1
 
@@ -271,6 +272,17 @@ jobs:
               fi
             }
 
+            refresh_rdagent_sidecar_bundle() {
+              if [ -f "rdagent-service.tgz" ]; then
+                echo "==> Refreshing rdagent-service source bundle"
+                rm -rf rdagent-service
+                tar -xzf rdagent-service.tgz
+                rm -f rdagent-service.tgz
+              else
+                echo "==> No rdagent-service bundle uploaded; keeping existing source"
+              fi
+            }
+
             print_disk_diagnostics() {
               echo "==> Filesystem usage"
               df -h || true
@@ -288,6 +300,8 @@ jobs:
               docker builder prune -af || true
               print_disk_diagnostics
             }
+
+            refresh_rdagent_sidecar_bundle
 
             restart_nginx() {
               echo "==> Restarting nginx to refresh upstream container IPs"
