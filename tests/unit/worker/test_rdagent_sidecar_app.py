@@ -84,13 +84,14 @@ def test_build_rdagent_env_prefers_local_ollama_without_openai_key(monkeypatch, 
     monkeypatch.setenv("OLLAMA_API_BASE", "http://127.0.0.1:11434")
 
     env = module._build_rdagent_env(tmp_path, "gpt-4o-mini")
+    support_dir = module._sitecustomize_support_dir(tmp_path)
 
     assert env["CHAT_MODEL"] == "ollama/qwen2.5:0.5b"
     assert env["EMBEDDING_MODEL"] == "ollama/nomic-embed-text:latest"
     assert env["LITELLM_CHAT_STREAM"] == "false"
     assert env["LITELLM_ENABLE_RESPONSE_SCHEMA"] == "false"
     assert env["CONDA_DEFAULT_ENV"] == "base"
-    assert env["PYTHONPATH"].split(":", 1)[0] == str(tmp_path)
+    assert env["PYTHONPATH"].split(":", 2)[:2] == [str(support_dir), str(tmp_path)]
     assert env["FACTOR_CoSTEER_python_bin"] == sys.executable
     assert env["BACKEND"] == "rdagent.oai.backend.LiteLLMAPIBackend"
 
@@ -200,6 +201,7 @@ def test_seed_factor_prompt_data_creates_expected_assets(tmp_path, monkeypatch):
     data_path = tmp_path / "git_ignore_folder" / "factor_implementation_source_data" / "daily_pv.h5"
     debug_path = tmp_path / "git_ignore_folder" / "factor_implementation_source_data_debug" / "daily_pv.h5"
     readme_path = tmp_path / "git_ignore_folder" / "factor_implementation_source_data" / "README.md"
+    support_sitecustomize_path = module._sitecustomize_support_dir(tmp_path) / "sitecustomize.py"
 
     assert data_path.exists()
     assert debug_path.exists()
@@ -214,6 +216,7 @@ def test_seed_factor_prompt_data_creates_expected_assets(tmp_path, monkeypatch):
     assert "Do not import or use h5py" in readme_text
     assert "pd.read_hdf('daily_pv.h5', key='data')" in readme_text
     assert (tmp_path / "sitecustomize.py").exists()
+    assert support_sitecustomize_path.exists()
 
 
 def test_sitecustomize_falls_back_to_default_hdf_key(tmp_path, monkeypatch):

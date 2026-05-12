@@ -176,6 +176,10 @@ def _build_sitecustomize_content() -> str:
     return _HDF_READ_FALLBACK_SITE_CUSTOMIZE
 
 
+def _sitecustomize_support_dir(run_dir: Path) -> Path:
+    return run_dir.parent / ".quantmate_support"
+
+
 def _normalize_openai_compatible_model(model: str) -> str:
     normalized = model.strip()
     if not normalized or "/" in normalized:
@@ -207,6 +211,12 @@ def _seed_factor_prompt_data(run_dir: Path, env: dict[str, str]) -> None:
     sitecustomize_path = run_dir / "sitecustomize.py"
     if not sitecustomize_path.exists():
         sitecustomize_path.write_text(_build_sitecustomize_content(), encoding="utf-8")
+
+    support_dir = _sitecustomize_support_dir(run_dir)
+    support_dir.mkdir(parents=True, exist_ok=True)
+    support_sitecustomize_path = support_dir / "sitecustomize.py"
+    if not support_sitecustomize_path.exists():
+        support_sitecustomize_path.write_text(_build_sitecustomize_content(), encoding="utf-8")
 
 
 def _register_running_process(run_id: str, process: subprocess.Popen[str]) -> None:
@@ -288,8 +298,12 @@ def _build_rdagent_env(run_dir: Path, llm_model: str) -> dict[str, str]:
             env.pop(key, None)
 
     env["RDAGENT_WORKSPACE"] = str(run_dir)
+    support_dir = _sitecustomize_support_dir(run_dir)
     existing_pythonpath = env.get("PYTHONPATH", "")
-    env["PYTHONPATH"] = str(run_dir) if not existing_pythonpath else f"{run_dir}{os.pathsep}{existing_pythonpath}"
+    injected_pythonpath = f"{support_dir}{os.pathsep}{run_dir}"
+    env["PYTHONPATH"] = (
+        injected_pythonpath if not existing_pythonpath else f"{injected_pythonpath}{os.pathsep}{existing_pythonpath}"
+    )
     env["CONDA_DEFAULT_ENV"] = env.get("CONDA_DEFAULT_ENV") or "base"
     env["BACKEND"] = env.get("BACKEND") or "rdagent.oai.backend.LiteLLMAPIBackend"
     env["FACTOR_CoSTEER_python_bin"] = env.get("FACTOR_CoSTEER_python_bin") or sys.executable
