@@ -176,7 +176,7 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             rebuild_rdagent=true
           elif [ -n "${{ github.event.before }}" ] && \
-            git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" | grep -Eq '^(rdagent-service/|docker-compose\.staging\.yml$)'; then
+            git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" | grep -Eq '^(rdagent-service/|docker-compose\.staging\.yml$|\.github/workflows/ci-cd\.yml$)'; then
             rebuild_rdagent=true
           fi
           echo "rebuild_rdagent=$rebuild_rdagent" >> "$GITHUB_OUTPUT"
