@@ -341,18 +341,32 @@ def _resolve_eval_instruments(universe: Any, end_date: date_type) -> Optional[li
         from app.infrastructure.db.connections import connection
 
         with connection("tushare") as conn:
+            snapshot_query = text(
+                "SELECT MAX(trade_date) FROM index_weight "
+                "WHERE index_code = :index_code AND trade_date <= :trade_date"
+            )
+            snapshot_date = conn.execute(
+                snapshot_query,
+                {"index_code": index_code, "trade_date": end_date},
+            ).scalar()
+
+            if snapshot_date is None:
+                snapshot_date = conn.execute(
+                    text("SELECT MAX(trade_date) FROM index_weight WHERE index_code = :index_code"),
+                    {"index_code": index_code},
+                ).scalar()
+
+            if snapshot_date is None:
+                return None
+
             result = conn.execute(
                 text(
                     "SELECT DISTINCT con_code "
                     "FROM index_weight "
-                    "WHERE index_code = :index_code "
-                    "AND trade_date = ("
-                    "  SELECT MAX(trade_date) FROM index_weight "
-                    "  WHERE index_code = :index_code AND trade_date <= :trade_date"
-                    ") "
+                    "WHERE index_code = :index_code AND trade_date = :trade_date "
                     "ORDER BY con_code"
                 ),
-                {"index_code": index_code, "trade_date": end_date},
+                {"index_code": index_code, "trade_date": snapshot_date},
             )
             instruments = [str(row[0]).strip() for row in result.fetchall() if str(row[0]).strip()]
             return instruments or None

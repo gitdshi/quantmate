@@ -1,5 +1,6 @@
 """Tests for rdagent_tasks — run_rdagent_mining_task and helpers."""
 import json
+from datetime import date
 from unittest.mock import patch, MagicMock
 
 from app.worker.service.rdagent_tasks import (
@@ -473,6 +474,34 @@ class TestDiscoveredFactorExpressionNormalization:
         )
 
         assert result == "(close) / (ts_mean(close, 20)) - 1"
+
+
+class TestResolveEvalInstruments:
+
+    @patch("app.infrastructure.db.connections.connection")
+    def test_falls_back_to_latest_index_snapshot_when_historical_members_missing(self, mock_connection):
+        import app.worker.service.rdagent_tasks as mod
+
+        mock_conn = MagicMock()
+        mock_context = MagicMock()
+        mock_context.__enter__.return_value = mock_conn
+        mock_context.__exit__.return_value = False
+        mock_connection.return_value = mock_context
+
+        historical_snapshot = MagicMock()
+        historical_snapshot.scalar.return_value = None
+
+        latest_snapshot = MagicMock()
+        latest_snapshot.scalar.return_value = "2025-06-30"
+
+        members_result = MagicMock()
+        members_result.fetchall.return_value = [("000001.SZ",), ("000002.SZ",)]
+
+        mock_conn.execute.side_effect = [historical_snapshot, latest_snapshot, members_result]
+
+        instruments = mod._resolve_eval_instruments("csi300", date(2024, 3, 31))
+
+        assert instruments == ["000001.SZ", "000002.SZ"]
 
 
 class TestLazyLoaders:
