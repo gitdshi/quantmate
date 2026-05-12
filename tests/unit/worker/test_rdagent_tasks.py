@@ -567,6 +567,24 @@ class TestDiscoveredFactorExpressionNormalization:
 
         assert result == "ts_std(ret_1d, 10)"
 
+    def test_normalize_staging_volume_ratio_expression_without_spaces(self):
+        import app.worker.service.rdagent_tasks as mod
+
+        result = mod._normalize_discovered_factor_expression(
+            r"V_{t}^{ratio} = \frac{Volume_t}{\frac{1}{20}\sum_{i=0}^{19}Volume_{t-i}}"
+        )
+
+        assert result == "volume / ts_mean(volume, 20)"
+
+    def test_normalize_staging_sigma_expression_with_where_clause(self):
+        import app.worker.service.rdagent_tasks as mod
+
+        result = mod._normalize_discovered_factor_expression(
+            r"\sigma_{t}^{20d} = \sqrt{\frac{1}{19}\sum_{i=0}^{19}(R_{t-i} - \bar{R})^{2}}, \text{ where } R_t = \frac{Close_t}{Close_{t-1}} - 1"
+        )
+
+        assert result == "ts_std(ret_1d, 20)"
+
 
 class TestResolveEvalInstruments:
 

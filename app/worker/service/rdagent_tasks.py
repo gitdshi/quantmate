@@ -480,6 +480,12 @@ def _normalize_discovered_factor_expression(expression: str) -> str:
     compact = re.sub(r"\s+", " ", normalized)
     compact = re.sub(r"\s*where\s+.*$", "", compact, flags=re.IGNORECASE)
     compact = re.sub(r"\\text\{([^{}]+)\}", r"\1", compact)
+    compact = re.sub(r"\s*,?\s*where\s+.*$", "", compact, flags=re.IGNORECASE)
+    compact = re.sub(
+        r"\\sigma_\{t\}\^\{(\d+)d\}\s*=.*$",
+        lambda match: f"ts_std(ret_1d, {match.group(1)})",
+        compact,
+    )
     compact = compact.replace("}]", "}")
     compact = re.sub(r"([A-Za-z]+(?:_t|_\{[^}]+\}))\^\{[^}]+\}", r"\1", compact)
 
@@ -514,6 +520,11 @@ def _normalize_discovered_factor_expression(expression: str) -> str:
     )
     compact = re.sub(
         r"\\frac\{volume(?:_t)?\}\{\\frac\{1\}\{(\d+)\}\s*\\sum_\{i=0\}\^\{\d+\}\s*volume_\{t-i\}\}",
+        lambda match: f"volume / ts_mean(volume, {match.group(1)})",
+        compact,
+    )
+    compact = re.sub(
+        r"\\frac\{(?:Volume|volume)(?:_t)?\}\{\\frac\{1\}\{(\d+)\}\s*\\sum_\{i=0\}\^\{\d+\}\s*(?:Volume|volume)_\{t-i\}\}",
         lambda match: f"volume / ts_mean(volume, {match.group(1)})",
         compact,
     )
@@ -608,6 +619,11 @@ def _normalize_discovered_factor_expression(expression: str) -> str:
 
     compact = re.sub(
         r"\\frac\{volume\}\{\(1\)\s*/\s*\((\d+)\)\s*\\sum_\{i=0\}(?:\^\{\d+\})?\s*volume_\{t-i\}\}",
+        lambda match: f"volume / ts_mean(volume, {match.group(1)})",
+        compact,
+    )
+    compact = re.sub(
+        r"\\frac\{volume\}\{\(1\)\s*/\s*\((\d+)\)\s*\\sum_\{i=0\}(?:\^\{\d+\})?\s*(?:Volume|volume)_\{t-i\}\}",
         lambda match: f"volume / ts_mean(volume, {match.group(1)})",
         compact,
     )
