@@ -30,7 +30,7 @@ narwhals==2.15.0
 nbformat==5.10.4
 numpy==2.4.1
 orjson==3.11.6
-packaging==26.0
+packaging==25.0
 pandas==2.3.3
 pandas-datareader==0.10.0
 peewee==3.19.0
