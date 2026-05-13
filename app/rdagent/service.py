@@ -94,9 +94,9 @@ Implementation requirements for generated factor code:
   including the current row in the rolling window.
 """
 _SENSITIVE_ERROR_PATTERNS = (
-        re.compile(r"(?i)(authorization['\"]?\s*[:=]\s*['\"]?bearer\s+)([^'\"\s,]+)"),
-        re.compile(r"(?i)((?:openai|opencode|litellm)[a-z0-9_]*api[_-]?key['\"]?\s*[:=]\s*['\"]?)([^'\"\s,]+)"),
-        re.compile(r"(?i)\bsk-[A-Za-z0-9_-]{8,}\b"),
+    re.compile(r"(?i)(authorization['\"]?\s*[:=]\s*['\"]?bearer\s+)([^'\"\s,]+)"),
+    re.compile(r"(?i)((?:openai|opencode|litellm)[a-z0-9_]*api[_-]?key['\"]?\s*[:=]\s*['\"]?)([^'\"\s,]+)"),
+    re.compile(r"(?i)\bsk-[A-Za-z0-9_-]{8,}\b"),
 )
 
 
@@ -383,7 +383,6 @@ def mine():
     run_dir = WORKSPACE / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    # Write prompt context as an additional data description file
     (run_dir / "data_description.txt").write_text(_build_prompt_context(prompt_context), encoding="utf-8")
 
     try:
@@ -409,16 +408,12 @@ def mine():
         if process.returncode != 0:
             logger.warning("rdagent stderr summary: %s", error_summary)
 
-        # Parse results from workspace
-        iterations = _parse_iterations(run_dir, max_iterations)
-        discovered = _parse_discovered_factors(run_dir)
-
         status = "cancelled" if process.returncode == -signal.SIGTERM else "completed" if process.returncode == 0 else "failed"
 
         return jsonify({
             "status": status,
-            "iterations": iterations,
-            "discovered_factors": discovered,
+            "iterations": _parse_iterations(run_dir, max_iterations),
+            "discovered_factors": _parse_discovered_factors(run_dir),
             "error": error_summary if process.returncode != 0 else None,
         })
 
@@ -428,11 +423,11 @@ def mine():
         if process is not None:
             _terminate_process(process)
         return jsonify({"status": "failed", "error": "Mining run timed out", "iterations": [], "discovered_factors": []})
-    except Exception as e:
-        logger.exception("Mining run %s failed: %s", run_id, e)
+    except Exception as exc:
+        logger.exception("Mining run %s failed: %s", run_id, exc)
         return jsonify({
             "status": "failed",
-            "error": _redact_sensitive_error_text(str(e)),
+            "error": _redact_sensitive_error_text(str(exc)),
             "traceback": _redact_sensitive_error_text(traceback.format_exc()),
             "iterations": [],
             "discovered_factors": [],
@@ -500,8 +495,6 @@ def _parse_iterations(run_dir: Path, max_iters: int) -> list[dict]:
             "status": "completed",
         }
     ]
-
-    return iterations
 
 
 def _parse_discovered_factors(run_dir: Path) -> list[dict]:
@@ -663,9 +656,6 @@ def _parse_selector_log_factors(log_text: str) -> list[dict]:
     if current and current.get("name"):
         factors.append(current)
 
-    if not factors:
-        factors = []
-
     deduped: dict[str, dict] = {}
     for factor in factors:
         name = factor.get("name")
@@ -729,6 +719,6 @@ def _read_json(path: Path) -> dict | None:
     return None
 
 
-if __name__ == "__main__":
+def main() -> None:
     port = int(os.getenv("RDAGENT_SERVICE_PORT", os.getenv("PORT", "8001")))
     app.run(host="0.0.0.0", port=port)

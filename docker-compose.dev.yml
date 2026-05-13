@@ -41,10 +41,11 @@ services:
 
   rdagent-service:
     build:
-      context: ./rdagent-service
+      context: .
       dockerfile: Dockerfile
     container_name: quantmate_rdagent_dev
     restart: unless-stopped
+    command: ["python", "-m", "app.rdagent"]
     ports:
       - "8001:8001"
     environment:

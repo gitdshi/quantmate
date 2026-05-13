@@ -1,3 +1,0 @@
-flask>=3.0
-rdagent>=0.8.0
-gunicorn>=22.0

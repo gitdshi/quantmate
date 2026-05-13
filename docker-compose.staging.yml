@@ -140,10 +140,9 @@ services:
 
   # RD-Agent sidecar used by worker factor-mining jobs
   rdagent-service:
-    build:
-      context: ./rdagent-service
-      dockerfile: Dockerfile
+    image: ghcr.io/${GITHUB_OWNER:-gitdshi}/quantmate-api:${IMAGE_TAG:?IMAGE_TAG must be set in .env or environment}
     restart: unless-stopped
+    command: ["python", "-m", "app.rdagent"]
     environment:
       - RDAGENT_WORKSPACE=/tmp/rdagent_workspace
       - CHAT_MODEL=${RDAGENT_LLM_MODEL:-minimax-m2.5-free}

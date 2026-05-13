@@ -9,13 +9,45 @@ ARG IMAGE_BUILD_TIME=unknown
 ARG PIP_INDEX_URL=http://pypi.tuna.tsinghua.edu.cn/simple
 ARG PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn
 
-# Install system dependencies including curl for healthcheck
+# Install system dependencies including curl for healthcheck and Docker CLI for RD-Agent runs
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+  docker.io \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy dependency manifests first for layer caching
-COPY requirements.txt requirements.runtime.txt ./
+RUN cat <<'EOF' >/usr/local/bin/conda
+#!/bin/sh
+if [ "$1" = "run" ]; then
+  shift
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -n|--name|--prefix)
+        shift 2
+        ;;
+      --no-capture-output)
+        shift
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
+
+  if [ "$1" = "env" ]; then
+    env PATH="/usr/local/bin:/usr/bin:/bin:${PATH}"
+    exit 0
+  fi
+
+  PATH="/usr/local/bin:/usr/bin:/bin:${PATH}" exec "$@"
+fi
+
+echo "Unsupported conda invocation: $*" >&2
+exit 1
+EOF
+RUN chmod +x /usr/local/bin/conda
+
+# Copy dependency manifest first for layer caching
+COPY requirements.txt ./
 
 # Install Python dependencies using trusted HTTP mirror to bypass SSL issues
 # Clear any proxy environment that might break apt in the build environment
@@ -23,9 +55,9 @@ ARG TARGETARCH
 ENV http_proxy= https_proxy= HTTP_PROXY= HTTPS_PROXY= no_proxy= NO_PROXY=
 RUN --mount=type=cache,target=/root/.cache/pip \
     if [ "$TARGETARCH" = "arm64" ]; then \
-      grep -v '^pyqlib>=0\.9\.0$' requirements.runtime.txt > requirements.docker.txt; \
+      grep -v '^pyqlib>=0\.9\.0$' requirements.txt > requirements.docker.txt; \
     else \
-      cp requirements.runtime.txt requirements.docker.txt; \
+      cp requirements.txt requirements.docker.txt; \
     fi \
     && if [ -n "$PIP_INDEX_URL" ] && [ -n "$PIP_TRUSTED_HOST" ]; then \
       PIP_DISABLE_PIP_VERSION_CHECK=1 pip install \
@@ -62,8 +94,9 @@ RUN mkdir -p /opt/quantmate-build \
       echo "$IMAGE_BUILD_TIME" > /opt/quantmate-build/build_time; \
     fi
 
-# Expose port
+# Expose ports
 EXPOSE 8000
+EXPOSE 8001
 
 # Run migrations then start the API server
 CMD ["sh", "-c", "export APP_BUILD_TIME=\"${APP_BUILD_TIME:-$(cat /opt/quantmate-build/build_time 2>/dev/null || echo unknown)}\"; python -m app.infrastructure.db.migrate && uvicorn app.api.main:app --host 0.0.0.0 --port 8000"]

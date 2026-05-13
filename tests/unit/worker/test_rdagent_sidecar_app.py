@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import importlib.util
+import importlib
 from pathlib import Path
 import sys
 from unittest.mock import MagicMock
@@ -9,13 +9,8 @@ import pandas as pd
 
 
 def _load_sidecar_module():
-    module_path = Path(__file__).resolve().parents[3] / "rdagent-service" / "app.py"
-    spec = importlib.util.spec_from_file_location("rdagent_sidecar_app", module_path)
-    assert spec is not None
-    assert spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    module = importlib.import_module("app.rdagent.service")
+    return importlib.reload(module)
 
 
 def test_build_rdagent_command_uses_cli_hyphenated_step_flag():

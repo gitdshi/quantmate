@@ -30,9 +30,6 @@
 .ruff_cache
 .venv
 logs
-package-lock.json
-package.json
-rdagent-service
 strategies
 tests
 LICENSE
