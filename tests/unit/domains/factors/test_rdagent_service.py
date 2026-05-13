@@ -318,6 +318,7 @@ class TestRDAgentServiceDiscoveredFactors:
         factors = svc.get_discovered_factors(user_id=1, run_id="r1")
         assert len(factors) == 1
         assert factors[0]["factor_name"] == "Alpha1"
+        assert factors[0]["name"] == "Alpha1"
         mock_conn_ctx.assert_called_once_with("qlib")
 
     @patch("app.domains.factors.rdagent_service.connection")

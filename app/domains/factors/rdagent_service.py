@@ -567,6 +567,9 @@ def save_discovered_factor(
 
 def _normalize_discovered_factor_row(row: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(row)
+    factor_name = normalized.get("factor_name")
+    if isinstance(factor_name, str) and factor_name.strip():
+        normalized.setdefault("name", factor_name)
     for key in ("ic_mean", "icir", "sharpe"):
         normalized[key] = _coerce_metric_value(normalized.get(key))
     return normalized

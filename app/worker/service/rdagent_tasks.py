@@ -549,6 +549,15 @@ def _normalize_discovered_factor_expression(expression: str) -> str:
         compact,
     )
     compact = re.sub(
+        r"mean\((\w+)_\{t-(\d+)\}:(\w+)_\{t\}\)",
+        lambda match: (
+            f"ts_mean({match.group(1).lower()}, {int(match.group(2)) + 1})"
+            if match.group(1).lower() == match.group(3).lower()
+            else match.group(0)
+        ),
+        compact,
+    )
+    compact = re.sub(
         r"\\sqrt\{\\frac\{1\}\{\d+\}\s*\\sum_\{i=0\}\^\{\d+\}\s*\(r_\{t-i\}\s*-\s*\\bar\{r\}_\{(\d+)d\}\)\^2\}",
         lambda match: f"ts_std(ret_1d, {match.group(1)})",
         compact,
@@ -633,6 +642,11 @@ def _normalize_discovered_factor_expression(expression: str) -> str:
     compact = re.sub(
         r"([A-Za-z]+)_\{t-(\d+)\}",
         lambda match: f"delay({match.group(1).lower()}, {match.group(2)})",
+        compact,
+    )
+    compact = re.sub(
+        r"([A-Za-z]+)_\{t\}",
+        lambda match: match.group(1).lower(),
         compact,
     )
     compact = re.sub(

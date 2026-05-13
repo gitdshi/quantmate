@@ -169,7 +169,7 @@ class TestGetDiscoveredFactors:
     def test_get_discovered_factors(self, MockService, client):
         mock_svc = MockService.return_value
         mock_svc.get_discovered_factors.return_value = [
-            {"id": 1, "factor_name": "Alpha1", "icir": 0.3, "status": "discovered"},
+            {"id": 1, "factor_name": "Alpha1", "name": "Alpha1", "icir": 0.3, "status": "discovered"},
         ]
 
         resp = client.get("/api/v1/rdagent/runs/r1/factors")
@@ -177,6 +177,7 @@ class TestGetDiscoveredFactors:
         data = resp.json()
         assert len(data) == 1
         assert data[0]["factor_name"] == "Alpha1"
+        assert data[0]["name"] == "Alpha1"
 
     @patch("app.api.routes.rdagent.RDAgentService")
     def test_get_discovered_factors_not_found(self, MockService, client):

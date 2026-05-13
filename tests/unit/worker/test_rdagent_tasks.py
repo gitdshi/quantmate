@@ -630,6 +630,51 @@ class TestDiscoveredFactorExpressionNormalization:
 
         assert result == "ts_mean((high - low) / close, 10)"
 
+    def test_normalize_staging_open_to_close_return_expression(self):
+        import app.worker.service.rdagent_tasks as mod
+
+        result = mod._normalize_discovered_factor_expression(
+            r"$R_{1d} = \frac{Close_{t}}{Open_{t}} - 1$"
+        )
+
+        assert result == "(close) / (open) - 1"
+
+    def test_normalize_staging_braced_volume_ratio_expression(self):
+        import app.worker.service.rdagent_tasks as mod
+
+        result = mod._normalize_discovered_factor_expression(
+            r"$VR_{20d} = \frac{Volume_{t}}{mean(Volume_{t-19}:Volume_{t})}$"
+        )
+
+        assert result == "(volume) / (ts_mean(volume, 20))"
+
+    def test_normalize_staging_braced_momentum_expression(self):
+        import app.worker.service.rdagent_tasks as mod
+
+        result = mod._normalize_discovered_factor_expression(
+            r"$Mom_{5d} = \frac{Close_{t}}{Close_{t-4}} - 1$"
+        )
+
+        assert result == "(close) / (delay(close, 4)) - 1"
+
+    def test_normalize_staging_braced_vwap_deviation_expression(self):
+        import app.worker.service.rdagent_tasks as mod
+
+        result = mod._normalize_discovered_factor_expression(
+            r"$VWAP_{dev} = \frac{Close_{t}}{VWAP_{t}} - 1$"
+        )
+
+        assert result == "(close) / (vwap) - 1"
+
+    def test_normalize_staging_braced_range_expression(self):
+        import app.worker.service.rdagent_tasks as mod
+
+        result = mod._normalize_discovered_factor_expression(
+            r"$Range_{1d} = \frac{High_{t} - Low_{t}}{Close_{t}}$"
+        )
+
+        assert result == "(high - low) / (close)"
+
 
 class TestResolveEvalInstruments:
 
