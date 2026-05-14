@@ -19,6 +19,8 @@ from app.api.models.user import TokenData
 from app.api.errors import ErrorCode
 from app.api.exception_handlers import APIError
 from app.domains.trading.dao.order_dao import OrderDao
+from app.domains.trading.paper_execution_ledger import PaperExecutionLedger
+from app.domains.trading.paper_runtime_service import PaperRuntimeService
 from app.domains.trading.paper_trading_service import PaperTradingService
 from app.domains.trading.paper_account_service import PaperAccountService
 from app.domains.trading.matching_engine import try_fill_market_order
@@ -35,12 +37,18 @@ router = APIRouter(prefix="/paper-trade", tags=["Paper Trading"])
 
 class DeployRequest(BaseModel):
     strategy_id: int
-    vt_symbol: str
+    vt_symbol: Optional[str] = None
+    vt_symbols: Optional[list[str]] = None
     parameters: dict = {}
     paper_account_id: Optional[int] = None
     execution_mode: str = "auto"  # auto/semi_auto
     source_backtest_job_id: Optional[str] = None
     source_version_id: Optional[int] = None
+
+    def resolved_vt_symbol(self) -> str:
+        if self.vt_symbols:
+            return ",".join(symbol.strip() for symbol in self.vt_symbols if symbol and symbol.strip())
+        return (self.vt_symbol or "").strip()
 
 
 class PaperOrderRequest(BaseModel):
@@ -62,6 +70,12 @@ async def deploy_strategy(req: DeployRequest, current_user: TokenData = Depends(
     if req.execution_mode not in ("auto", "semi_auto"):
         raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message="execution_mode must be 'auto' or 'semi_auto'")
 
+    resolved_vt_symbol = req.resolved_vt_symbol()
+    if not resolved_vt_symbol:
+        raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message="vt_symbol or vt_symbols is required")
+    if req.vt_symbol and req.vt_symbols and req.vt_symbol.strip() != resolved_vt_symbol:
+        raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message="vt_symbol and vt_symbols must match when both are provided")
+
     # Validate paper account if provided
     if req.paper_account_id:
         acct_svc = PaperAccountService()
@@ -75,7 +89,7 @@ async def deploy_strategy(req: DeployRequest, current_user: TokenData = Depends(
     result = svc.deploy(
         user_id=current_user.user_id,
         strategy_id=req.strategy_id,
-        vt_symbol=req.vt_symbol,
+        vt_symbol=resolved_vt_symbol,
         parameters=req.parameters,
         paper_account_id=req.paper_account_id,
         execution_mode=req.execution_mode,
@@ -89,22 +103,19 @@ async def deploy_strategy(req: DeployRequest, current_user: TokenData = Depends(
             message=result.get("error", "Deploy failed"),
         )
 
-    # If paper_account_id provided, start the strategy executor thread
+    # If paper_account_id provided, return the runtime plan. The actual lifecycle
+    # is reconciled by the paper runtime daemon, not by the API process.
     if req.paper_account_id:
-        from app.domains.trading.paper_strategy_executor import PaperStrategyExecutor
-        executor = PaperStrategyExecutor()
-        exec_result = executor.start_deployment(
+        runtime = PaperRuntimeService()
+        result["runtime"] = runtime.preview_runtime(
             deployment_id=result["deployment_id"],
             paper_account_id=req.paper_account_id,
             user_id=current_user.user_id,
-            strategy_class_name=result.get("strategy_name", ""),
-            vt_symbol=req.vt_symbol,
-            parameters=req.parameters,
-            execution_mode=req.execution_mode,
             strategy_id=req.strategy_id,
+            strategy_name=result.get("strategy_name", ""),
+            vt_symbol=resolved_vt_symbol,
+            parameters=req.parameters,
         )
-        if not exec_result.get("success"):
-            result["executor_warning"] = exec_result.get("error", "Executor failed to start")
 
     # Audit: log paper deployment from backtest
     if req.source_backtest_job_id or req.source_version_id:
@@ -130,14 +141,23 @@ async def list_deployments(current_user: TokenData = Depends(get_current_user)):
     return {"deployments": deployments}
 
 
+@router.get("/deployments/{deployment_id}/runtime", dependencies=[require_permission("trading", "read")])
+async def get_deployment_runtime(deployment_id: int, current_user: TokenData = Depends(get_current_user)):
+    """Get runtime status and latest heartbeat for a paper deployment."""
+    svc = PaperTradingService()
+    runtime = svc.get_deployment_runtime(deployment_id=deployment_id, user_id=current_user.user_id)
+    if not runtime:
+        raise APIError(
+            status_code=404,
+            code=ErrorCode.NOT_FOUND,
+            message="Deployment not found",
+        )
+    return runtime
+
+
 @router.post("/deployments/{deployment_id}/stop", dependencies=[require_permission("trading", "manage")])
 async def stop_deployment(deployment_id: int, current_user: TokenData = Depends(get_current_user)):
     """Stop a running paper deployment."""
-    # Stop the executor thread if running
-    from app.domains.trading.paper_strategy_executor import PaperStrategyExecutor
-    executor = PaperStrategyExecutor()
-    executor.stop_deployment(deployment_id)
-
     svc = PaperTradingService()
     ok = svc.stop_deployment(deployment_id=deployment_id, user_id=current_user.user_id)
     if not ok:
@@ -155,6 +175,7 @@ async def stop_deployment(deployment_id: int, current_user: TokenData = Depends(
 @router.post("/orders", status_code=status.HTTP_201_CREATED, dependencies=[require_permission("trading", "write")])
 async def create_paper_order(req: PaperOrderRequest, current_user: TokenData = Depends(get_current_user)):
     """Submit a paper order with market-rules validation & matching engine."""
+    ledger = PaperExecutionLedger()
     if req.direction not in ("buy", "sell"):
         raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message="Invalid direction")
     if req.order_type not in ("market", "limit"):
@@ -227,7 +248,7 @@ async def create_paper_order(req: PaperOrderRequest, current_user: TokenData = D
             ok = acct_svc.freeze_funds(req.paper_account_id, total_cost)
             if not ok:
                 raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message="Insufficient funds in paper account")
-            acct_svc.settle_buy(req.paper_account_id, total_cost)
+            acct_svc.settle_buy(req.paper_account_id, total_cost, total_cost)
 
         elif account and req.direction == "sell":
             proceeds = fill.fill_price * fill.fill_quantity - fill.fee.total
@@ -246,6 +267,30 @@ async def create_paper_order(req: PaperOrderRequest, current_user: TokenData = D
         )
         dao.update_status(order_id, "filled", filled_quantity=fill.fill_quantity, avg_fill_price=fill.fill_price, fee=fill.fee.total)
         dao.insert_trade(order_id, fill.fill_quantity, fill.fill_price, fill.fee.total)
+        ledger.record_order_event(
+            user_id=current_user.user_id,
+            paper_account_id=req.paper_account_id,
+            deployment_id=None,
+            order_id=order_id,
+            symbol=req.symbol,
+            direction=req.direction,
+            quantity=req.quantity,
+            price=fill.fill_price,
+            fee=fill.fee.total,
+            event_type="submitted",
+        )
+        if req.paper_account_id is not None:
+            ledger.record_fill(
+                user_id=current_user.user_id,
+                paper_account_id=req.paper_account_id,
+                deployment_id=None,
+                order_id=order_id,
+                symbol=req.symbol,
+                direction=req.direction,
+                quantity=fill.fill_quantity,
+                price=fill.fill_price,
+                fee=fill.fee.total,
+            )
 
     # ── Limit order → pending, worker handles matching ─
     else:
@@ -267,6 +312,18 @@ async def create_paper_order(req: PaperOrderRequest, current_user: TokenData = D
             mode="paper",
             paper_account_id=req.paper_account_id,
             buy_date=today_str if req.direction == "buy" else None,
+        )
+        ledger.record_order_event(
+            user_id=current_user.user_id,
+            paper_account_id=req.paper_account_id,
+            deployment_id=None,
+            order_id=order_id,
+            symbol=req.symbol,
+            direction=req.direction,
+            quantity=req.quantity,
+            price=req.price,
+            fee=0.0,
+            event_type="submitted",
         )
     order = dao.get_by_id(order_id, current_user.user_id)
     return order
@@ -315,6 +372,19 @@ async def cancel_paper_order(order_id: int, current_user: TokenData = Depends(ge
             est_cost = est_price * order["quantity"] * 1.003
             acct_svc = PaperAccountService()
             acct_svc.release_funds(paper_account_id, est_cost)
+
+    PaperExecutionLedger().record_order_event(
+        user_id=current_user.user_id,
+        paper_account_id=paper_account_id,
+        deployment_id=order.get("paper_deployment_id"),
+        order_id=order_id,
+        symbol=order["symbol"],
+        direction=order.get("direction"),
+        quantity=order.get("quantity") or 0,
+        price=order.get("price"),
+        fee=0.0,
+        event_type="cancelled",
+    )
 
     return {"message": "Paper order cancelled"}
 

@@ -85,6 +85,33 @@ services:
           memory: 1G
           cpus: '1.0'
 
+  # Paper runtime daemon (reconciles desired/runtime state for paper deployments)
+  paper-runtime:
+    image: ghcr.io/${GITHUB_OWNER:-gitdshi}/quantmate-api:${IMAGE_TAG:?IMAGE_TAG must be set in .env or environment}
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - APP_ENV=staging
+      - MYSQL_HOST=${MYSQL_HOST}
+      - MYSQL_PORT=3306
+      - MYSQL_USER=${MYSQL_USER:-quantmate}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - SECRET_KEY=${SECRET_KEY}
+      - TUSHARE_TOKEN=${TUSHARE_TOKEN}
+      - TUSHARE_TOKEN_POINTS=${TUSHARE_TOKEN_POINTS:-2000}
+      - TUSHARE_GRANTED_API_NAMES=${TUSHARE_GRANTED_API_NAMES:-}
+      - SYNC_INIT_DEFAULT_START_DATE=${SYNC_INIT_DEFAULT_START_DATE:-}
+      - TUSHARE_DATABASE=tushare
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - DEBUG=false
+      - CORS_ORIGINS=["http://localhost:5173","http://localhost:3000","http://127.0.0.1:5173"]
+    command: ["python", "-m", "app.domains.trading.paper_runtime_daemon"]
+    networks:
+      - quantmate_network
+    restart: unless-stopped
+
   # Data sync daemon (runs scheduled ingest/backfill)
   datasync:
     image: ghcr.io/${GITHUB_OWNER:-gitdshi}/quantmate-api:${IMAGE_TAG:?IMAGE_TAG must be set in .env or environment}

@@ -20,6 +20,8 @@ def _fake_conn():
 def _row(**kw):
     m = MagicMock()
     m._mapping = kw
+    for key, value in kw.items():
+        setattr(m, key, value)
     return m
 
 
@@ -43,9 +45,10 @@ class TestPaperAnalyticsService:
         assert isinstance(result, dict)
 
     def test_get_analytics_ok(self, _patch):
-        acct = _row(id=1, user_id=1, initial_capital=100000.0, current_balance=105000.0)
+        acct = _row(id=1, user_id=1, initial_capital=100000.0, balance=105000.0, market_value=0.0, total_pnl=5000.0)
         _patch.execute.side_effect = [
             MagicMock(fetchone=MagicMock(return_value=acct)),  # account lookup
+            MagicMock(fetchall=MagicMock(return_value=[])),     # lot-backed closed trades
             MagicMock(fetchall=MagicMock(return_value=[])),     # closed trades
             MagicMock(fetchall=MagicMock(return_value=[])),     # equity curve
         ]
@@ -90,14 +93,15 @@ class TestPaperAnalyticsService:
         assert "sharpe_ratio" in m
 
     def test_get_closed_trades(self, _patch):
-        _patch.execute.return_value = MagicMock(
-            fetchall=MagicMock(return_value=[
-                _row(direction="LONG", quantity=100, price=10.0, pnl=50.0)
-            ])
-        )
+        _patch.execute.side_effect = [
+            MagicMock(fetchall=MagicMock(return_value=[
+                _row(symbol="000001.SZ", side="long", open_quantity=100, open_price=10.0, realized_pnl=50.0, closed_at="2024-01-01")
+            ]))
+        ]
         svc = _mod.PaperAnalyticsService()
         trades = svc._get_closed_trades(account_id=1, user_id=1)
         assert isinstance(trades, list)
+        assert trades[0]["direction"] == "sell"
 
     def test_get_equity_curve(self, _patch):
         _patch.execute.return_value = MagicMock(

@@ -59,7 +59,7 @@ class TestOrderDao:
         monkeypatch.setattr(_dao_mod, "connection", lambda n: FCtx(conn))
         r = dao.create(1, "000001.SZ", "buy", "limit", 100, price=10.0,
                        stop_price=9.0, strategy_id=5, portfolio_id=2,
-                       mode="paper", paper_account_id=3, buy_date="2024-01-01")
+                       mode="paper", paper_account_id=3, paper_deployment_id=4, buy_date="2024-01-01")
         assert r == 11
 
     def test_get_by_id_found(self, dao, monkeypatch):
@@ -67,7 +67,7 @@ class TestOrderDao:
                  "direction": "buy", "order_type": "limit", "quantity": 100,
                  "price": 10.5, "stop_price": None, "status": "filled",
                  "filled_quantity": 100, "avg_fill_price": 10.5, "fee": 5.0,
-                 "strategy_id": None, "mode": "paper", "paper_account_id": 1,
+                 "strategy_id": None, "mode": "paper", "paper_account_id": 1, "paper_deployment_id": 2,
                  "buy_date": "2024-01-01", "created_at": "2024", "updated_at": "2024"})
         conn = FC(result=FR(rows=[row]))
         monkeypatch.setattr(_dao_mod, "connection", lambda n: FCtx(conn))
@@ -86,7 +86,7 @@ class TestOrderDao:
                        "direction": "buy", "order_type": "market", "quantity": 100,
                        "price": None, "stop_price": None, "status": "created",
                        "filled_quantity": 0, "avg_fill_price": None, "fee": None,
-                       "strategy_id": None, "mode": "paper", "paper_account_id": None,
+                       "strategy_id": None, "mode": "paper", "paper_account_id": None, "paper_deployment_id": None,
                        "buy_date": None, "created_at": "2024", "updated_at": "2024"})
         results = [FR(rows=[total_row]), FR(rows=[data_row])]
         conn = FC(results=results)
@@ -134,7 +134,7 @@ class TestOrderDao:
                  "direction": "buy", "order_type": "market", "quantity": 100,
                  "price": None, "stop_price": None, "status": "created",
                  "filled_quantity": 0, "avg_fill_price": None, "fee": None,
-                 "strategy_id": None, "mode": "paper", "paper_account_id": None,
+                 "strategy_id": None, "mode": "paper", "paper_account_id": None, "paper_deployment_id": None,
                  "buy_date": None, "created_at": "2024", "updated_at": "2024"})
         result = dao._row_to_dict(row)
         assert result["price"] is None

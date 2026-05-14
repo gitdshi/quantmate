@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import app.domains.trading.paper_strategy_executor as _mod
+from app.domains.trading.paper_gateway import PaperGateway, PaperGatewayOrderRequest
 
 
 def _fake_conn():
@@ -30,6 +31,12 @@ def _patch_conn(monkeypatch):
     ctx, conn = _fake_conn()
     monkeypatch.setattr(_mod, "connection", lambda db: ctx)
     return conn
+
+
+@pytest.fixture(autouse=True)
+def _patch_ledger(monkeypatch):
+    monkeypatch.setattr(_mod.PaperExecutionLedger, "record_fill", lambda *args, **kwargs: None)
+    monkeypatch.setattr(_mod.PaperExecutionLedger, "write_checkpoint", lambda *args, **kwargs: None)
 
 
 class TestPaperCtaEngine:
@@ -128,6 +135,42 @@ class TestPaperCtaEngine:
             except Exception:
                 pass  # may fail due to lazy imports
 
+    @patch("app.domains.trading.dao.order_dao.OrderDao")
+    @patch("app.domains.trading.paper_account_service.PaperAccountService")
+    @patch("app.domains.trading.matching_engine.try_fill_market_order")
+    @patch("app.domains.market.realtime_quote_service.RealtimeQuoteService")
+    def test_execute_order_notifies_strategy_callbacks(self, MockQuoteSvc, mock_fill, MockAccountSvc, MockOrderDao, _patch_conn):
+        gateway = PaperGateway("PAPER.1")
+        strategy = MagicMock()
+        e = _mod._PaperCtaEngine(
+            executor=MagicMock(),
+            deployment_id=1,
+            paper_account_id=1,
+            user_id=1,
+            vt_symbol="000001.SZSE",
+            execution_mode="auto",
+            gateway=gateway,
+        )
+        order_state = gateway.submit_order(
+            PaperGatewayOrderRequest(
+                vt_symbol="000001.SZSE",
+                direction="buy",
+                order_type="market",
+                volume=100,
+                price=10.0,
+            )
+        )
+
+        MockQuoteSvc.return_value.get_quote.return_value = {"last_price": 10.0}
+        mock_fill.return_value = MagicMock(filled=True, fill_price=10.1, fill_quantity=100, fee=MagicMock(total=1.5))
+        MockOrderDao.return_value.create.return_value = 9
+
+        e._execute_order("buy", 100, 10.0, strategy=strategy, order_id=order_state.order_id)
+
+        MockAccountSvc.return_value.settle_buy.assert_called_once_with(1, 1011.5, 1011.5)
+        strategy.on_order.assert_called_once()
+        strategy.on_trade.assert_called_once()
+
 
 class TestPaperStrategyExecutor:
     def test_singleton_init(self):
@@ -166,3 +209,92 @@ class TestPaperStrategyExecutor:
             bar = _mod.PaperStrategyExecutor._quote_to_bar(quote, "000001.SZSE")
         except (ImportError, AttributeError):
             pass  # vnpy not installed
+
+    def test_run_strategy_calls_on_start(self, monkeypatch, _patch_conn):
+        executor = _mod.PaperStrategyExecutor()
+        created = {}
+
+        class FakeStrategy:
+            def __init__(self, engine, strategy_name, vt_symbol, parameters):
+                self.inited = False
+                self.trading = False
+                self.on_init = MagicMock()
+                self.on_start = MagicMock()
+                self.on_bar = MagicMock()
+                self.on_stop = MagicMock()
+                created["instance"] = self
+
+        monkeypatch.setattr("app.api.services.strategy_service.compile_strategy", lambda code, cls: FakeStrategy)
+
+        class FakeSourceDao:
+            def get_strategy_source_for_user(self, strategy_id, user_id):
+                return "code", "FakeStrategy", None
+
+        monkeypatch.setattr("app.domains.backtests.dao.strategy_source_dao.StrategySourceDao", FakeSourceDao)
+
+        stop_event = MagicMock()
+        stop_event.is_set.return_value = True
+
+        executor._run_strategy(
+            deployment_id=1,
+            paper_account_id=1,
+            user_id=1,
+            strategy_class_name="FakeStrategy",
+            vt_symbol="000001.SZSE",
+            parameters={},
+            execution_mode="auto",
+            strategy_id=1,
+            stop_event=stop_event,
+            gateway=PaperGateway("PAPER.1"),
+        )
+
+        created["instance"].on_start.assert_called_once()
+        created["instance"].on_stop.assert_called_once()
+
+    def test_run_strategy_prefers_on_tick(self, monkeypatch, _patch_conn):
+        executor = _mod.PaperStrategyExecutor()
+        created = {}
+
+        class FakeStrategy:
+            def __init__(self, engine, strategy_name, vt_symbol, parameters):
+                self.inited = False
+                self.trading = False
+                self.on_init = MagicMock()
+                self.on_start = MagicMock()
+                self.on_tick = MagicMock()
+                self.on_bar = MagicMock()
+                self.on_stop = MagicMock()
+                created["instance"] = self
+
+        monkeypatch.setattr("app.api.services.strategy_service.compile_strategy", lambda code, cls: FakeStrategy)
+
+        class FakeSourceDao:
+            def get_strategy_source_for_user(self, strategy_id, user_id):
+                return "code", "FakeStrategy", None
+
+        class FakeQuoteService:
+            def get_quote(self, symbol, market):
+                return {"last_price": 10.0, "open": 9.9, "high": 10.1, "low": 9.8, "volume": 100}
+
+        monkeypatch.setattr("app.domains.backtests.dao.strategy_source_dao.StrategySourceDao", FakeSourceDao)
+        monkeypatch.setattr("app.domains.market.realtime_quote_service.RealtimeQuoteService", FakeQuoteService)
+
+        stop_event = MagicMock()
+        stop_event.is_set.side_effect = [False, True]
+        stop_event.wait.return_value = None
+
+        executor._run_strategy(
+            deployment_id=2,
+            paper_account_id=1,
+            user_id=1,
+            strategy_class_name="FakeStrategy",
+            vt_symbol="000001.SZSE",
+            parameters={},
+            execution_mode="auto",
+            strategy_id=1,
+            stop_event=stop_event,
+            gateway=PaperGateway("PAPER.2"),
+        )
+
+        created["instance"].on_tick.assert_called_once()
+        created["instance"].on_bar.assert_not_called()

@@ -45,9 +45,23 @@ class TestPaperTradingRoutes:
         assert resp.json()["deployments"] == [{"id": 1}]
 
     @patch(f"{_ROUTE}.PaperTradingService")
+    def test_get_deployment_runtime(self, MockSvc, client):
+        MockSvc.return_value.get_deployment_runtime.return_value = {
+            "deployment_id": 1,
+            "runtime_status": "running",
+        }
+        resp = client.get("/api/v1/paper-trade/deployments/1/runtime")
+        assert resp.status_code == 200
+
+    @patch(f"{_ROUTE}.PaperTradingService")
     @patch(f"{_ROUTE}.PaperAccountService")
-    def test_deploy_strategy(self, MockAcct, MockSvc, client):
+    @patch(f"{_ROUTE}.PaperRuntimeService")
+    def test_deploy_strategy(self, MockRuntime, MockAcct, MockSvc, client):
         MockAcct.return_value.get_account.return_value = {"status": "active"}
+        MockRuntime.return_value.preview_runtime.return_value = {
+            "status": "pending",
+            "runtime_mode": "legacy_executor_bridge",
+        }
         MockSvc.return_value.deploy.return_value = {
             "success": True, "deployment_id": 1, "strategy_name": "MA",
         }
@@ -55,12 +69,32 @@ class TestPaperTradingRoutes:
             "strategy_id": 1, "vt_symbol": "000001.SZSE",
             "paper_account_id": 1, "parameters": {},
         })
-        # deploy triggers PaperStrategyExecutor lazily — may still 500 if executor not mocked
-        assert resp.status_code in (200, 201, 500)
+        assert resp.status_code in (200, 201)
 
     @patch(f"{_ROUTE}.PaperTradingService")
-    @patch("app.domains.trading.paper_strategy_executor.PaperStrategyExecutor")
-    def test_stop_deployment(self, MockExec, MockSvc, client):
+    @patch(f"{_ROUTE}.PaperAccountService")
+    @patch(f"{_ROUTE}.PaperRuntimeService")
+    def test_deploy_strategy_accepts_vt_symbols(self, MockRuntime, MockAcct, MockSvc, client):
+        MockAcct.return_value.get_account.return_value = {"status": "active"}
+        MockRuntime.return_value.preview_runtime.return_value = {
+            "status": "pending",
+            "runtime_mode": "portfolio_strategy_bridge",
+        }
+        MockSvc.return_value.deploy.return_value = {
+            "success": True, "deployment_id": 2, "strategy_name": "Pairs",
+        }
+        resp = client.post("/api/v1/paper-trade/deploy", json={
+            "strategy_id": 1,
+            "vt_symbols": ["000001.SZSE", "000002.SZSE"],
+            "paper_account_id": 1,
+            "parameters": {},
+        })
+        assert resp.status_code in (200, 201)
+        _, kwargs = MockSvc.return_value.deploy.call_args
+        assert kwargs["vt_symbol"] == "000001.SZSE,000002.SZSE"
+
+    @patch(f"{_ROUTE}.PaperTradingService")
+    def test_stop_deployment(self, MockSvc, client):
         MockSvc.return_value.stop_deployment.return_value = True
         resp = client.post("/api/v1/paper-trade/deployments/1/stop")
         assert resp.status_code == 200
@@ -86,12 +120,13 @@ class TestPaperTradingRoutes:
         resp = client.get("/api/v1/paper-trade/signals")
         assert resp.status_code == 200
 
+    @patch(f"{_ROUTE}.PaperExecutionLedger")
     @patch(f"{_ROUTE}.OrderDao")
     @patch(f"{_ROUTE}.PaperAccountService")
     @patch(f"{_ROUTE}.RealtimeQuoteService")
     @patch(f"{_ROUTE}.validate_order")
     @patch(f"{_ROUTE}.try_fill_market_order")
-    def test_create_paper_order(self, mock_fill, mock_validate, mock_quote_svc, MockAcct, MockDao, client):
+    def test_create_paper_order(self, mock_fill, mock_validate, mock_quote_svc, MockAcct, MockDao, MockLedger, client):
         # Setup mocks
         MockAcct.return_value.get_account.return_value = {
             "status": "active", "market": "CN", "balance": 100000,
@@ -114,6 +149,7 @@ class TestPaperTradingRoutes:
             "quantity": 100, "price": 10.0, "paper_account_id": 1,
         })
         assert resp.status_code in (200, 201)
+        MockLedger.return_value.record_order_event.assert_called()
 
     @patch(f"{_ROUTE}.OrderDao")
     def test_list_orders(self, MockDao, client):

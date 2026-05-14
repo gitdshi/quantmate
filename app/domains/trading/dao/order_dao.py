@@ -26,6 +26,7 @@ class OrderDao:
         portfolio_id: Optional[int] = None,
         mode: str = "paper",
         paper_account_id: Optional[int] = None,
+        paper_deployment_id: Optional[int] = None,
         buy_date: Optional[str] = None,
     ) -> int:
         with connection("quantmate") as conn:
@@ -33,9 +34,9 @@ class OrderDao:
                 text("""
                     INSERT INTO orders (user_id, portfolio_id, symbol, direction, order_type,
                                         quantity, price, stop_price, strategy_id, mode, status,
-                                        paper_account_id, buy_date)
+                                        paper_account_id, paper_deployment_id, buy_date)
                     VALUES (:uid, :pid, :sym, :dir, :otype, :qty, :price, :stop, :sid, :mode, 'created',
-                            :paid, :bdate)
+                            :paid, :pdid, :bdate)
                 """),
                 {
                     "uid": user_id,
@@ -49,6 +50,7 @@ class OrderDao:
                     "sid": strategy_id,
                     "mode": mode,
                     "paid": paper_account_id,
+                    "pdid": paper_deployment_id,
                     "bdate": buy_date,
                 },
             )
@@ -61,7 +63,7 @@ class OrderDao:
                 text("""
                     SELECT id, user_id, portfolio_id, symbol, direction, order_type, quantity, price,
                            stop_price, status, filled_quantity, avg_fill_price, fee, strategy_id, mode,
-                           paper_account_id, buy_date, created_at, updated_at
+                              paper_account_id, paper_deployment_id, buy_date, created_at, updated_at
                     FROM orders WHERE id = :oid AND user_id = :uid
                 """),
                 {"oid": order_id, "uid": user_id},
@@ -97,7 +99,7 @@ class OrderDao:
                 text(f"""
                     SELECT id, user_id, portfolio_id, symbol, direction, order_type, quantity, price,
                            stop_price, status, filled_quantity, avg_fill_price, fee, strategy_id, mode,
-                           paper_account_id, buy_date, created_at, updated_at
+                              paper_account_id, paper_deployment_id, buy_date, created_at, updated_at
                     FROM orders WHERE {where}
                     ORDER BY created_at DESC LIMIT :limit OFFSET :offset
                 """),
@@ -175,6 +177,7 @@ class OrderDao:
             "strategy_id": row.strategy_id,
             "mode": row.mode,
             "paper_account_id": row.paper_account_id,
+            "paper_deployment_id": getattr(row, "paper_deployment_id", None),
             "buy_date": str(row.buy_date) if row.buy_date else None,
             "created_at": row.created_at,
             "updated_at": row.updated_at,

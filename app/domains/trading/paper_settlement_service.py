@@ -48,15 +48,15 @@ class PaperSettlementService:
         """Settle a single paper account: revalue positions, update market_value, snapshot."""
         from app.domains.market.realtime_quote_service import RealtimeQuoteService
 
-        # Compute net positions from filled paper orders
+        # Compute net positions from open paper lots.
         with connection("quantmate") as conn:
             rows = conn.execute(
                 text("""
-                    SELECT symbol, direction, SUM(filled_quantity) as total_qty,
-                           SUM(filled_quantity * avg_fill_price) / NULLIF(SUM(filled_quantity), 0) as avg_cost
-                    FROM orders
-                    WHERE user_id = :uid AND paper_account_id = :aid AND mode = 'paper' AND status = 'filled'
-                    GROUP BY symbol, direction
+                    SELECT symbol, side, SUM(remaining_quantity) as total_qty,
+                           SUM(remaining_quantity * open_price) / NULLIF(SUM(remaining_quantity), 0) as avg_cost
+                    FROM paper_position_lots
+                    WHERE user_id = :uid AND paper_account_id = :aid AND status = 'open' AND remaining_quantity > 0
+                    GROUP BY symbol, side
                 """),
                 {"uid": user_id, "aid": account_id},
             ).fetchall()
@@ -65,7 +65,7 @@ class PaperSettlementService:
         positions: Dict[str, int] = {}
         for r in rows:
             qty = int(r.total_qty) if r.total_qty else 0
-            if r.direction == "buy":
+            if getattr(r, "side", "long") == "long":
                 positions[r.symbol] = positions.get(r.symbol, 0) + qty
             else:
                 positions[r.symbol] = positions.get(r.symbol, 0) - qty

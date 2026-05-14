@@ -261,9 +261,9 @@ jobs:
               docker system df || true
             }
 
-            IMAGE_SERVICES="api worker datasync datasync-backfill rdagent-service"
-            POST_API_SERVICES="worker datasync datasync-backfill rdagent-service"
-            ALL_SERVICES="api worker datasync datasync-backfill rdagent-service"
+            IMAGE_SERVICES="api worker paper-runtime datasync datasync-backfill rdagent-service"
+            POST_API_SERVICES="worker paper-runtime datasync datasync-backfill rdagent-service"
+            ALL_SERVICES="api worker paper-runtime datasync datasync-backfill rdagent-service"
 
             cleanup_docker_artifacts() {
               echo "==> Pruning unused Docker data to recover disk space"
@@ -344,6 +344,7 @@ jobs:
               for name in \
                 quantmate-api-1 \
                 quantmate-worker-1 \
+                quantmate-paper-runtime-1 \
                 quantmate-datasync-1 \
                 quantmate-datasync-backfill-1 \
                 quantmate-rdagent-service-1; do

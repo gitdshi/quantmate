@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text
 
+from app.domains.trading.paper_execution_ledger import PaperExecutionLedger
 from app.infrastructure.db.connections import connection
 
 logger = logging.getLogger(__name__)
@@ -19,6 +20,9 @@ logger = logging.getLogger(__name__)
 
 class PaperTradingService:
     """Service for paper trading simulation environment."""
+
+    def __init__(self) -> None:
+        self._ledger = PaperExecutionLedger()
 
     # ── Deploy / Stop ───────────────────────────────────────
 
@@ -47,8 +51,10 @@ class PaperTradingService:
                 text("""
                     INSERT INTO paper_deployments (user_id, paper_account_id, strategy_id, strategy_name,
                                                    vt_symbol, parameters, status, execution_mode,
+                                                   desired_status, runtime_status,
                                                    source_backtest_job_id, source_version_id)
                     VALUES (:uid, :paid, :sid, :sname, :sym, :params, 'running', :emode,
+                            'running', 'pending',
                             :source_backtest_job_id, :source_version_id)
                 """),
                 {
@@ -76,7 +82,9 @@ class PaperTradingService:
                 text("""
                     SELECT id, strategy_id, strategy_name, vt_symbol, parameters,
                            status, started_at, stopped_at, source_backtest_job_id, source_version_id,
-                           risk_check_status, risk_check_summary
+                           risk_check_status, risk_check_summary,
+                           desired_status, runtime_status, runtime_worker_id,
+                           runtime_heartbeat_at, runtime_error, runtime_warning
                     FROM paper_deployments
                     WHERE user_id = :uid
                     ORDER BY started_at DESC
@@ -97,6 +105,12 @@ class PaperTradingService:
                     "source_version_id": getattr(r, "source_version_id", None),
                     "risk_check_status": getattr(r, "risk_check_status", None),
                     "risk_check_summary": json.loads(r.risk_check_summary) if getattr(r, "risk_check_summary", None) else None,
+                    "desired_status": getattr(r, "desired_status", r.status),
+                    "runtime_status": getattr(r, "runtime_status", None),
+                    "runtime_worker_id": getattr(r, "runtime_worker_id", None),
+                    "runtime_heartbeat_at": str(getattr(r, "runtime_heartbeat_at", None)) if getattr(r, "runtime_heartbeat_at", None) else None,
+                    "runtime_error": getattr(r, "runtime_error", None),
+                    "runtime_warning": getattr(r, "runtime_warning", None),
                     "pnl": 0.0,  # TODO: compute from paper orders linked to deployment
                 }
                 for r in rows
@@ -108,7 +122,10 @@ class PaperTradingService:
             result = conn.execute(
                 text("""
                     UPDATE paper_deployments
-                    SET status = 'stopped', stopped_at = NOW()
+                    SET status = 'stopped',
+                        desired_status = 'stopped',
+                        runtime_status = 'stopping',
+                        stopped_at = NOW()
                     WHERE id = :did AND user_id = :uid AND status = 'running'
                 """),
                 {"did": deployment_id, "uid": user_id},
@@ -116,10 +133,56 @@ class PaperTradingService:
             conn.commit()
             return result.rowcount > 0
 
+    def get_deployment_runtime(self, deployment_id: int, user_id: int) -> Optional[Dict[str, Any]]:
+        """Return desired and actual runtime state for a paper deployment."""
+        with connection("quantmate") as conn:
+            row = conn.execute(
+                text(
+                    """
+                    SELECT d.id, d.strategy_id, d.strategy_name, d.vt_symbol, d.status,
+                           d.desired_status, d.runtime_status, d.runtime_worker_id,
+                           d.runtime_heartbeat_at, d.runtime_error, d.runtime_warning,
+                           h.runtime_mode, h.strategy_kind, h.gateway_name, h.message,
+                           h.heartbeat_at
+                    FROM paper_deployments d
+                    LEFT JOIN paper_runtime_heartbeats h ON h.deployment_id = d.id
+                    WHERE d.id = :did AND d.user_id = :uid
+                    LIMIT 1
+                    """
+                ),
+                {"did": deployment_id, "uid": user_id},
+            ).fetchone()
+
+        if not row:
+            return None
+
+        return {
+            "deployment_id": row.id,
+            "strategy_id": row.strategy_id,
+            "strategy_name": row.strategy_name,
+            "vt_symbol": row.vt_symbol,
+            "status": row.status,
+            "desired_status": getattr(row, "desired_status", row.status),
+            "runtime_status": getattr(row, "runtime_status", None),
+            "runtime_worker_id": getattr(row, "runtime_worker_id", None),
+            "runtime_heartbeat_at": str(getattr(row, "runtime_heartbeat_at", None)) if getattr(row, "runtime_heartbeat_at", None) else None,
+            "runtime_error": getattr(row, "runtime_error", None),
+            "runtime_warning": getattr(row, "runtime_warning", None),
+            "runtime_mode": getattr(row, "runtime_mode", None),
+            "strategy_kind": getattr(row, "strategy_kind", None),
+            "gateway_name": getattr(row, "gateway_name", None),
+            "heartbeat_message": getattr(row, "message", None),
+            "heartbeat_at": str(getattr(row, "heartbeat_at", None)) if getattr(row, "heartbeat_at", None) else None,
+        }
+
     # ── Positions ───────────────────────────────────────────
 
     def get_positions(self, user_id: int) -> List[Dict[str, Any]]:
         """Compute aggregated paper positions from filled paper orders."""
+        ledger_positions = self._ledger.get_positions(user_id=user_id)
+        if ledger_positions:
+            return ledger_positions
+
         with connection("quantmate") as conn:
             rows = conn.execute(
                 text("""
@@ -157,6 +220,14 @@ class PaperTradingService:
 
     def get_performance(self, user_id: int) -> Dict[str, Any]:
         """Compute paper trading performance metrics from filled orders."""
+        ledger_summary = self._ledger.get_performance_summary(user_id=user_id)
+        if (
+            ledger_summary.get("total_trades")
+            or ledger_summary.get("equity_curve")
+            or abs(float(ledger_summary.get("total_pnl") or 0.0)) > 0
+        ):
+            return ledger_summary
+
         with connection("quantmate") as conn:
             rows = conn.execute(
                 text("""

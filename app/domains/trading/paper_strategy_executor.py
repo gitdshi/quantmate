@@ -14,12 +14,51 @@ from typing import Any, Dict, Optional
 
 from sqlalchemy import text
 
+from app.domains.trading.paper_execution_ledger import PaperExecutionLedger
 from app.infrastructure.db.connections import connection
 
 logger = logging.getLogger(__name__)
 
 # How often to poll for new bars (seconds)
 _POLL_INTERVAL = 5
+
+
+def _normalize_vt_symbols(vt_symbol: str | list[str]) -> list[str]:
+    if isinstance(vt_symbol, list):
+        return [item.strip() for item in vt_symbol if item and item.strip()]
+    return [item.strip() for item in vt_symbol.split(",") if item and item.strip()]
+
+
+def _split_vt_symbol(vt_symbol: str):
+    from vnpy.trader.constant import Exchange
+
+    parts = vt_symbol.split(".")
+    symbol = parts[0]
+    exchange_str = parts[1] if len(parts) > 1 else "SSE"
+    try:
+        exchange = Exchange(exchange_str)
+    except ValueError:
+        exchange = Exchange.SSE
+    return symbol, exchange
+
+
+def _get_quote_price(quote: dict, fallback: float = 0.0) -> float:
+    return float(quote.get("last_price") or quote.get("price") or quote.get("current") or fallback or 0)
+
+
+def _build_runtime_checkpoint(*, deployment_id: int, vt_symbols: list[str], gateway: Any, strategy: Any = None) -> Dict[str, Any]:
+    checkpoint = {
+        "deployment_id": deployment_id,
+        "vt_symbols": vt_symbols,
+        "gateway": gateway.snapshot().__dict__ if gateway is not None else None,
+        "captured_at": datetime.utcnow().isoformat(),
+    }
+    if strategy is not None:
+        checkpoint["strategy_name"] = getattr(strategy, "strategy_name", "")
+        checkpoint["inited"] = getattr(strategy, "inited", False)
+        checkpoint["trading"] = getattr(strategy, "trading", False)
+        checkpoint["pos"] = getattr(strategy, "pos", None)
+    return checkpoint
 
 
 class _PaperCtaEngine:
@@ -34,6 +73,7 @@ class _PaperCtaEngine:
         user_id: int,
         vt_symbol: str,
         execution_mode: str,
+        gateway: Any = None,
     ) -> None:
         self.executor = executor
         self.deployment_id = deployment_id
@@ -41,35 +81,55 @@ class _PaperCtaEngine:
         self.user_id = user_id
         self.vt_symbol = vt_symbol
         self.execution_mode = execution_mode
+        self.gateway = gateway
         self._order_counter = 0
+        self._ledger = PaperExecutionLedger()
 
     # -- Methods invoked by CtaTemplate ---------------------
 
     def send_order(
         self,
         strategy: Any,
-        direction,
-        offset,
-        price: float,
-        volume: float,
+        order_type=None,
+        direction=None,
+        offset=None,
+        price: float = 0.0,
+        volume: float = 0.0,
         stop: bool = False,
         lock: bool = False,
         net: bool = False,
     ) -> list[str]:
         """Intercept order from strategy and route to paper trading."""
         from vnpy.trader.constant import Direction as VDirection
+        from app.domains.trading.paper_gateway import PaperGatewayOrderRequest
 
         dir_str = "buy" if direction == VDirection.LONG else "sell"
         qty = int(volume)
+        gateway_order_id: Optional[str] = None
+
+        if self.gateway is not None:
+            order_state = self.gateway.submit_order(
+                PaperGatewayOrderRequest(
+                    vt_symbol=self.vt_symbol,
+                    direction=dir_str,
+                    order_type="stop" if stop else getattr(order_type, "value", None) or "market",
+                    volume=qty,
+                    price=price,
+                    stop=stop,
+                    metadata={"strategy_name": getattr(strategy, "strategy_name", "")},
+                )
+            )
+            gateway_order_id = order_state.order_id
 
         if self.execution_mode == "semi_auto":
             self._write_signal(dir_str, qty, price, reason=f"Strategy signal: {strategy.strategy_name}")
             return []
 
         # Auto mode — execute through matching engine immediately
-        self._execute_order(dir_str, qty, price, stop=stop)
-        vt_id = f"paper.{self.deployment_id}.{self._order_counter}"
-        self._order_counter += 1
+        vt_id = gateway_order_id or f"paper.{self.deployment_id}.{self._order_counter}"
+        self._execute_order(dir_str, qty, price, stop=stop, strategy=strategy, order_id=vt_id)
+        if gateway_order_id is None:
+            self._order_counter += 1
         return [vt_id]
 
     def cancel_order(self, strategy: Any, vt_orderid: str) -> None:
@@ -88,15 +148,59 @@ class _PaperCtaEngine:
     def get_pricetick(self, vt_symbol: str) -> float:
         return 0.01
 
+    def get_size(self, strategy: Any) -> int:
+        return 1
+
+    def load_bar(self, vt_symbol: str, days: int, interval, callback, use_database: bool = False) -> None:
+        quote = self.gateway.get_last_tick(vt_symbol) if self.gateway is not None else None
+        if quote is None:
+            return
+        bar = PaperStrategyExecutor._quote_to_bar(quote, vt_symbol)
+        if bar is not None:
+            callback(bar)
+
+    def load_tick(self, vt_symbol: str, days: int, callback) -> None:
+        quote = self.gateway.get_last_tick(vt_symbol) if self.gateway is not None else None
+        if quote is None:
+            return
+        tick = PaperStrategyExecutor._quote_to_tick(quote, vt_symbol)
+        if tick is not None:
+            callback(tick)
+
+    def sync_strategy_data(self, strategy: Any) -> None:
+        checkpoint = _build_runtime_checkpoint(
+            deployment_id=self.deployment_id,
+            vt_symbols=[self.vt_symbol],
+            gateway=self.gateway,
+            strategy=strategy,
+        )
+        self._ledger.write_checkpoint(
+            deployment_id=self.deployment_id,
+            runtime_mode="native_cta_runtime",
+            strategy_kind="cta",
+            checkpoint=checkpoint,
+        )
+
     def put_event(self) -> None:
         pass
+
+    def put_strategy_event(self, strategy: Any) -> None:
+        self.put_event()
 
     def send_email(self, msg: str, strategy: Any = None) -> None:
         pass
 
     # -- Internal helpers -----------------------------------
 
-    def _execute_order(self, direction: str, quantity: int, price: float, stop: bool = False) -> None:
+    def _execute_order(
+        self,
+        direction: str,
+        quantity: int,
+        price: float,
+        stop: bool = False,
+        strategy: Any = None,
+        order_id: Optional[str] = None,
+    ) -> None:
         """Execute order via matching engine + paper account settlement."""
         from app.domains.trading.matching_engine import try_fill_market_order
         from app.domains.trading.paper_account_service import PaperAccountService
@@ -109,12 +213,14 @@ class _PaperCtaEngine:
         try:
             symbol = self.vt_symbol.split(".")[0] if "." in self.vt_symbol else self.vt_symbol
             quote = quote_svc.get_quote(symbol, market)
-            last_price = quote.get("last_price") or quote.get("price") or quote.get("current") or price
+            last_price = _get_quote_price(quote, price)
         except Exception:
             last_price = price
 
         if last_price <= 0:
             logger.warning("[paper-engine] No price for %s, skip order", self.vt_symbol)
+            if self.gateway is not None and order_id:
+                self.gateway.update_order_status(order_id, "rejected")
             return
 
         fill = try_fill_market_order(
@@ -125,6 +231,8 @@ class _PaperCtaEngine:
         )
         if not fill.filled:
             logger.warning("[paper-engine] Fill failed: %s", fill.reason)
+            if self.gateway is not None and order_id:
+                self.gateway.update_order_status(order_id, "rejected")
             return
 
         acct_svc = PaperAccountService()
@@ -137,12 +245,12 @@ class _PaperCtaEngine:
             if not ok:
                 logger.warning("[paper-engine] Insufficient funds for buy")
                 return
-            acct_svc.settle_buy(self.paper_account_id, total_cost)
+            acct_svc.settle_buy(self.paper_account_id, total_cost, total_cost)
         else:
             proceeds = fill.fill_price * fill.fill_quantity - fill.fee.total
             acct_svc.settle_sell(self.paper_account_id, proceeds)
 
-        order_id = dao.create(
+        db_order_id = dao.create(
             user_id=self.user_id,
             symbol=self.vt_symbol.split(".")[0] if "." in self.vt_symbol else self.vt_symbol,
             direction=direction,
@@ -151,12 +259,104 @@ class _PaperCtaEngine:
             price=fill.fill_price,
             mode="paper",
             paper_account_id=self.paper_account_id,
+            paper_deployment_id=self.deployment_id,
             buy_date=today_str if direction == "buy" else None,
             strategy_id=self._get_strategy_id(),
         )
-        dao.update_status(order_id, "filled", filled_quantity=fill.fill_quantity, avg_fill_price=fill.fill_price, fee=fill.fee.total)
-        dao.insert_trade(order_id, fill.fill_quantity, fill.fill_price, fill.fee.total)
+        dao.update_status(db_order_id, "filled", filled_quantity=fill.fill_quantity, avg_fill_price=fill.fill_price, fee=fill.fee.total)
+        dao.insert_trade(db_order_id, fill.fill_quantity, fill.fill_price, fill.fee.total)
+        self._ledger.record_fill(
+            user_id=self.user_id,
+            paper_account_id=self.paper_account_id,
+            deployment_id=self.deployment_id,
+            order_id=db_order_id,
+            symbol=self.vt_symbol.split(".")[0] if "." in self.vt_symbol else self.vt_symbol,
+            direction=direction,
+            quantity=fill.fill_quantity,
+            price=fill.fill_price,
+            fee=fill.fee.total,
+            payload={"gateway_order_id": order_id, "stop": stop},
+        )
+        if self.gateway is not None and order_id:
+            self.gateway.update_order_status(order_id, "filled")
+        if strategy is not None:
+            callback_order_id = order_id or f"paper.{self.deployment_id}.{db_order_id}"
+            self._notify_strategy_order(strategy, callback_order_id, direction, quantity, fill.fill_quantity, fill.fill_price)
+            self._notify_strategy_trade(strategy, callback_order_id, direction, fill.fill_quantity, fill.fill_price)
         logger.info("[paper-engine] Order filled: %s %s %d @ %.4f", direction, self.vt_symbol, quantity, fill.fill_price)
+
+    def _notify_strategy_order(
+        self,
+        strategy: Any,
+        vt_orderid: str,
+        direction: str,
+        quantity: int,
+        traded: int,
+        price: float,
+    ) -> None:
+        from vnpy.trader.constant import Direction as VDirection
+        from vnpy.trader.constant import Offset as VOffset
+        from vnpy.trader.constant import Status
+        from vnpy.trader.object import OrderData
+
+        symbol, exchange = _split_vt_symbol(self.vt_symbol)
+        gateway_name, orderid = vt_orderid.rsplit(".", 1) if "." in vt_orderid else ("paper", vt_orderid)
+        order = OrderData(
+            gateway_name=gateway_name,
+            symbol=symbol,
+            exchange=exchange,
+            orderid=orderid,
+            direction=VDirection.LONG if direction == "buy" else VDirection.SHORT,
+            offset=VOffset.OPEN if direction == "buy" else VOffset.CLOSE,
+            price=price,
+            volume=quantity,
+            traded=traded,
+            status=Status.ALLTRADED,
+            datetime=datetime.utcnow(),
+        )
+        if hasattr(strategy, "update_order"):
+            strategy.update_order(order)
+        if not hasattr(strategy, "on_order"):
+            return
+        try:
+            strategy.on_order(order)
+        except Exception:
+            logger.debug("[paper-engine] strategy on_order callback failed", exc_info=True)
+
+    def _notify_strategy_trade(
+        self,
+        strategy: Any,
+        vt_orderid: str,
+        direction: str,
+        quantity: int,
+        price: float,
+    ) -> None:
+        from vnpy.trader.constant import Direction as VDirection
+        from vnpy.trader.constant import Offset as VOffset
+        from vnpy.trader.object import TradeData
+
+        symbol, exchange = _split_vt_symbol(self.vt_symbol)
+        gateway_name, orderid = vt_orderid.rsplit(".", 1) if "." in vt_orderid else ("paper", vt_orderid)
+        trade = TradeData(
+            gateway_name=gateway_name,
+            symbol=symbol,
+            exchange=exchange,
+            orderid=orderid,
+            tradeid=f"trade.{orderid}",
+            direction=VDirection.LONG if direction == "buy" else VDirection.SHORT,
+            offset=VOffset.OPEN if direction == "buy" else VOffset.CLOSE,
+            price=price,
+            volume=quantity,
+            datetime=datetime.utcnow(),
+        )
+        if hasattr(strategy, "update_trade"):
+            strategy.update_trade(trade)
+        if not hasattr(strategy, "on_trade"):
+            return
+        try:
+            strategy.on_trade(trade)
+        except Exception:
+            logger.debug("[paper-engine] strategy on_trade callback failed", exc_info=True)
 
     def _write_signal(self, direction: str, quantity: int, price: float, reason: str = "") -> None:
         """Write a signal to paper_signals for semi-auto confirmation."""
@@ -217,6 +417,7 @@ class PaperStrategyExecutor:
         self._initialized = True
         self._threads: Dict[int, threading.Thread] = {}
         self._stop_events: Dict[int, threading.Event] = {}
+        self._gateways: Dict[int, Any] = {}
         logger.info("[paper-executor] PaperStrategyExecutor initialized")
 
     def start_deployment(
@@ -229,6 +430,7 @@ class PaperStrategyExecutor:
         parameters: Dict[str, Any],
         execution_mode: str = "auto",
         strategy_id: Optional[int] = None,
+        gateway: Any = None,
     ) -> Dict[str, Any]:
         """Start a strategy in a background thread for paper trading."""
         if deployment_id in self._threads and self._threads[deployment_id].is_alive():
@@ -239,11 +441,13 @@ class PaperStrategyExecutor:
 
         thread = threading.Thread(
             target=self._run_strategy,
-            args=(deployment_id, paper_account_id, user_id, strategy_class_name, vt_symbol, parameters, execution_mode, strategy_id, stop_event),
+            args=(deployment_id, paper_account_id, user_id, strategy_class_name, vt_symbol, parameters, execution_mode, strategy_id, stop_event, gateway),
             daemon=True,
             name=f"paper-strategy-{deployment_id}",
         )
         self._threads[deployment_id] = thread
+        if gateway is not None:
+            self._gateways[deployment_id] = gateway
         thread.start()
 
         logger.info("[paper-executor] Deployment %d started: %s on %s mode=%s", deployment_id, strategy_class_name, vt_symbol, execution_mode)
@@ -273,6 +477,7 @@ class PaperStrategyExecutor:
         execution_mode: str,
         strategy_id: Optional[int],
         stop_event: threading.Event,
+        gateway: Any,
     ) -> None:
         """Thread entry: load strategy, poll quotes, feed bars."""
         try:
@@ -299,6 +504,7 @@ class PaperStrategyExecutor:
                 user_id=user_id,
                 vt_symbol=vt_symbol,
                 execution_mode=execution_mode,
+                gateway=gateway,
             )
 
             ts = datetime.utcnow().strftime("%Y%m%d%H%M%S")
@@ -307,6 +513,8 @@ class PaperStrategyExecutor:
             strategy_instance.on_init()
             strategy_instance.inited = True
             strategy_instance.trading = True
+            if hasattr(strategy_instance, "on_start"):
+                strategy_instance.on_start()
 
             logger.info("[paper-executor] Strategy %s initialized for deployment %d", strategy_name, deployment_id)
 
@@ -319,9 +527,25 @@ class PaperStrategyExecutor:
             while not stop_event.is_set():
                 try:
                     quote = quote_svc.get_quote(symbol, market)
+                    if gateway is not None:
+                        gateway.publish_tick(vt_symbol, quote)
+                    tick = self._quote_to_tick(quote, vt_symbol)
                     bar = self._quote_to_bar(quote, vt_symbol)
-                    if bar:
+                    if tick is not None and hasattr(strategy_instance, "on_tick"):
+                        strategy_instance.on_tick(tick)
+                    elif bar:
                         strategy_instance.on_bar(bar)
+                    PaperExecutionLedger().write_checkpoint(
+                        deployment_id=deployment_id,
+                        runtime_mode="native_cta_runtime",
+                        strategy_kind="cta",
+                        checkpoint=_build_runtime_checkpoint(
+                            deployment_id=deployment_id,
+                            vt_symbols=[vt_symbol],
+                            gateway=gateway,
+                            strategy=strategy_instance,
+                        ),
+                    )
                 except Exception:
                     logger.debug("[paper-executor] Quote/bar error for %s", vt_symbol, exc_info=True)
 
@@ -329,6 +553,17 @@ class PaperStrategyExecutor:
 
             # Cleanup
             strategy_instance.on_stop()
+            PaperExecutionLedger().write_checkpoint(
+                deployment_id=deployment_id,
+                runtime_mode="native_cta_runtime",
+                strategy_kind="cta",
+                checkpoint=_build_runtime_checkpoint(
+                    deployment_id=deployment_id,
+                    vt_symbols=[vt_symbol],
+                    gateway=gateway,
+                    strategy=strategy_instance,
+                ),
+            )
             logger.info("[paper-executor] Deployment %d stopped cleanly", deployment_id)
 
         except Exception:
@@ -336,6 +571,7 @@ class PaperStrategyExecutor:
         finally:
             self._threads.pop(deployment_id, None)
             self._stop_events.pop(deployment_id, None)
+            self._gateways.pop(deployment_id, None)
             # Mark deployment as stopped in DB
             try:
                 with connection("quantmate") as conn:
@@ -352,19 +588,13 @@ class PaperStrategyExecutor:
         """Convert a realtime quote dict to a vnpy BarData."""
         try:
             from vnpy.trader.object import BarData
-            from vnpy.trader.constant import Exchange, Interval
+            from vnpy.trader.constant import Interval
 
-            last = float(quote.get("last_price") or quote.get("price") or quote.get("current") or 0)
+            last = _get_quote_price(quote)
             if last <= 0:
                 return None
 
-            parts = vt_symbol.split(".")
-            symbol = parts[0]
-            exchange_str = parts[1] if len(parts) > 1 else "SSE"
-            try:
-                exchange = Exchange(exchange_str)
-            except ValueError:
-                exchange = Exchange.SSE
+            symbol, exchange = _split_vt_symbol(vt_symbol)
 
             return BarData(
                 symbol=symbol,
@@ -381,4 +611,35 @@ class PaperStrategyExecutor:
             )
         except ImportError:
             logger.debug("[paper-executor] vnpy not available, cannot create BarData")
+            return None
+
+    @staticmethod
+    def _quote_to_tick(quote: dict, vt_symbol: str):
+        """Convert a realtime quote dict to a vnpy TickData."""
+        try:
+            from vnpy.trader.object import TickData
+
+            last = _get_quote_price(quote)
+            if last <= 0:
+                return None
+
+            symbol, exchange = _split_vt_symbol(vt_symbol)
+
+            return TickData(
+                symbol=symbol,
+                exchange=exchange,
+                datetime=datetime.now(),
+                gateway_name="paper",
+                name=symbol,
+                volume=float(quote.get("volume") or 0),
+                turnover=float(quote.get("turnover") or quote.get("amount") or 0),
+                open_interest=float(quote.get("open_interest") or 0),
+                last_price=last,
+                open_price=float(quote.get("open") or last),
+                high_price=float(quote.get("high") or last),
+                low_price=float(quote.get("low") or last),
+                pre_close=float(quote.get("prev_close") or quote.get("pre_close") or last),
+            )
+        except ImportError:
+            logger.debug("[paper-executor] vnpy not available, cannot create TickData")
             return None

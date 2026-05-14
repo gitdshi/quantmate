@@ -32,6 +32,22 @@ def _mock_connection(monkeypatch):
     return conn
 
 
+@pytest.fixture(autouse=True)
+def _mock_ledger(monkeypatch):
+    ledger = MagicMock()
+    ledger.get_positions.return_value = []
+    ledger.get_performance_summary.return_value = {
+        "total_pnl": 0.0,
+        "total_trades": 0,
+        "win_rate": 0.0,
+        "max_drawdown": 0.0,
+        "sharpe_ratio": None,
+        "equity_curve": [],
+    }
+    monkeypatch.setattr(_mod, "PaperExecutionLedger", lambda: ledger)
+    return ledger
+
+
 class TestPaperTradingService:
     def test_deploy(self, _mock_connection):
         # strategy lookup
@@ -69,17 +85,59 @@ class TestPaperTradingService:
         result = _mod.PaperTradingService().stop_deployment(deployment_id=1, user_id=1)
         assert result is True
 
-    def test_get_positions(self, _mock_connection):
+    def test_get_deployment_runtime(self, _mock_connection):
+        _mock_connection.execute.return_value = MagicMock(
+            fetchone=MagicMock(return_value=_row(
+                id=1,
+                strategy_id=1,
+                strategy_name="MA",
+                vt_symbol="000001.SZ",
+                status="running",
+                desired_status="running",
+                runtime_status="running",
+                runtime_worker_id="worker-a",
+                runtime_heartbeat_at="2026-01-01 10:00:00",
+                runtime_error=None,
+                runtime_warning=None,
+                runtime_mode="legacy_executor_bridge",
+                strategy_kind="cta",
+                gateway_name="PAPER.1",
+                message=None,
+                heartbeat_at="2026-01-01 10:00:00",
+            ))
+        )
+        result = _mod.PaperTradingService().get_deployment_runtime(deployment_id=1, user_id=1)
+        assert result["runtime_status"] == "running"
+        assert result["runtime_mode"] == "legacy_executor_bridge"
+
+    def test_get_positions(self, _mock_connection, _mock_ledger):
         _mock_connection.execute.return_value = MagicMock(
             fetchall=MagicMock(return_value=[_row(symbol="000001.SZ", quantity=100)])
         )
         result = _mod.PaperTradingService().get_positions(user_id=1)
         assert isinstance(result, list)
 
-    def test_get_performance(self, _mock_connection):
+    def test_get_positions_prefers_ledger(self, _mock_connection, _mock_ledger):
+        _mock_ledger.get_positions.return_value = [{"symbol": "000001.SZ", "quantity": 100}]
+        result = _mod.PaperTradingService().get_positions(user_id=1)
+        assert result == [{"symbol": "000001.SZ", "quantity": 100}]
+
+    def test_get_performance(self, _mock_connection, _mock_ledger):
         _mock_connection.execute.return_value = MagicMock(
             fetchall=MagicMock(return_value=[]),
             fetchone=MagicMock(return_value=None)
         )
         result = _mod.PaperTradingService().get_performance(user_id=1)
         assert isinstance(result, dict)
+
+    def test_get_performance_prefers_ledger(self, _mock_connection, _mock_ledger):
+        _mock_ledger.get_performance_summary.return_value = {
+            "total_pnl": 12.0,
+            "total_trades": 2,
+            "win_rate": 0.5,
+            "max_drawdown": 0.1,
+            "sharpe_ratio": 1.2,
+            "equity_curve": [{"date": "2026-01-01", "value": 100.0}],
+        }
+        result = _mod.PaperTradingService().get_performance(user_id=1)
+        assert result["total_trades"] == 2

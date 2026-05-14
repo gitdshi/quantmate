@@ -51,6 +51,31 @@ class PaperAnalyticsService:
     def _get_closed_trades(self, account_id: int, user_id: int) -> List[Dict[str, Any]]:
         """Get all filled orders for the account."""
         with connection("quantmate") as conn:
+            lot_rows = conn.execute(
+                text("""
+                    SELECT symbol, side, open_quantity, open_price, realized_pnl, closed_at
+                    FROM paper_position_lots
+                    WHERE user_id = :uid AND paper_account_id = :aid AND status = 'closed'
+                    ORDER BY closed_at ASC, id ASC
+                """),
+                {"uid": user_id, "aid": account_id},
+            ).fetchall()
+        if lot_rows:
+            return [
+                {
+                    "id": index + 1,
+                    "symbol": row.symbol,
+                    "direction": "sell" if row.side == "long" else "buy",
+                    "quantity": int(row.open_quantity) if row.open_quantity else 0,
+                    "price": float(row.open_price) if row.open_price else 0,
+                    "fee": 0.0,
+                    "created_at": str(row.closed_at) if row.closed_at else "",
+                    "pnl": float(row.realized_pnl) if row.realized_pnl else 0.0,
+                }
+                for index, row in enumerate(lot_rows)
+            ]
+
+        with connection("quantmate") as conn:
             rows = conn.execute(
                 text("""
                     SELECT id, symbol, direction, filled_quantity, avg_fill_price, fee, created_at
