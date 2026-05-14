@@ -280,18 +280,21 @@ class _PaperCtaEngine:
         )
         dao.update_status(db_order_id, "filled", filled_quantity=fill.fill_quantity, avg_fill_price=fill.fill_price, fee=fill.fee.total)
         dao.insert_trade(db_order_id, fill.fill_quantity, fill.fill_price, fill.fee.total)
-        ledger.record_fill(
-            user_id=self.user_id,
-            paper_account_id=self.paper_account_id,
-            deployment_id=self.deployment_id,
-            order_id=db_order_id,
-            symbol=self.vt_symbol.split(".")[0] if "." in self.vt_symbol else self.vt_symbol,
-            direction=direction,
-            quantity=fill.fill_quantity,
-            price=fill.fill_price,
-            fee=fill.fee.total,
-            payload={"gateway_order_id": order_id, "stop": stop},
-        )
+        try:
+            ledger.record_fill(
+                user_id=self.user_id,
+                paper_account_id=self.paper_account_id,
+                deployment_id=self.deployment_id,
+                order_id=db_order_id,
+                symbol=self.vt_symbol.split(".")[0] if "." in self.vt_symbol else self.vt_symbol,
+                direction=direction,
+                quantity=fill.fill_quantity,
+                price=fill.fill_price,
+                fee=fill.fee.total,
+                payload={"gateway_order_id": order_id, "stop": stop},
+            )
+        except Exception:
+            logger.warning("[paper-engine] Failed to record ledger fill", exc_info=True)
         if gateway is not None and order_id:
             gateway.update_order_status(order_id, "filled")
         if strategy is not None:

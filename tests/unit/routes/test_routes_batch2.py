@@ -32,6 +32,17 @@ def _client():
     return TestClient(app, raise_server_exceptions=False)
 
 
+@pytest.fixture(autouse=True)
+def _bypass_rbac(monkeypatch):
+    from app.domains.rbac.service.rbac_service import RbacService
+
+    monkeypatch.setattr(
+        RbacService,
+        "check_permission",
+        lambda self, user_id, resource, action, username=None: True,
+    )
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # backtest routes — run_backtest_task / run_batch_backtest_task
 # ═══════════════════════════════════════════════════════════════════════

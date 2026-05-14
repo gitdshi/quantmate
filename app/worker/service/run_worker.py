@@ -35,11 +35,14 @@ QUEUES = None
 
 
 def get_default_queue_names() -> list[str]:
-    return get_runtime_csv(
+    queue_names = get_runtime_csv(
         env_keys="WORKER_DEFAULT_QUEUE_NAMES",
         db_key="worker.default_queue_names",
         default=["backtest", "optimization", "default", "low", "rdagent"],
     )
+    if "rdagent" not in queue_names:
+        queue_names.append("rdagent")
+    return queue_names
 
 
 def main():
