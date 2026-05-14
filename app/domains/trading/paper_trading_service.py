@@ -124,9 +124,14 @@ class PaperTradingService:
                     UPDATE paper_deployments
                     SET status = 'stopped',
                         desired_status = 'stopped',
-                        runtime_status = 'stopping',
-                        stopped_at = NOW()
-                    WHERE id = :did AND user_id = :uid AND status = 'running'
+                        runtime_status = CASE
+                            WHEN runtime_status IN ('stopped', 'error') THEN runtime_status
+                            ELSE 'stopping'
+                        END,
+                        stopped_at = COALESCE(stopped_at, NOW())
+                    WHERE id = :did
+                      AND user_id = :uid
+                      AND COALESCE(desired_status, status, '') <> 'stopped'
                 """),
                 {"did": deployment_id, "uid": user_id},
             )

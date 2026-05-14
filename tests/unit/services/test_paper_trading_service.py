@@ -85,6 +85,16 @@ class TestPaperTradingService:
         result = _mod.PaperTradingService().stop_deployment(deployment_id=1, user_id=1)
         assert result is True
 
+    def test_stop_deployment_uses_desired_status_guard(self, _mock_connection):
+        _mock_connection.execute.return_value = MagicMock(rowcount=1)
+
+        result = _mod.PaperTradingService().stop_deployment(deployment_id=1, user_id=1)
+
+        assert result is True
+        statement = str(_mock_connection.execute.call_args.args[0])
+        assert "COALESCE(desired_status, status, '') <> 'stopped'" in statement
+        assert "status = 'running'" not in statement
+
     def test_get_deployment_runtime(self, _mock_connection):
         _mock_connection.execute.return_value = MagicMock(
             fetchone=MagicMock(return_value=_row(
