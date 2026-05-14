@@ -179,9 +179,12 @@ class PaperTradingService:
 
     def get_positions(self, user_id: int) -> List[Dict[str, Any]]:
         """Compute aggregated paper positions from filled paper orders."""
-        ledger_positions = self._ledger.get_positions(user_id=user_id)
-        if ledger_positions:
-            return ledger_positions
+        try:
+            ledger_positions = self._ledger.get_positions(user_id=user_id)
+            if ledger_positions:
+                return ledger_positions
+        except Exception:
+            logger.warning("Paper ledger positions unavailable, falling back to orders", exc_info=True)
 
         with connection("quantmate") as conn:
             rows = conn.execute(
@@ -220,13 +223,16 @@ class PaperTradingService:
 
     def get_performance(self, user_id: int) -> Dict[str, Any]:
         """Compute paper trading performance metrics from filled orders."""
-        ledger_summary = self._ledger.get_performance_summary(user_id=user_id)
-        if (
-            ledger_summary.get("total_trades")
-            or ledger_summary.get("equity_curve")
-            or abs(float(ledger_summary.get("total_pnl") or 0.0)) > 0
-        ):
-            return ledger_summary
+        try:
+            ledger_summary = self._ledger.get_performance_summary(user_id=user_id)
+            if (
+                ledger_summary.get("total_trades")
+                or ledger_summary.get("equity_curve")
+                or abs(float(ledger_summary.get("total_pnl") or 0.0)) > 0
+            ):
+                return ledger_summary
+        except Exception:
+            logger.warning("Paper ledger performance unavailable, falling back to orders", exc_info=True)
 
         with connection("quantmate") as conn:
             rows = conn.execute(

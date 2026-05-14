@@ -85,6 +85,16 @@ class _PaperCtaEngine:
         self._order_counter = 0
         self._ledger = PaperExecutionLedger()
 
+    def _get_gateway(self):
+        return getattr(self, "gateway", None)
+
+    def _get_ledger(self) -> PaperExecutionLedger:
+        ledger = getattr(self, "_ledger", None)
+        if ledger is None:
+            ledger = PaperExecutionLedger()
+            self._ledger = ledger
+        return ledger
+
     # -- Methods invoked by CtaTemplate ---------------------
 
     def send_order(
@@ -152,7 +162,8 @@ class _PaperCtaEngine:
         return 1
 
     def load_bar(self, vt_symbol: str, days: int, interval, callback, use_database: bool = False) -> None:
-        quote = self.gateway.get_last_tick(vt_symbol) if self.gateway is not None else None
+        gateway = self._get_gateway()
+        quote = gateway.get_last_tick(vt_symbol) if gateway is not None else None
         if quote is None:
             return
         bar = PaperStrategyExecutor._quote_to_bar(quote, vt_symbol)
@@ -160,7 +171,8 @@ class _PaperCtaEngine:
             callback(bar)
 
     def load_tick(self, vt_symbol: str, days: int, callback) -> None:
-        quote = self.gateway.get_last_tick(vt_symbol) if self.gateway is not None else None
+        gateway = self._get_gateway()
+        quote = gateway.get_last_tick(vt_symbol) if gateway is not None else None
         if quote is None:
             return
         tick = PaperStrategyExecutor._quote_to_tick(quote, vt_symbol)
@@ -168,13 +180,14 @@ class _PaperCtaEngine:
             callback(tick)
 
     def sync_strategy_data(self, strategy: Any) -> None:
+        gateway = self._get_gateway()
         checkpoint = _build_runtime_checkpoint(
             deployment_id=self.deployment_id,
             vt_symbols=[self.vt_symbol],
-            gateway=self.gateway,
+            gateway=gateway,
             strategy=strategy,
         )
-        self._ledger.write_checkpoint(
+        self._get_ledger().write_checkpoint(
             deployment_id=self.deployment_id,
             runtime_mode="native_cta_runtime",
             strategy_kind="cta",
@@ -208,6 +221,8 @@ class _PaperCtaEngine:
         from app.domains.market.realtime_quote_service import RealtimeQuoteService
         from datetime import date
 
+        gateway = self._get_gateway()
+        ledger = self._get_ledger()
         market = self._get_market()
         quote_svc = RealtimeQuoteService()
         try:
@@ -219,8 +234,8 @@ class _PaperCtaEngine:
 
         if last_price <= 0:
             logger.warning("[paper-engine] No price for %s, skip order", self.vt_symbol)
-            if self.gateway is not None and order_id:
-                self.gateway.update_order_status(order_id, "rejected")
+            if gateway is not None and order_id:
+                gateway.update_order_status(order_id, "rejected")
             return
 
         fill = try_fill_market_order(
@@ -231,8 +246,8 @@ class _PaperCtaEngine:
         )
         if not fill.filled:
             logger.warning("[paper-engine] Fill failed: %s", fill.reason)
-            if self.gateway is not None and order_id:
-                self.gateway.update_order_status(order_id, "rejected")
+            if gateway is not None and order_id:
+                gateway.update_order_status(order_id, "rejected")
             return
 
         acct_svc = PaperAccountService()
@@ -265,7 +280,7 @@ class _PaperCtaEngine:
         )
         dao.update_status(db_order_id, "filled", filled_quantity=fill.fill_quantity, avg_fill_price=fill.fill_price, fee=fill.fee.total)
         dao.insert_trade(db_order_id, fill.fill_quantity, fill.fill_price, fill.fee.total)
-        self._ledger.record_fill(
+        ledger.record_fill(
             user_id=self.user_id,
             paper_account_id=self.paper_account_id,
             deployment_id=self.deployment_id,
@@ -277,8 +292,8 @@ class _PaperCtaEngine:
             fee=fill.fee.total,
             payload={"gateway_order_id": order_id, "stop": stop},
         )
-        if self.gateway is not None and order_id:
-            self.gateway.update_order_status(order_id, "filled")
+        if gateway is not None and order_id:
+            gateway.update_order_status(order_id, "filled")
         if strategy is not None:
             callback_order_id = order_id or f"paper.{self.deployment_id}.{db_order_id}"
             self._notify_strategy_order(strategy, callback_order_id, direction, quantity, fill.fill_quantity, fill.fill_price)
@@ -412,7 +427,13 @@ class PaperStrategyExecutor:
             return cls._instance
 
     def __init__(self) -> None:
-        if self._initialized:
+        if getattr(self, "_initialized", False):
+            if not hasattr(self, "_threads"):
+                self._threads = {}
+            if not hasattr(self, "_stop_events"):
+                self._stop_events = {}
+            if not hasattr(self, "_gateways"):
+                self._gateways = {}
             return
         self._initialized = True
         self._threads: Dict[int, threading.Thread] = {}
@@ -477,7 +498,7 @@ class PaperStrategyExecutor:
         execution_mode: str,
         strategy_id: Optional[int],
         stop_event: threading.Event,
-        gateway: Any,
+        gateway: Any = None,
     ) -> None:
         """Thread entry: load strategy, poll quotes, feed bars."""
         try:
@@ -571,7 +592,7 @@ class PaperStrategyExecutor:
         finally:
             self._threads.pop(deployment_id, None)
             self._stop_events.pop(deployment_id, None)
-            self._gateways.pop(deployment_id, None)
+            getattr(self, "_gateways", {}).pop(deployment_id, None)
             # Mark deployment as stopped in DB
             try:
                 with connection("quantmate") as conn:

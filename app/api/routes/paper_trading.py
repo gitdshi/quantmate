@@ -32,6 +32,15 @@ from sqlalchemy import text
 router = APIRouter(prefix="/paper-trade", tags=["Paper Trading"])
 
 
+def _safe_record_ledger(callable_obj) -> None:
+    try:
+        callable_obj()
+    except Exception:
+        # Orders remain authoritative; ledger writes should not turn a successful
+        # paper action into a 500 when the auxiliary runtime tables are unavailable.
+        pass
+
+
 # ── Request Models ──────────────────────────────────────────
 
 
@@ -267,29 +276,33 @@ async def create_paper_order(req: PaperOrderRequest, current_user: TokenData = D
         )
         dao.update_status(order_id, "filled", filled_quantity=fill.fill_quantity, avg_fill_price=fill.fill_price, fee=fill.fee.total)
         dao.insert_trade(order_id, fill.fill_quantity, fill.fill_price, fill.fee.total)
-        ledger.record_order_event(
-            user_id=current_user.user_id,
-            paper_account_id=req.paper_account_id,
-            deployment_id=None,
-            order_id=order_id,
-            symbol=req.symbol,
-            direction=req.direction,
-            quantity=req.quantity,
-            price=fill.fill_price,
-            fee=fill.fee.total,
-            event_type="submitted",
-        )
-        if req.paper_account_id is not None:
-            ledger.record_fill(
+        _safe_record_ledger(
+            lambda: ledger.record_order_event(
                 user_id=current_user.user_id,
                 paper_account_id=req.paper_account_id,
                 deployment_id=None,
                 order_id=order_id,
                 symbol=req.symbol,
                 direction=req.direction,
-                quantity=fill.fill_quantity,
+                quantity=req.quantity,
                 price=fill.fill_price,
                 fee=fill.fee.total,
+                event_type="submitted",
+            )
+        )
+        if req.paper_account_id is not None:
+            _safe_record_ledger(
+                lambda: ledger.record_fill(
+                    user_id=current_user.user_id,
+                    paper_account_id=req.paper_account_id,
+                    deployment_id=None,
+                    order_id=order_id,
+                    symbol=req.symbol,
+                    direction=req.direction,
+                    quantity=fill.fill_quantity,
+                    price=fill.fill_price,
+                    fee=fill.fee.total,
+                )
             )
 
     # ── Limit order → pending, worker handles matching ─
@@ -313,17 +326,19 @@ async def create_paper_order(req: PaperOrderRequest, current_user: TokenData = D
             paper_account_id=req.paper_account_id,
             buy_date=today_str if req.direction == "buy" else None,
         )
-        ledger.record_order_event(
-            user_id=current_user.user_id,
-            paper_account_id=req.paper_account_id,
-            deployment_id=None,
-            order_id=order_id,
-            symbol=req.symbol,
-            direction=req.direction,
-            quantity=req.quantity,
-            price=req.price,
-            fee=0.0,
-            event_type="submitted",
+        _safe_record_ledger(
+            lambda: ledger.record_order_event(
+                user_id=current_user.user_id,
+                paper_account_id=req.paper_account_id,
+                deployment_id=None,
+                order_id=order_id,
+                symbol=req.symbol,
+                direction=req.direction,
+                quantity=req.quantity,
+                price=req.price,
+                fee=0.0,
+                event_type="submitted",
+            )
         )
     order = dao.get_by_id(order_id, current_user.user_id)
     return order
@@ -373,17 +388,19 @@ async def cancel_paper_order(order_id: int, current_user: TokenData = Depends(ge
             acct_svc = PaperAccountService()
             acct_svc.release_funds(paper_account_id, est_cost)
 
-    PaperExecutionLedger().record_order_event(
-        user_id=current_user.user_id,
-        paper_account_id=paper_account_id,
-        deployment_id=order.get("paper_deployment_id"),
-        order_id=order_id,
-        symbol=order["symbol"],
-        direction=order.get("direction"),
-        quantity=order.get("quantity") or 0,
-        price=order.get("price"),
-        fee=0.0,
-        event_type="cancelled",
+    _safe_record_ledger(
+        lambda: PaperExecutionLedger().record_order_event(
+            user_id=current_user.user_id,
+            paper_account_id=paper_account_id,
+            deployment_id=order.get("paper_deployment_id"),
+            order_id=order_id,
+            symbol=order["symbol"],
+            direction=order.get("direction"),
+            quantity=order.get("quantity") or 0,
+            price=order.get("price"),
+            fee=0.0,
+            event_type="cancelled",
+        )
     )
 
     return {"message": "Paper order cancelled"}
