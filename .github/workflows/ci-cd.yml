@@ -201,6 +201,33 @@ jobs:
             set -e
             cd /opt/quantmate
 
+            cleanup_staging_directory() {
+              echo "==> Removing stale source/artifact files from staging root"
+
+              find . -mindepth 1 -maxdepth 1 \
+                ! -name '.env' \
+                ! -name '.env.example' \
+                ! -name 'docker-compose.staging.yml' \
+                ! -name 'nginx' \
+                ! -name '.github' \
+                -exec rm -rf {} +
+
+              mkdir -p nginx .github/scripts
+
+              find nginx -mindepth 1 -maxdepth 1 \
+                ! -name 'staging.conf' \
+                -exec rm -rf {} +
+
+              find .github -mindepth 1 -maxdepth 1 \
+                ! -name 'scripts' \
+                -exec rm -rf {} +
+
+              mkdir -p .github/scripts
+              find .github/scripts -mindepth 1 -maxdepth 1 \
+                ! -name 'merge_env_from_example.py' \
+                -exec rm -rf {} +
+            }
+
             ENV_FILE=.env
             EXAMPLE_FILE=.env.example
             INCOMING_EXAMPLE_FILE=.env.example.incoming
@@ -308,6 +335,7 @@ jobs:
               restart_post_api_services
             }
 
+            cleanup_staging_directory
             rebuild_env_from_example_if_needed
             ensure_env_key GITHUB_OWNER "$GITHUB_OWNER"
             echo "==> Persisting target image tag into .env before compose operations"
