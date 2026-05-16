@@ -215,6 +215,13 @@ def _scheduled_backfill():
         logger.exception("Scheduled backfill failed")
 
 
+def _schedule_daily_trigger(schedule_signature: tuple[int, int, str]) -> None:
+    schedule.every().day.at(
+        f"{schedule_signature[0]:02d}:{schedule_signature[1]:02d}",
+        schedule_signature[2],
+    ).do(_scheduled_daily)
+
+
 def _run_startup_sequence(registry) -> None:
     if _env_flag("DATASYNC_SKIP_INITIAL_RECONCILE"):
         logger.info("Skipping initial datasync init due to DATASYNC_SKIP_INITIAL_RECONCILE")
@@ -274,7 +281,7 @@ def daemon_loop():
         if schedule_signature != last_schedule_signature:
             last_schedule_signature = schedule_signature
             schedule.clear()
-            schedule.every().day.at(f"{schedule_signature[0]:02d}:{schedule_signature[1]:02d}").do(_scheduled_daily)
+            _schedule_daily_trigger(schedule_signature)
             logger.info(
                 "Scheduler daily trigger updated to %02d:%02d (%s)",
                 schedule_signature[0],

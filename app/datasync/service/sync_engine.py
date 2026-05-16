@@ -66,6 +66,8 @@ _FORCE_RETRY_ERROR_SIGNATURES: dict[tuple[str, str], tuple[str, ...]] = {
     ("tushare", "block_trade"): ("unknown column", "symbol"),
 }
 
+_STALE_RUNNING_RECOVERY_MARKER = "Recovered stale running status for retry"
+
 # AkShare backfill can exercise py_mini_racer-backed endpoints (for example
 # ETF history via Sina). On macOS, concurrent V8 initialization in those paths
 # can abort the interpreter, so keep AkShare backfill serial unless explicitly
@@ -514,12 +516,28 @@ def _can_force_retry_terminal_error(source: str, iface_key: str, error_message: 
     return all(signature in normalized_error for signature in signatures)
 
 
+def _was_recovered_from_stale_running(error_message: str | None) -> bool:
+    if not error_message:
+        return False
+    return _STALE_RUNNING_RECOVERY_MARKER.lower() in error_message.lower()
+
+
 def _effective_retry_count(record: tuple[date, str, str, int] | tuple[date, str, str, int, str | None]) -> int | None:
     sync_date, source, iface_key, retry_count = record[:4]
     error_message = record[4] if len(record) > 4 else None
 
     if retry_count < _max_retries():
         return retry_count
+
+    if _was_recovered_from_stale_running(error_message):
+        logger.info(
+            "Backfill reopening %s/%s@%s after stale-running recovery at retry_count=%d",
+            source,
+            iface_key,
+            sync_date,
+            retry_count,
+        )
+        return 0
 
     if _can_force_retry_terminal_error(source, iface_key, error_message):
         logger.info(

@@ -11,9 +11,24 @@ from sqlalchemy import text
 from app.datasync.base import BaseIngestInterface, InterfaceInfo, SyncResult, SyncStatus
 from app.datasync.sources.tushare import ddl
 from app.datasync.sources.tushare.sync_error_handling import handle_tushare_sync_exception
-from app.infrastructure.db.connections import get_quantmate_engine
+from app.infrastructure.db.connections import get_quantmate_engine, get_tushare_engine
 
 logger = logging.getLogger(__name__)
+
+
+def _get_table_rows_by_date(table_name: str, date_column: str, start: date, end: date) -> dict[date, int]:
+    engine = get_tushare_engine()
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                f"SELECT `{date_column}`, COUNT(*) "
+                f"FROM `{table_name}` "
+                f"WHERE `{date_column}` BETWEEN :start_date AND :end_date "
+                f"GROUP BY `{date_column}`"
+            ),
+            {"start_date": start, "end_date": end},
+        ).fetchall()
+    return {row[0]: int(row[1]) for row in rows}
 
 _TUSHARE_CATALOG_SQL = """
 SELECT
@@ -355,6 +370,22 @@ class TushareCatalogInterface(BaseIngestInterface):
         if range_params is None:
             return super().sync_range(start, end)
         return self._sync_with_params(self._build_params(start, end))
+
+    def get_backfill_rows_by_date(self, start: date, end: date) -> dict[date, int]:
+        date_column = self._schema_date_column()
+        if date_column is None:
+            return {}
+        try:
+            return _get_table_rows_by_date(self.info.target_table, date_column, start, end)
+        except Exception:
+            logger.exception(
+                "Failed to count %s rows by %s for %s -> %s",
+                self.info.target_table,
+                date_column,
+                start,
+                end,
+            )
+            return {}
 
     def sync_other(self, anchor_date: date) -> SyncResult:
         del anchor_date

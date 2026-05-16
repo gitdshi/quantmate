@@ -547,6 +547,31 @@ class TestTushareTop10HoldersInterface:
 
 
 class TestTushareCatalogInterface:
+    def test_get_backfill_rows_by_date_uses_schema_date_column(self):
+        from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface, TushareCatalogSpec
+
+        start = date(2024, 1, 5)
+        end = date(2024, 1, 8)
+        expected = {start: 12, end: 9}
+        iface = TushareCatalogInterface(
+            TushareCatalogSpec(
+                interface_key="stk_factor_pro",
+                display_name="股票技术面因子",
+                api_name="stk_factor_pro",
+                target_table="stk_factor_pro",
+                sync_priority=328,
+            )
+        )
+
+        with patch(
+            "app.datasync.sources.tushare.catalog_interfaces._get_table_rows_by_date",
+            return_value=expected,
+        ) as mock_counts:
+            result = iface.get_backfill_rows_by_date(start, end)
+
+        assert result == expected
+        mock_counts.assert_called_once_with("stk_factor_pro", "trade_date", start, end)
+
     def test_trade_date_catalog_sync(self):
         from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface, TushareCatalogSpec
 

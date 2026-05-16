@@ -159,6 +159,20 @@ class TestGetFailedRecords:
 
 
 class TestBackfillRetryFiltering:
+    def test_effective_retry_count_reopens_stale_running_recovery(self):
+        from app.datasync.service.sync_engine import _effective_retry_count
+
+        record = (
+            date(2024, 1, 3),
+            "tushare",
+            "fx_daily",
+            3,
+            "Recovered stale running status for retry",
+        )
+
+        with patch(f"{_MOD}._max_retries", return_value=3):
+            assert _effective_retry_count(record) == 0
+
     def test_detects_quota_cooldown_records(self):
         from app.datasync.service.sync_engine import _is_quota_cooldown_record
 

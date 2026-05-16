@@ -402,6 +402,20 @@ class TestDaemonMainFunctions:
 
 class TestScheduler:
 
+    @patch("app.datasync.scheduler.schedule.every")
+    def test_schedule_daily_trigger_uses_timezone(self, mock_every):
+        from app.datasync.scheduler import _schedule_daily_trigger
+
+        scheduled_day = MagicMock()
+        scheduled_job = MagicMock()
+        mock_every.return_value.day = scheduled_day
+        scheduled_day.at.return_value = scheduled_job
+
+        _schedule_daily_trigger((0, 0, "Asia/Shanghai"))
+
+        scheduled_day.at.assert_called_once_with("00:00", "Asia/Shanghai")
+        scheduled_job.do.assert_called_once()
+
     @patch("app.datasync.service.vnpy_sync.run_vnpy_sync_job")
     @patch("app.datasync.service.sync_engine.daily_sync")
     @patch("app.datasync.registry.build_default_registry")
