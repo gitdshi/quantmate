@@ -39,6 +39,7 @@ _OLLAMA_CHAT_MODEL = "ollama/qwen2.5:0.5b"
 _OLLAMA_EMBEDDING_MODEL = "ollama/nomic-embed-text:latest"
 _TIMEOUT_PER_ITERATION_SECONDS = int(os.getenv("RDAGENT_TIMEOUT_PER_ITERATION_SECONDS", "1800"))
 _IDLE_TIMEOUT_SECONDS = int(os.getenv("RDAGENT_IDLE_TIMEOUT_SECONDS", "300"))
+_OLLAMA_IDLE_TIMEOUT_SECONDS = int(os.getenv("RDAGENT_OLLAMA_IDLE_TIMEOUT_SECONDS", "900"))
 _SEEDED_FACTOR_COLUMNS = {
     "$open": [10.0, 11.2, 10.8, 11.5],
     "$high": [10.4, 11.5, 11.1, 11.8],
@@ -460,6 +461,7 @@ def _run_rdagent_process(
     _register_running_process(run_id, process)
 
     deadline = time.monotonic() + (max_iterations * _TIMEOUT_PER_ITERATION_SECONDS)
+    idle_timeout_seconds = _resolve_idle_timeout_seconds(env)
     last_activity_at = time.monotonic()
     last_activity_marker = _workspace_activity_marker(run_dir)
     stderr = None
@@ -479,11 +481,11 @@ def _run_rdagent_process(
                 last_activity_at = time.monotonic()
                 continue
 
-            if _IDLE_TIMEOUT_SECONDS > 0 and time.monotonic() - last_activity_at >= _IDLE_TIMEOUT_SECONDS:
+            if idle_timeout_seconds > 0 and time.monotonic() - last_activity_at >= idle_timeout_seconds:
                 logger.error(
                     "rdagent run %s stalled for %ds without workspace activity",
                     run_id,
-                    _IDLE_TIMEOUT_SECONDS,
+                    idle_timeout_seconds,
                 )
                 _terminate_process(process)
                 try:
@@ -491,7 +493,7 @@ def _run_rdagent_process(
                 except subprocess.TimeoutExpired:
                     stderr = None
                 error_summary = _summarize_process_error(stderr) or (
-                    f"RD-Agent process stalled waiting for activity for {_IDLE_TIMEOUT_SECONDS} seconds"
+                    f"RD-Agent process stalled waiting for activity for {idle_timeout_seconds} seconds"
                 )
                 return 124, error_summary
 
@@ -501,6 +503,13 @@ def _run_rdagent_process(
         logger.warning("rdagent stderr summary: %s", error_summary)
 
     return process.returncode, error_summary
+
+
+def _resolve_idle_timeout_seconds(env: dict[str, str]) -> int:
+    chat_model = str(env.get("CHAT_MODEL") or "").strip().lower()
+    if chat_model.startswith("ollama/"):
+        return max(_IDLE_TIMEOUT_SECONDS, _OLLAMA_IDLE_TIMEOUT_SECONDS)
+    return _IDLE_TIMEOUT_SECONDS
 
 
 @app.route("/health", methods=["GET"])

@@ -462,6 +462,16 @@ def test_run_rdagent_process_stalls_without_workspace_activity(monkeypatch, tmp_
     assert terminated == [123]
 
 
+def test_resolve_idle_timeout_seconds_extends_for_ollama(monkeypatch):
+    module = _load_sidecar_module()
+
+    monkeypatch.setattr(module, "_IDLE_TIMEOUT_SECONDS", 300)
+    monkeypatch.setattr(module, "_OLLAMA_IDLE_TIMEOUT_SECONDS", 900)
+
+    assert module._resolve_idle_timeout_seconds({"CHAT_MODEL": "ollama/mistral:7b"}) == 900
+    assert module._resolve_idle_timeout_seconds({"CHAT_MODEL": "openai/minimax-m2.5-free"}) == 300
+
+
 def test_mine_retries_with_ollama_after_stalled_primary_run(monkeypatch, tmp_path):
     module = _load_sidecar_module()
 
