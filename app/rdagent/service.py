@@ -409,10 +409,15 @@ def _build_rdagent_env(run_dir: Path, llm_model: str) -> dict[str, str]:
             env.get("LITELLM_EMBEDDING_OPENAI_BASE_URL") or openai_api_base
         )
 
-    if explicit_ollama or (not env.get("OPENAI_API_KEY") and env.get("OLLAMA_API_BASE")):
+    if env.get("OLLAMA_API_BASE"):
         env["EMBEDDING_MODEL"] = env.get("EMBEDDING_MODEL") or env.get(
             "RDAGENT_OLLAMA_EMBEDDING_MODEL", _OLLAMA_EMBEDDING_MODEL
         )
+        if env["EMBEDDING_MODEL"].startswith("ollama/"):
+            env["LITELLM_EMBEDDING_OPENAI_BASE_URL"] = env["OLLAMA_API_BASE"]
+            env.pop("LITELLM_EMBEDDING_OPENAI_API_KEY", None)
+
+    if explicit_ollama or (not env.get("OPENAI_API_KEY") and env.get("OLLAMA_API_BASE")):
         env["LITELLM_CHAT_STREAM"] = env.get("LITELLM_CHAT_STREAM") or "false"
         env["LITELLM_ENABLE_RESPONSE_SCHEMA"] = env.get("LITELLM_ENABLE_RESPONSE_SCHEMA") or "false"
 

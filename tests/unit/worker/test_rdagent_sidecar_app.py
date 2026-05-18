@@ -99,7 +99,7 @@ def test_build_rdagent_env_maps_opencode_key_to_openai(monkeypatch, tmp_path):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_BASE", raising=False)
     monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
-    monkeypatch.delenv("OLLAMA_API_BASE", raising=False)
+    monkeypatch.setenv("OLLAMA_API_BASE", "http://127.0.0.1:11434")
     monkeypatch.setenv("OPENCODE_AI_API_KEY", "opencode-key")
 
     env = module._build_rdagent_env(tmp_path, "")
@@ -110,8 +110,9 @@ def test_build_rdagent_env_maps_opencode_key_to_openai(monkeypatch, tmp_path):
     assert env["LITELLM_OPENAI_API_KEY"] == "opencode-key"
     assert env["LITELLM_CHAT_OPENAI_API_KEY"] == "opencode-key"
     assert env["LITELLM_CHAT_OPENAI_BASE_URL"] == "https://opencode.ai/zen/v1"
-    assert env["LITELLM_EMBEDDING_OPENAI_API_KEY"] == "opencode-key"
-    assert env["LITELLM_EMBEDDING_OPENAI_BASE_URL"] == "https://opencode.ai/zen/v1"
+    assert env["EMBEDDING_MODEL"] == "ollama/nomic-embed-text:latest"
+    assert "LITELLM_EMBEDDING_OPENAI_API_KEY" not in env
+    assert env["LITELLM_EMBEDDING_OPENAI_BASE_URL"] == "http://127.0.0.1:11434"
     assert env["CHAT_MODEL"] == "openai/minimax-m2.5-free"
 
 
@@ -154,12 +155,14 @@ def test_build_rdagent_env_preserves_openai_model_when_key_present(monkeypatch, 
     monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
     monkeypatch.delenv("OPENCODE_AI_API_KEY", raising=False)
     monkeypatch.delenv("OPENCODE_AI_API_BASE", raising=False)
-    monkeypatch.delenv("OLLAMA_API_BASE", raising=False)
+    monkeypatch.setenv("OLLAMA_API_BASE", "http://127.0.0.1:11434")
 
     env = module._build_rdagent_env(tmp_path, "gpt-4o-mini")
 
     assert env["CHAT_MODEL"] == "gpt-4o-mini"
-    assert "EMBEDDING_MODEL" not in env or env["EMBEDDING_MODEL"] != "ollama/nomic-embed-text:latest"
+    assert env["EMBEDDING_MODEL"] == "ollama/nomic-embed-text:latest"
+    assert env["LITELLM_EMBEDDING_OPENAI_BASE_URL"] == "http://127.0.0.1:11434"
+    assert "LITELLM_EMBEDDING_OPENAI_API_KEY" not in env
 
 
 def test_build_rdagent_env_explicit_ollama_request_drops_openai_provider_vars(monkeypatch, tmp_path):
