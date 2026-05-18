@@ -192,6 +192,22 @@ def _is_rate_limit_error(error_text: str | None) -> bool:
     return bool(error_text and _RATE_LIMIT_ERROR_PATTERN.search(error_text))
 
 
+def _workspace_rate_limit_error_text(run_dir: Path) -> str | None:
+    for candidate in (run_dir / "selector.log", run_dir / "stderr.log"):
+        if not candidate.exists() or not candidate.is_file():
+            continue
+        try:
+            text = candidate.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        summary = _summarize_process_error(text, limit=2000)
+        if _is_rate_limit_error(summary):
+            return summary
+        if _is_rate_limit_error(text):
+            return _redact_sensitive_error_text(text[-2000:])
+    return None
+
+
 def _seed_factor_prompt_data(run_dir: Path, env: dict[str, str]) -> None:
     targets = (
         (_resolve_relative_run_path(run_dir, env["FACTOR_CoSTEER_data_folder"]), _build_seed_factor_frame(False)),
@@ -444,10 +460,12 @@ def mine():
             env,
         )
 
+        rate_limit_error = error_summary if _is_rate_limit_error(error_summary) else _workspace_rate_limit_error_text(run_dir)
+
         ollama_model = env.get("RDAGENT_OLLAMA_CHAT_MODEL", _OLLAMA_CHAT_MODEL)
         if (
             returncode != 0
-            and _is_rate_limit_error(error_summary)
+            and rate_limit_error
             and env.get("OLLAMA_API_BASE")
             and env.get("CHAT_MODEL") != ollama_model
         ):

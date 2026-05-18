@@ -344,6 +344,61 @@ def test_mine_retries_with_ollama_after_rate_limit(monkeypatch, tmp_path):
     assert build_env.call_args_list[1].args[1] == "ollama/qwen2.5:0.5b"
 
 
+def test_mine_retries_with_ollama_when_selector_log_has_rate_limit(monkeypatch, tmp_path):
+    module = _load_sidecar_module()
+
+    module.WORKSPACE = tmp_path
+    initial_env = {
+        "CHAT_MODEL": "openai/minimax-m2.5-free",
+        "OLLAMA_API_BASE": "http://127.0.0.1:11434",
+        "RDAGENT_OLLAMA_CHAT_MODEL": "ollama/qwen2.5:0.5b",
+    }
+    fallback_env = {
+        "CHAT_MODEL": "ollama/qwen2.5:0.5b",
+        "OLLAMA_API_BASE": "http://127.0.0.1:11434",
+        "RDAGENT_OLLAMA_CHAT_MODEL": "ollama/qwen2.5:0.5b",
+    }
+    build_env = MagicMock(side_effect=[initial_env, fallback_env])
+    monkeypatch.setattr(module, "_build_rdagent_env", build_env)
+    monkeypatch.setattr(module, "_seed_factor_prompt_data", lambda run_dir, env: None)
+    monkeypatch.setattr(module, "_parse_iterations", lambda run_dir, max_iters: [{"iteration": 1, "status": "completed"}])
+    monkeypatch.setattr(module, "_parse_discovered_factors", lambda run_dir: [{"name": "f1", "expression": "close"}])
+
+    calls = []
+
+    def fake_run_process(run_id, run_dir, scenario, max_iterations, env):
+        calls.append(env["CHAT_MODEL"])
+        if len(calls) == 1:
+            (run_dir / "selector.log").write_text(
+                "litellm.RateLimitError: RateLimitError: OpenAIException - Rate limit exceeded. Please try again later.",
+                encoding="utf-8",
+            )
+            return 1, "RuntimeError: Failed to create chat completion after 10 retries."
+        return 0, None
+
+    monkeypatch.setattr(module, "_run_rdagent_process", fake_run_process)
+
+    client = module.app.test_client()
+    response = client.post(
+        "/mine",
+        json={
+            "run_id": "run-1",
+            "config": {
+                "scenario": "fin_factor",
+                "max_iterations": 1,
+                "llm_model": "minimax-m2.5-free",
+            },
+            "prompt_context": "factor context",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["status"] == "completed"
+    assert calls == ["openai/minimax-m2.5-free", "ollama/qwen2.5:0.5b"]
+    assert build_env.call_count == 2
+
+
 def test_parse_discovered_factors_falls_back_to_selector_log(tmp_path):
     module = _load_sidecar_module()
 
