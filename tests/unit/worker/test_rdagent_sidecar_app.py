@@ -160,6 +160,25 @@ def test_build_rdagent_env_preserves_openai_model_when_key_present(monkeypatch, 
     assert "EMBEDDING_MODEL" not in env or env["EMBEDDING_MODEL"] != "ollama/nomic-embed-text:latest"
 
 
+def test_build_rdagent_env_explicit_ollama_request_drops_openai_provider_vars(monkeypatch, tmp_path):
+    module = _load_sidecar_module()
+
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
+    monkeypatch.setenv("OPENAI_API_BASE", "https://example.com/v1")
+    monkeypatch.setenv("OPENCODE_AI_API_KEY", "opencode-key")
+    monkeypatch.setenv("OPENCODE_AI_API_BASE", "https://opencode.ai/zen/v1")
+    monkeypatch.setenv("OLLAMA_API_BASE", "http://127.0.0.1:11434")
+
+    env = module._build_rdagent_env(tmp_path, "ollama/qwen2.5:0.5b")
+
+    assert env["CHAT_MODEL"] == "ollama/qwen2.5:0.5b"
+    assert env["EMBEDDING_MODEL"] == "ollama/nomic-embed-text:latest"
+    assert "OPENAI_API_KEY" not in env
+    assert "OPENAI_API_BASE" not in env
+    assert "OPENCODE_AI_API_KEY" not in env
+    assert "LITELLM_OPENAI_API_KEY" not in env
+
+
 def test_sidecar_uses_longer_default_timeout_when_env_missing(monkeypatch):
     monkeypatch.delenv("RDAGENT_TIMEOUT_PER_ITERATION_SECONDS", raising=False)
 
@@ -271,6 +290,58 @@ def test_cancel_endpoint_terminates_running_process(monkeypatch):
     assert response.status_code == 200
     assert response.get_json() == {"run_id": "run-1", "status": "cancelled"}
     assert terminated == [process]
+
+
+def test_mine_retries_with_ollama_after_rate_limit(monkeypatch, tmp_path):
+    module = _load_sidecar_module()
+
+    module.WORKSPACE = tmp_path
+    initial_env = {
+        "CHAT_MODEL": "openai/minimax-m2.5-free",
+        "OLLAMA_API_BASE": "http://127.0.0.1:11434",
+        "RDAGENT_OLLAMA_CHAT_MODEL": "ollama/qwen2.5:0.5b",
+    }
+    fallback_env = {
+        "CHAT_MODEL": "ollama/qwen2.5:0.5b",
+        "OLLAMA_API_BASE": "http://127.0.0.1:11434",
+        "RDAGENT_OLLAMA_CHAT_MODEL": "ollama/qwen2.5:0.5b",
+    }
+    build_env = MagicMock(side_effect=[initial_env, fallback_env])
+    monkeypatch.setattr(module, "_build_rdagent_env", build_env)
+    monkeypatch.setattr(module, "_seed_factor_prompt_data", lambda run_dir, env: None)
+    monkeypatch.setattr(module, "_parse_iterations", lambda run_dir, max_iters: [{"iteration": 1, "status": "completed"}])
+    monkeypatch.setattr(module, "_parse_discovered_factors", lambda run_dir: [{"name": "f1", "expression": "close"}])
+
+    rate_limited = MagicMock()
+    rate_limited.communicate.return_value = ("", "litellm.RateLimitError: Rate limit exceeded")
+    rate_limited.returncode = 1
+
+    recovered = MagicMock()
+    recovered.communicate.return_value = ("", "")
+    recovered.returncode = 0
+
+    monkeypatch.setattr(module.subprocess, "Popen", MagicMock(side_effect=[rate_limited, recovered]))
+
+    client = module.app.test_client()
+    response = client.post(
+        "/mine",
+        json={
+            "run_id": "run-1",
+            "config": {
+                "scenario": "fin_factor",
+                "max_iterations": 1,
+                "llm_model": "minimax-m2.5-free",
+            },
+            "prompt_context": "factor context",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["status"] == "completed"
+    assert len(payload["discovered_factors"]) == 1
+    assert build_env.call_count == 2
+    assert build_env.call_args_list[1].args[1] == "ollama/qwen2.5:0.5b"
 
 
 def test_parse_discovered_factors_falls_back_to_selector_log(tmp_path):

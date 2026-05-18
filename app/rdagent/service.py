@@ -98,6 +98,7 @@ _SENSITIVE_ERROR_PATTERNS = (
     re.compile(r"(?i)((?:openai|opencode|litellm)[a-z0-9_]*api[_-]?key['\"]?\s*[:=]\s*['\"]?)([^'\"\s,]+)"),
     re.compile(r"(?i)\bsk-[A-Za-z0-9_-]{8,}\b"),
 )
+_RATE_LIMIT_ERROR_PATTERN = re.compile(r"(?i)(rate limit|too many requests|\b429\b)")
 
 
 def _build_rdagent_command(scenario: str, max_iterations: int) -> list[str]:
@@ -185,6 +186,10 @@ def _normalize_openai_compatible_model(model: str) -> str:
     if not normalized or "/" in normalized:
         return normalized
     return f"openai/{normalized}"
+
+
+def _is_rate_limit_error(error_text: str | None) -> bool:
+    return bool(error_text and _RATE_LIMIT_ERROR_PATTERN.search(error_text))
 
 
 def _seed_factor_prompt_data(run_dir: Path, env: dict[str, str]) -> None:
@@ -282,6 +287,7 @@ def _resolve_chat_model(env: dict[str, str], requested_model: str) -> str:
 
 def _build_rdagent_env(run_dir: Path, llm_model: str) -> dict[str, str]:
     env = os.environ.copy()
+    explicit_ollama = (llm_model or "").strip().startswith("ollama/")
     for key in (
         "OPENAI_API_KEY",
         "OPENAI_API_BASE",
@@ -295,6 +301,21 @@ def _build_rdagent_env(run_dir: Path, llm_model: str) -> dict[str, str]:
         "LITELLM_EMBEDDING_OPENAI_BASE_URL",
     ):
         if env.get(key) == "":
+            env.pop(key, None)
+
+    if explicit_ollama:
+        for key in (
+            "OPENAI_API_KEY",
+            "OPENAI_API_BASE",
+            "OPENAI_BASE_URL",
+            "OPENCODE_AI_API_KEY",
+            "OPENCODE_AI_API_BASE",
+            "LITELLM_OPENAI_API_KEY",
+            "LITELLM_CHAT_OPENAI_API_KEY",
+            "LITELLM_CHAT_OPENAI_BASE_URL",
+            "LITELLM_EMBEDDING_OPENAI_API_KEY",
+            "LITELLM_EMBEDDING_OPENAI_BASE_URL",
+        ):
             env.pop(key, None)
 
     env["RDAGENT_WORKSPACE"] = str(run_dir)
@@ -331,7 +352,7 @@ def _build_rdagent_env(run_dir: Path, llm_model: str) -> dict[str, str]:
             env.get("LITELLM_EMBEDDING_OPENAI_BASE_URL") or openai_api_base
         )
 
-    if not env.get("OPENAI_API_KEY") and env.get("OLLAMA_API_BASE"):
+    if explicit_ollama or (not env.get("OPENAI_API_KEY") and env.get("OLLAMA_API_BASE")):
         env["EMBEDDING_MODEL"] = env.get("EMBEDDING_MODEL") or env.get(
             "RDAGENT_OLLAMA_EMBEDDING_MODEL", _OLLAMA_EMBEDDING_MODEL
         )
@@ -340,6 +361,33 @@ def _build_rdagent_env(run_dir: Path, llm_model: str) -> dict[str, str]:
 
     env["CHAT_MODEL"] = _resolve_chat_model(env, llm_model)
     return env
+
+
+def _run_rdagent_process(
+    run_id: str,
+    run_dir: Path,
+    scenario: str,
+    max_iterations: int,
+    env: dict[str, str],
+) -> tuple[int, str | None]:
+    process = subprocess.Popen(
+        _build_rdagent_command(scenario, max_iterations),
+        cwd=str(run_dir),
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
+    _register_running_process(run_id, process)
+    _, stderr = process.communicate(timeout=max_iterations * _TIMEOUT_PER_ITERATION_SECONDS)
+
+    logger.info("rdagent exited with code %d", process.returncode)
+    error_summary = _summarize_process_error(stderr)
+    if process.returncode != 0:
+        logger.warning("rdagent stderr summary: %s", error_summary)
+
+    return process.returncode, error_summary
 
 
 @app.route("/health", methods=["GET"])
@@ -388,33 +436,44 @@ def mine():
     try:
         env = _build_rdagent_env(run_dir, llm_model)
         _seed_factor_prompt_data(run_dir, env)
-
-        cmd_parts = _build_rdagent_command(scenario, max_iterations)
-
-        process = subprocess.Popen(
-            cmd_parts,
-            cwd=str(run_dir),
-            env=env,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            start_new_session=True,
+        returncode, error_summary = _run_rdagent_process(
+            run_id,
+            run_dir,
+            scenario,
+            max_iterations,
+            env,
         )
-        _register_running_process(run_id, process)
-        stdout, stderr = process.communicate(timeout=max_iterations * _TIMEOUT_PER_ITERATION_SECONDS)
 
-        logger.info("rdagent exited with code %d", process.returncode)
-        error_summary = _summarize_process_error(stderr)
-        if process.returncode != 0:
-            logger.warning("rdagent stderr summary: %s", error_summary)
+        ollama_model = env.get("RDAGENT_OLLAMA_CHAT_MODEL", _OLLAMA_CHAT_MODEL)
+        if (
+            returncode != 0
+            and _is_rate_limit_error(error_summary)
+            and env.get("OLLAMA_API_BASE")
+            and env.get("CHAT_MODEL") != ollama_model
+        ):
+            logger.warning(
+                "rdagent run %s hit provider rate limits on %s; retrying with ollama fallback %s",
+                run_id,
+                env.get("CHAT_MODEL"),
+                ollama_model,
+            )
+            env = _build_rdagent_env(run_dir, ollama_model)
+            _seed_factor_prompt_data(run_dir, env)
+            returncode, error_summary = _run_rdagent_process(
+                run_id,
+                run_dir,
+                scenario,
+                max_iterations,
+                env,
+            )
 
-        status = "cancelled" if process.returncode == -signal.SIGTERM else "completed" if process.returncode == 0 else "failed"
+        status = "cancelled" if returncode == -signal.SIGTERM else "completed" if returncode == 0 else "failed"
 
         return jsonify({
             "status": status,
             "iterations": _parse_iterations(run_dir, max_iterations),
             "discovered_factors": _parse_discovered_factors(run_dir),
-            "error": error_summary if process.returncode != 0 else None,
+            "error": error_summary if returncode != 0 else None,
         })
 
     except subprocess.TimeoutExpired:
