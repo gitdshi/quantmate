@@ -8,9 +8,131 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
+import pandas as pd
+
 from app.domains.composite.market_constraints import Order
 
 logger = logging.getLogger(__name__)
+
+
+def _coerce_timestamp(value: Any, fallback: str) -> pd.Timestamp:
+    if value is None:
+        return pd.Timestamp(fallback)
+    return pd.Timestamp(value)
+
+
+def _normalize_ohlcv_row(symbol: str, raw_row: Dict[str, Any], trading_day: str) -> Dict[str, Any]:
+    close_price = float(raw_row.get("close") or 0.0)
+    open_price = float(raw_row.get("open") or close_price)
+    high_price = float(raw_row.get("high") or max(open_price, close_price))
+    low_price = float(raw_row.get("low") or min(open_price, close_price))
+    volume = float(raw_row.get("volume") or 0.0)
+    return {
+        "instrument": symbol,
+        "datetime": _coerce_timestamp(raw_row.get("datetime") or raw_row.get("date"), trading_day),
+        "open": open_price,
+        "high": high_price,
+        "low": low_price,
+        "close": close_price,
+        "volume": volume,
+    }
+
+
+def _build_factor_frame(
+    trading_day: str,
+    symbols: List[str],
+    market_data: Dict[str, Dict[str, float]],
+    history_data: Optional[Dict[str, List[Dict[str, Any]]]],
+) -> pd.DataFrame:
+    rows: List[Dict[str, Any]] = []
+    seen_keys: set[tuple[str, pd.Timestamp]] = set()
+
+    for symbol in symbols:
+        for raw_row in history_data.get(symbol, []) if history_data else []:
+            row = _normalize_ohlcv_row(symbol, raw_row, trading_day)
+            key = (symbol, row["datetime"])
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            rows.append(row)
+
+        current_snapshot = market_data.get(symbol)
+        if current_snapshot:
+            current_row = _normalize_ohlcv_row(
+                symbol,
+                {**current_snapshot, "datetime": trading_day},
+                trading_day,
+            )
+            current_key = (symbol, current_row["datetime"])
+            if current_key not in seen_keys:
+                rows.append(current_row)
+
+    if not rows:
+        return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+
+    frame = pd.DataFrame(rows)
+    frame = frame.sort_values(["instrument", "datetime"])
+    return frame.set_index(["instrument", "datetime"])[["open", "high", "low", "close", "volume"]]
+
+
+def _compute_factor_scores(
+    expression: str,
+    trading_day: str,
+    symbols: List[str],
+    market_data: Dict[str, Dict[str, float]],
+    history_data: Optional[Dict[str, List[Dict[str, Any]]]],
+) -> pd.Series:
+    if not expression or not symbols:
+        return pd.Series(dtype=float)
+
+    from app.domains.factors.expression_engine import (
+        augment_factor_eval_ohlcv,
+        compute_custom_factor,
+        normalize_factor_expression,
+    )
+
+    factor_frame = _build_factor_frame(trading_day, symbols, market_data, history_data)
+    if factor_frame.empty:
+        return pd.Series(dtype=float)
+
+    eval_frame = augment_factor_eval_ohlcv(factor_frame)
+    try:
+        factor_values = compute_custom_factor(expression, eval_frame)
+    except ValueError:
+        normalized = normalize_factor_expression(expression)
+        if normalized == expression:
+            raise
+        factor_values = compute_custom_factor(normalized, eval_frame)
+
+    scores = factor_values.groupby(level=0).last().dropna()
+    return scores[scores.index.isin(symbols)].astype(float)
+
+
+def _sort_symbols_by_factor(
+    symbols: List[str],
+    scores: pd.Series,
+    direction: float,
+) -> List[str]:
+    if scores.empty:
+        return symbols
+    ranked = list(scores.sort_values(ascending=direction < 0).index)
+    return [symbol for symbol in ranked if symbol in symbols]
+
+
+def _config_int(config: Dict[str, Any], key: str, default: int) -> int:
+    raw_value = config.get(key, default)
+    try:
+        return int(raw_value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _config_float(config: Dict[str, Any], key: str, default: float) -> float:
+    raw_value = config.get(key, default)
+    try:
+        return float(raw_value)
+    except (TypeError, ValueError):
+        return default
 
 
 class ComponentRunner:
@@ -50,6 +172,7 @@ class UniverseRunner(ComponentRunner):
         trading_day: str,
         all_symbols: List[str],
         market_data: Dict[str, Dict[str, float]],
+        history_data: Optional[Dict[str, List[Dict[str, Any]]]] = None,
     ) -> List[str]:
         """Return a filtered list of symbols.
 
@@ -71,8 +194,23 @@ class UniverseRunner(ComponentRunner):
                 if market_data.get(s, {}).get("volume", 0) >= min_volume
             ]
 
-        top_n = self.config.get("top_n")
-        if top_n and isinstance(top_n, int):
+        factor_expression = str(self.config.get("factor_expression") or "").strip()
+        if factor_expression and result:
+            scores = _compute_factor_scores(
+                factor_expression,
+                trading_day,
+                result,
+                market_data,
+                history_data,
+            )
+            result = _sort_symbols_by_factor(
+                result,
+                scores,
+                _config_float(self.config, "direction", 1.0),
+            )
+
+        top_n = _config_int(self.config, "top_n", 0)
+        if top_n > 0:
             result = result[:top_n]
 
         return result
@@ -87,6 +225,7 @@ class TradingRunner(ComponentRunner):
         universe: List[str],
         market_data: Dict[str, Dict[str, float]],
         positions: Dict[str, Any],
+        history_data: Optional[Dict[str, List[Dict[str, Any]]]] = None,
     ) -> List[Dict[str, Any]]:
         """Return signal dicts: {symbol, direction, strength, reason}.
 
@@ -95,6 +234,55 @@ class TradingRunner(ComponentRunner):
         - ``buy_all``: buy all universe symbols not in position
         """
         signals: List[Dict[str, Any]] = []
+
+        factor_expression = str(self.config.get("factor_expression") or "").strip()
+        if factor_expression and universe:
+            scores = _compute_factor_scores(
+                factor_expression,
+                trading_day,
+                universe,
+                market_data,
+                history_data,
+            )
+            ranked_symbols = _sort_symbols_by_factor(
+                universe,
+                scores,
+                _config_float(self.config, "direction", 1.0),
+            )
+            top_n = _config_int(
+                self.config,
+                "top_n",
+                _config_int(self.config, "buy_top_n", len(ranked_symbols)),
+            )
+            target_symbols = ranked_symbols[:top_n] if top_n > 0 else ranked_symbols
+            target_set = set(target_symbols)
+            total_targets = max(len(target_symbols), 1)
+
+            for index, symbol in enumerate(target_symbols, start=1):
+                if symbol in positions:
+                    continue
+                signals.append(
+                    {
+                        "symbol": symbol,
+                        "direction": "buy",
+                        "strength": (total_targets - index + 1) / total_targets,
+                        "reason": f"factor_rank({self.name})",
+                    }
+                )
+
+            if self.config.get("close_on_universe_exit", True):
+                for symbol in positions:
+                    if symbol not in target_set:
+                        signals.append(
+                            {
+                                "symbol": symbol,
+                                "direction": "sell",
+                                "strength": 1.0,
+                                "reason": f"factor_rebalance({self.name})",
+                            }
+                        )
+
+            return signals
 
         buy_all = self.config.get("buy_all", True)
         hold_days = self.config.get("hold_days")
@@ -249,6 +437,7 @@ class CompositeStrategyOrchestrator:
         prices: Dict[str, float],
         cash: float,
         positions: Dict[str, Any],
+        history_data: Optional[Dict[str, List[Dict[str, Any]]]] = None,
     ) -> List[Order]:
         """Run the full pipeline for one trading day.
 
@@ -267,7 +456,12 @@ class CompositeStrategyOrchestrator:
         universe: List[str] = []
         seen: set = set()
         for runner in self.universe_runners:
-            selected = runner.select(trading_day, all_symbols, market_data)
+            selected = runner.select(
+                trading_day,
+                all_symbols,
+                market_data,
+                history_data,
+            )
             for s in selected:
                 if s not in seen:
                     universe.append(s)
@@ -280,7 +474,11 @@ class CompositeStrategyOrchestrator:
         all_signals: List[Dict[str, Any]] = []
         for runner in self.trading_runners:
             signals = runner.generate_signals(
-                trading_day, universe, market_data, positions
+                trading_day,
+                universe,
+                market_data,
+                positions,
+                history_data,
             )
             weight = runner.config.get("weight", 1.0)
             for sig in signals:

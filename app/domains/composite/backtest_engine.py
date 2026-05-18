@@ -65,9 +65,14 @@ class CompositeBacktestEngine:
         universe_contribution: Dict[str, int] = {}  # symbol → times selected
         trading_signals_count = {"buy": 0, "sell": 0}
         risk_filtered_count = 0
+        history_data_by_symbol: Dict[str, List[Dict[str, float]]] = {}
 
         for day_str in trading_days:
             day_data = market_data_by_day.get(day_str, {})
+            for symbol, snapshot in day_data.items():
+                history_data_by_symbol.setdefault(symbol, []).append(
+                    {"datetime": day_str, **snapshot}
+                )
             prices = {s: d.get("close", 0) for s, d in day_data.items()}
             prev_close = {s: d.get("prev_close", 0) for s, d in day_data.items()}
 
@@ -93,6 +98,7 @@ class CompositeBacktestEngine:
                 prices=prices,
                 cash=portfolio.cash,
                 positions=pos_info,
+                history_data=history_data_by_symbol,
             )
 
             # Apply market constraints

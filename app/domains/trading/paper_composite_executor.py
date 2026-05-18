@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, Dict, Optional
 
 from sqlalchemy import text
@@ -19,6 +19,7 @@ from app.domains.composite.dao.composite_strategy_dao import CompositeStrategyDa
 from app.domains.composite.dao.strategy_component_dao import StrategyComponentDao
 from app.domains.composite.market_constraints import MarketConstraints, Order
 from app.domains.composite.orchestrator import CompositeStrategyOrchestrator
+from app.domains.market.service import MarketService
 from app.domains.market.realtime_quote_service import RealtimeQuoteService
 from app.domains.trading.dao.order_dao import OrderDao
 from app.domains.trading.paper_execution_ledger import PaperExecutionLedger
@@ -137,6 +138,7 @@ class PaperCompositeExecutor:
     ) -> None:
         emitted_signal_keys: set[str] = set()
         current_day = date.today()
+        history_cache: Dict[str, Dict[str, Any]] = {}
         try:
             strategy, universe_components, trading_components, risk_components = self._load_composite_definition(
                 user_id=user_id,
@@ -156,13 +158,19 @@ class PaperCompositeExecutor:
                 raise ValueError("Composite paper deployment requires at least one symbol")
 
             quote_svc = RealtimeQuoteService()
+            market_svc = MarketService()
             acct_svc = PaperAccountService()
+            factor_lookback_days = self._resolve_factor_lookback_days(
+                universe_components,
+                trading_components,
+            )
 
             while not stop_event.is_set():
                 today = date.today()
                 if today != current_day:
                     emitted_signal_keys.clear()
                     current_day = today
+                    history_cache.clear()
 
                 account = acct_svc.get_account(paper_account_id, user_id)
                 if not account:
@@ -193,6 +201,16 @@ class PaperCompositeExecutor:
                     prices[symbol] = last_price
                     prev_close[symbol] = previous_close
 
+                history_data = self._build_history_data(
+                    active_symbols=active_symbols,
+                    vt_symbol_map=vt_symbol_map,
+                    day_data=day_data,
+                    today=today,
+                    lookback_days=factor_lookback_days,
+                    market_service=market_svc,
+                    history_cache=history_cache,
+                )
+
                 orders = orchestrator.run_day(
                     trading_day=today.isoformat(),
                     all_symbols=active_symbols,
@@ -200,6 +218,7 @@ class PaperCompositeExecutor:
                     prices=prices,
                     cash=float(account.get("balance") or 0),
                     positions=positions,
+                    history_data=history_data,
                 )
 
                 orders = constraints.apply_t_plus_n(orders, buy_dates, today)
@@ -350,6 +369,80 @@ class PaperCompositeExecutor:
             for row in rows
             if getattr(row, "symbol", None) and getattr(row, "opened_at", None)
         }
+
+    @staticmethod
+    def _resolve_factor_lookback_days(*component_groups: list[dict[str, Any]]) -> int:
+        lookback_days = 60
+        for components in component_groups:
+            for component in components:
+                config = _parse_json(component.get("config"))
+                config.update(component.get("config_override") or {})
+                if not config.get("factor_expression"):
+                    continue
+                try:
+                    lookback_days = max(lookback_days, int(config.get("factor_lookback_days") or 60))
+                except (TypeError, ValueError):
+                    continue
+        return lookback_days
+
+    @staticmethod
+    def _build_history_data(
+        *,
+        active_symbols: list[str],
+        vt_symbol_map: Dict[str, str],
+        day_data: Dict[str, Dict[str, float]],
+        today: date,
+        lookback_days: int,
+        market_service: MarketService,
+        history_cache: Dict[str, Dict[str, Any]],
+    ) -> Dict[str, list[Dict[str, Any]]]:
+        history_data: Dict[str, list[Dict[str, Any]]] = {}
+        start_date = today - timedelta(days=max(lookback_days * 3, 90))
+        today_str = today.isoformat()
+
+        for symbol in active_symbols:
+            cache_entry = history_cache.get(symbol)
+            if cache_entry and cache_entry.get("as_of") == today_str:
+                rows = list(cache_entry.get("rows") or [])
+            else:
+                rows = []
+                try:
+                    for bar in market_service.get_history(vt_symbol_map.get(symbol, symbol), start_date, today):
+                        dt_value = bar.get("datetime")
+                        rows.append(
+                            {
+                                "datetime": dt_value.date().isoformat() if hasattr(dt_value, "date") else str(dt_value),
+                                "open": float(bar.get("open") or 0.0),
+                                "high": float(bar.get("high") or 0.0),
+                                "low": float(bar.get("low") or 0.0),
+                                "close": float(bar.get("close") or 0.0),
+                                "volume": float(bar.get("volume") or 0.0),
+                            }
+                        )
+                except Exception:
+                    logger.debug("[paper-composite] failed to load history for %s", symbol, exc_info=True)
+                history_cache[symbol] = {"as_of": today_str, "rows": list(rows)}
+
+            current_row = day_data.get(symbol) or {}
+            if current_row:
+                current_close = float(current_row.get("close") or 0.0)
+                previous_close = float(current_row.get("prev_close") or current_close)
+                if not rows or str(rows[-1].get("datetime"))[:10] != today_str:
+                    rows = [
+                        *rows,
+                        {
+                            "datetime": today_str,
+                            "open": previous_close or current_close,
+                            "high": max(current_close, previous_close),
+                            "low": min(current_close, previous_close),
+                            "close": current_close,
+                            "volume": float(current_row.get("volume") or 0.0),
+                        },
+                    ]
+
+            history_data[symbol] = rows
+
+        return history_data
 
     def _execute_order(
         self,
