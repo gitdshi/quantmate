@@ -16,11 +16,13 @@ from typing import Any, Optional
 import pandas as pd
 
 from app.domains.factors.expression_engine import (
+    augment_factor_eval_ohlcv,
     compute_custom_factor,
     compute_factor_metrics,
     compute_forward_returns,
     compute_qlib_factor_set,
     fetch_ohlcv,
+    normalize_factor_expression,
 )
 
 logger = logging.getLogger(__name__)
@@ -50,6 +52,7 @@ def screen_factor_pool(
         logger.warning("[screening] No OHLCV data for %s–%s", start_date, end_date)
         return []
 
+    eval_ohlcv = augment_factor_eval_ohlcv(ohlcv)
     fwd_returns = compute_forward_returns(ohlcv, periods=forward_periods)
 
     # Evaluate each expression
@@ -58,7 +61,13 @@ def screen_factor_pool(
 
     for expr in expressions:
         try:
-            fv = compute_custom_factor(expr, ohlcv)
+            try:
+                fv = compute_custom_factor(expr, eval_ohlcv)
+            except Exception:
+                normalized_expr = normalize_factor_expression(expr)
+                if normalized_expr == expr:
+                    raise
+                fv = compute_custom_factor(normalized_expr, eval_ohlcv)
             metrics = compute_factor_metrics(fv, fwd_returns)
             if abs(metrics["ic_mean"]) < ic_threshold:
                 continue

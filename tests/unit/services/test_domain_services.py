@@ -412,6 +412,77 @@ class TestScreenFactorPool:
         result = _fs.screen_factor_pool(["close - open"], date(2024, 1, 1), date(2024, 12, 31))
         assert result == []
 
+    def test_screening_retries_with_normalized_expression(self, monkeypatch):
+        idx = pd.MultiIndex.from_tuples(
+            [
+                ("AAA", pd.Timestamp("2024-01-01")),
+                ("AAA", pd.Timestamp("2024-01-02")),
+                ("AAA", pd.Timestamp("2024-01-03")),
+                ("AAA", pd.Timestamp("2024-01-04")),
+                ("AAA", pd.Timestamp("2024-01-05")),
+                ("AAA", pd.Timestamp("2024-01-06")),
+                ("AAA", pd.Timestamp("2024-01-07")),
+                ("AAA", pd.Timestamp("2024-01-08")),
+                ("AAA", pd.Timestamp("2024-01-09")),
+                ("AAA", pd.Timestamp("2024-01-10")),
+            ],
+            names=["instrument", "date"],
+        )
+        ohlcv = pd.DataFrame(
+            {
+                "open": np.linspace(10.0, 11.8, len(idx)),
+                "high": np.linspace(10.2, 12.0, len(idx)),
+                "low": np.linspace(9.8, 11.6, len(idx)),
+                "close": np.linspace(10.1, 11.9, len(idx)),
+                "volume": np.linspace(100, 190, len(idx)),
+                "amount": np.linspace(1000, 1900, len(idx)),
+                "factor": np.ones(len(idx)),
+            },
+            index=idx,
+        )
+
+        captured = {}
+
+        def _fake_compute_custom_factor(expression, eval_ohlcv):
+            captured["expression"] = expression
+            captured["has_ret_1d"] = "ret_1d" in eval_ohlcv.columns
+            if expression != "volume / ts_mean(volume, 20) + ts_std(ret_1d, 5)":
+                raise ValueError("raw expression should fail")
+            return pd.Series(np.linspace(0.1, 1.0, len(eval_ohlcv)), index=eval_ohlcv.index)
+
+        monkeypatch.setattr(_fs, "fetch_ohlcv", lambda **kw: ohlcv)
+        monkeypatch.setattr(_fs, "compute_custom_factor", _fake_compute_custom_factor)
+        monkeypatch.setattr(
+            _fs,
+            "compute_forward_returns",
+            lambda *a, **kw: pd.Series(np.linspace(0.01, 0.1, len(ohlcv)), index=ohlcv.index),
+        )
+        monkeypatch.setattr(
+            _fs,
+            "compute_factor_metrics",
+            lambda fv, fr: {
+                "ic_mean": 0.12,
+                "ic_std": 0.05,
+                "ic_ir": 1.8,
+                "turnover": 0.2,
+                "long_ret": 0.03,
+                "short_ret": -0.01,
+                "long_short_ret": 0.04,
+            },
+        )
+
+        result = _fs.screen_factor_pool(
+            ["$volume / mean(volume, 20) + rolling_std(return, 5)"],
+            date(2024, 1, 1),
+            date(2024, 1, 10),
+            ic_threshold=0.0,
+        )
+
+        assert len(result) == 1
+        assert result[0]["expression"] == "$volume / mean(volume, 20) + rolling_std(return, 5)"
+        assert captured["expression"] == "volume / ts_mean(volume, 20) + ts_std(ret_1d, 5)"
+        assert captured["has_ret_1d"] is True
+
     def test_basic_screening(self, monkeypatch):
         idx = pd.MultiIndex.from_tuples([
             (f"S{i}", d) for i in range(5) for d in pd.date_range("2024-01-01", periods=50)
