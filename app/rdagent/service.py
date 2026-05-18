@@ -351,6 +351,10 @@ def _build_rdagent_env(run_dir: Path, llm_model: str) -> dict[str, str]:
         "OPENAI_BASE_URL",
         "OPENCODE_AI_API_KEY",
         "OPENCODE_AI_API_BASE",
+        "CHAT_OPENAI_API_KEY",
+        "CHAT_OPENAI_BASE_URL",
+        "EMBEDDING_OPENAI_API_KEY",
+        "EMBEDDING_OPENAI_BASE_URL",
         "LITELLM_OPENAI_API_KEY",
         "LITELLM_CHAT_OPENAI_API_KEY",
         "LITELLM_CHAT_OPENAI_BASE_URL",
@@ -367,6 +371,10 @@ def _build_rdagent_env(run_dir: Path, llm_model: str) -> dict[str, str]:
             "OPENAI_BASE_URL",
             "OPENCODE_AI_API_KEY",
             "OPENCODE_AI_API_BASE",
+            "CHAT_OPENAI_API_KEY",
+            "CHAT_OPENAI_BASE_URL",
+            "EMBEDDING_OPENAI_API_KEY",
+            "EMBEDDING_OPENAI_BASE_URL",
             "LITELLM_OPENAI_API_KEY",
             "LITELLM_CHAT_OPENAI_API_KEY",
             "LITELLM_CHAT_OPENAI_BASE_URL",
@@ -398,12 +406,16 @@ def _build_rdagent_env(run_dir: Path, llm_model: str) -> dict[str, str]:
     openai_api_key = env.get("OPENAI_API_KEY")
     openai_api_base = env.get("OPENAI_API_BASE") or env.get("OPENAI_BASE_URL")
     if openai_api_key:
+        env["CHAT_OPENAI_API_KEY"] = env.get("CHAT_OPENAI_API_KEY") or openai_api_key
+        env["EMBEDDING_OPENAI_API_KEY"] = env.get("EMBEDDING_OPENAI_API_KEY") or openai_api_key
         env["LITELLM_OPENAI_API_KEY"] = env.get("LITELLM_OPENAI_API_KEY") or openai_api_key
         env["LITELLM_CHAT_OPENAI_API_KEY"] = env.get("LITELLM_CHAT_OPENAI_API_KEY") or openai_api_key
         env["LITELLM_EMBEDDING_OPENAI_API_KEY"] = env.get("LITELLM_EMBEDDING_OPENAI_API_KEY") or openai_api_key
     if openai_api_base:
         env["OPENAI_API_BASE"] = openai_api_base
         env["OPENAI_BASE_URL"] = openai_api_base
+        env["CHAT_OPENAI_BASE_URL"] = env.get("CHAT_OPENAI_BASE_URL") or openai_api_base
+        env["EMBEDDING_OPENAI_BASE_URL"] = env.get("EMBEDDING_OPENAI_BASE_URL") or openai_api_base
         env["LITELLM_CHAT_OPENAI_BASE_URL"] = env.get("LITELLM_CHAT_OPENAI_BASE_URL") or openai_api_base
         env["LITELLM_EMBEDDING_OPENAI_BASE_URL"] = (
             env.get("LITELLM_EMBEDDING_OPENAI_BASE_URL") or openai_api_base
@@ -414,10 +426,14 @@ def _build_rdagent_env(run_dir: Path, llm_model: str) -> dict[str, str]:
             "RDAGENT_OLLAMA_EMBEDDING_MODEL", _OLLAMA_EMBEDDING_MODEL
         )
         if env["EMBEDDING_MODEL"].startswith("ollama/"):
+            env["EMBEDDING_OPENAI_BASE_URL"] = env["OLLAMA_API_BASE"]
             env["LITELLM_EMBEDDING_OPENAI_BASE_URL"] = env["OLLAMA_API_BASE"]
+            env.pop("EMBEDDING_OPENAI_API_KEY", None)
             env.pop("LITELLM_EMBEDDING_OPENAI_API_KEY", None)
 
     if explicit_ollama or (not env.get("OPENAI_API_KEY") and env.get("OLLAMA_API_BASE")):
+        env["CHAT_STREAM"] = env.get("CHAT_STREAM") or "false"
+        env["ENABLE_RESPONSE_SCHEMA"] = env.get("ENABLE_RESPONSE_SCHEMA") or "false"
         env["LITELLM_CHAT_STREAM"] = env.get("LITELLM_CHAT_STREAM") or "false"
         env["LITELLM_ENABLE_RESPONSE_SCHEMA"] = env.get("LITELLM_ENABLE_RESPONSE_SCHEMA") or "false"
 

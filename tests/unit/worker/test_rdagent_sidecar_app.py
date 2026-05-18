@@ -85,6 +85,8 @@ def test_build_rdagent_env_prefers_local_ollama_without_openai_key(monkeypatch, 
 
     assert env["CHAT_MODEL"] == "ollama/qwen2.5:0.5b"
     assert env["EMBEDDING_MODEL"] == "ollama/nomic-embed-text:latest"
+    assert env["CHAT_STREAM"] == "false"
+    assert env["ENABLE_RESPONSE_SCHEMA"] == "false"
     assert env["LITELLM_CHAT_STREAM"] == "false"
     assert env["LITELLM_ENABLE_RESPONSE_SCHEMA"] == "false"
     assert env["CONDA_DEFAULT_ENV"] == "base"
@@ -107,10 +109,14 @@ def test_build_rdagent_env_maps_opencode_key_to_openai(monkeypatch, tmp_path):
     assert env["OPENAI_API_KEY"] == "opencode-key"
     assert env["OPENAI_API_BASE"] == "https://opencode.ai/zen/v1"
     assert env["OPENAI_BASE_URL"] == "https://opencode.ai/zen/v1"
+    assert env["CHAT_OPENAI_API_KEY"] == "opencode-key"
+    assert env["CHAT_OPENAI_BASE_URL"] == "https://opencode.ai/zen/v1"
     assert env["LITELLM_OPENAI_API_KEY"] == "opencode-key"
     assert env["LITELLM_CHAT_OPENAI_API_KEY"] == "opencode-key"
     assert env["LITELLM_CHAT_OPENAI_BASE_URL"] == "https://opencode.ai/zen/v1"
     assert env["EMBEDDING_MODEL"] == "ollama/nomic-embed-text:latest"
+    assert env["EMBEDDING_OPENAI_BASE_URL"] == "http://127.0.0.1:11434"
+    assert "EMBEDDING_OPENAI_API_KEY" not in env
     assert "LITELLM_EMBEDDING_OPENAI_API_KEY" not in env
     assert env["LITELLM_EMBEDDING_OPENAI_BASE_URL"] == "http://127.0.0.1:11434"
     assert env["CHAT_MODEL"] == "openai/minimax-m2.5-free"
@@ -145,6 +151,8 @@ def test_build_rdagent_env_drops_empty_openai_vars(monkeypatch, tmp_path):
     assert env["CHAT_MODEL"] == "ollama/qwen2.5:0.5b"
     assert "OPENAI_API_KEY" not in env
     assert "OPENAI_API_BASE" not in env
+    assert env["CHAT_STREAM"] == "false"
+    assert env["ENABLE_RESPONSE_SCHEMA"] == "false"
 
 
 def test_build_rdagent_env_preserves_openai_model_when_key_present(monkeypatch, tmp_path):
@@ -161,6 +169,8 @@ def test_build_rdagent_env_preserves_openai_model_when_key_present(monkeypatch, 
 
     assert env["CHAT_MODEL"] == "gpt-4o-mini"
     assert env["EMBEDDING_MODEL"] == "ollama/nomic-embed-text:latest"
+    assert env["EMBEDDING_OPENAI_BASE_URL"] == "http://127.0.0.1:11434"
+    assert "EMBEDDING_OPENAI_API_KEY" not in env
     assert env["LITELLM_EMBEDDING_OPENAI_BASE_URL"] == "http://127.0.0.1:11434"
     assert "LITELLM_EMBEDDING_OPENAI_API_KEY" not in env
 
@@ -178,6 +188,8 @@ def test_build_rdagent_env_explicit_ollama_request_drops_openai_provider_vars(mo
 
     assert env["CHAT_MODEL"] == "ollama/qwen2.5:0.5b"
     assert env["EMBEDDING_MODEL"] == "ollama/nomic-embed-text:latest"
+    assert env["CHAT_STREAM"] == "false"
+    assert env["ENABLE_RESPONSE_SCHEMA"] == "false"
     assert "OPENAI_API_KEY" not in env
     assert "OPENAI_API_BASE" not in env
     assert "OPENCODE_AI_API_KEY" not in env
