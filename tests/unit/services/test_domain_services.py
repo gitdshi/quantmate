@@ -323,6 +323,86 @@ class TestComputeQlibFactorSet:
 # factor_screening tests
 # =====================================================================
 import app.domains.factors.factor_screening as _fs
+import app.domains.factors.service as _factor_service
+
+
+@pytest.mark.unit
+class TestFactorServiceEvaluation:
+    def test_run_evaluation_retries_with_normalized_expression(self, monkeypatch):
+        svc = _factor_service.FactorService()
+        svc._eval_dao = MagicMock()
+        svc._eval_dao.create.return_value = 7
+        svc._eval_dao.get.return_value = {"id": 7, "ic_mean": 0.12, "ic_ir": 1.8}
+
+        monkeypatch.setattr(
+            _factor_service.FactorService,
+            "get_factor",
+            lambda self, user_id, factor_id: {
+                "id": factor_id,
+                "expression": "$volume / mean(volume, 20) + rolling_std(return, 5)",
+            },
+        )
+
+        idx = pd.MultiIndex.from_tuples(
+            [
+                ("AAA", pd.Timestamp("2024-01-01")),
+                ("AAA", pd.Timestamp("2024-01-02")),
+                ("AAA", pd.Timestamp("2024-01-03")),
+                ("AAA", pd.Timestamp("2024-01-04")),
+                ("AAA", pd.Timestamp("2024-01-05")),
+                ("AAA", pd.Timestamp("2024-01-06")),
+            ],
+            names=["instrument", "date"],
+        )
+        ohlcv = pd.DataFrame(
+            {
+                "open": [10, 10.2, 10.4, 10.5, 10.7, 10.9],
+                "high": [10.3, 10.5, 10.6, 10.8, 11.0, 11.2],
+                "low": [9.8, 10.0, 10.1, 10.2, 10.4, 10.6],
+                "close": [10.1, 10.3, 10.5, 10.7, 11.0, 11.3],
+                "volume": [100, 110, 105, 120, 130, 140],
+                "amount": [1000, 1130, 1100, 1284, 1430, 1582],
+                "factor": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+            },
+            index=idx,
+        )
+
+        captured = {}
+
+        def _fake_compute_custom_factor(expression, eval_ohlcv):
+            captured["expression"] = expression
+            captured["has_ret_1d"] = "ret_1d" in eval_ohlcv.columns
+            if expression != "volume / ts_mean(volume, 20) + ts_std(ret_1d, 5)":
+                raise ValueError("raw expression should fail")
+            return pd.Series(np.linspace(0.1, 0.6, len(eval_ohlcv)), index=eval_ohlcv.index)
+
+        monkeypatch.setattr("app.domains.factors.expression_engine.fetch_ohlcv", lambda **kw: ohlcv)
+        monkeypatch.setattr("app.domains.factors.expression_engine.compute_custom_factor", _fake_compute_custom_factor)
+        monkeypatch.setattr(
+            "app.domains.factors.expression_engine.compute_forward_returns",
+            lambda *a, **kw: pd.Series(np.linspace(0.01, 0.06, len(ohlcv)), index=ohlcv.index),
+        )
+        monkeypatch.setattr(
+            "app.domains.factors.expression_engine.compute_factor_metrics",
+            lambda fv, fr: {
+                "ic_mean": 0.12,
+                "ic_std": 0.05,
+                "ic_ir": 1.8,
+                "turnover": 0.2,
+                "long_ret": 0.03,
+                "short_ret": -0.01,
+                "long_short_ret": 0.04,
+            },
+        )
+
+        result = svc.run_evaluation(user_id=1, factor_id=9, start_date="2024-01-01", end_date="2024-01-06")
+
+        assert result["id"] == 7
+        assert captured["expression"] == "volume / ts_mean(volume, 20) + ts_std(ret_1d, 5)"
+        assert captured["has_ret_1d"] is True
+        _, kwargs = svc._eval_dao.create.call_args
+        assert kwargs["ic_mean"] == 0.12
+        assert kwargs["metrics"]["long_short_ret"] == 0.04
 
 
 @pytest.mark.unit

@@ -72,6 +72,8 @@ class PaperRuntimeDaemon:
             paper_account_id=deployment["paper_account_id"],
             user_id=deployment["user_id"],
             strategy_id=deployment.get("strategy_id"),
+            composite_strategy_id=deployment.get("composite_strategy_id"),
+            strategy_source_type=deployment.get("strategy_source_type") or "strategy",
             strategy_name=deployment["strategy_name"],
             vt_symbol=deployment["vt_symbol"],
             parameters=deployment.get("parameters") or {},
@@ -82,6 +84,8 @@ class PaperRuntimeDaemon:
             paper_account_id=deployment["paper_account_id"],
             user_id=deployment["user_id"],
             strategy_id=deployment.get("strategy_id"),
+            composite_strategy_id=deployment.get("composite_strategy_id"),
+            strategy_source_type=deployment.get("strategy_source_type") or "strategy",
             strategy_name=deployment["strategy_name"],
             vt_symbol=deployment["vt_symbol"],
             parameters=deployment.get("parameters") or {},
@@ -131,8 +135,9 @@ class PaperRuntimeDaemon:
             rows = conn.execute(
                 text(
                     """
-                    SELECT id, user_id, paper_account_id, strategy_id, strategy_name, vt_symbol,
-                           parameters, execution_mode, desired_status
+                      SELECT id, user_id, paper_account_id, strategy_id, composite_strategy_id,
+                          strategy_source_type, strategy_name, vt_symbol,
+                          parameters, execution_mode, desired_status
                     FROM paper_deployments
                     WHERE paper_account_id IS NOT NULL
                       AND desired_status IN ('running', 'stopped')
@@ -154,6 +159,8 @@ class PaperRuntimeDaemon:
                     "user_id": row.user_id,
                     "paper_account_id": row.paper_account_id,
                     "strategy_id": getattr(row, "strategy_id", None),
+                    "composite_strategy_id": getattr(row, "composite_strategy_id", None),
+                    "strategy_source_type": getattr(row, "strategy_source_type", "strategy"),
                     "strategy_name": row.strategy_name,
                     "vt_symbol": row.vt_symbol,
                     "parameters": parameters,

@@ -65,10 +65,42 @@ class TestPaperTradingService:
         )
         assert isinstance(result, dict)
 
+    def test_deploy_composite(self, _mock_connection, monkeypatch):
+        composite_row = MagicMock()
+        composite_row.id = 9
+        composite_row.name = "Composite Alpha"
+        composite_row.is_active = 1
+
+        insert_result = MagicMock(lastrowid=12)
+        _mock_connection.execute.side_effect = [
+            MagicMock(fetchone=MagicMock(return_value=composite_row)),
+            insert_result,
+        ]
+
+        monkeypatch.setattr(
+            _mod.PaperTradingService,
+            "_derive_composite_vt_symbol",
+            staticmethod(lambda user_id, composite_strategy_id: "600519.SH,000858.SZ"),
+        )
+
+        result = _mod.PaperTradingService().deploy(
+            user_id=1,
+            strategy_id=None,
+            composite_strategy_id=9,
+            strategy_source_type="composite",
+            vt_symbol="",
+            parameters={},
+            paper_account_id=1,
+        )
+
+        assert result["success"] is True
+        assert result["strategy_source_type"] == "composite"
+        assert result["composite_strategy_id"] == 9
+
     def test_list_deployments(self, _mock_connection):
         _mock_connection.execute.return_value = MagicMock(
             fetchall=MagicMock(return_value=[_row(
-                id=1, strategy_id=1, strategy_name="MA", vt_symbol="000001.SZ",
+                id=1, strategy_id=1, composite_strategy_id=None, strategy_source_type="strategy", strategy_name="MA", vt_symbol="000001.SZ",
                 parameters='{"fast": 5}', status="running",
                 started_at="2024-01-01", stopped_at=None,
                 source_backtest_job_id=None, source_version_id=None,
@@ -100,6 +132,8 @@ class TestPaperTradingService:
             fetchone=MagicMock(return_value=_row(
                 id=1,
                 strategy_id=1,
+                composite_strategy_id=None,
+                strategy_source_type="strategy",
                 strategy_name="MA",
                 vt_symbol="000001.SZ",
                 status="running",

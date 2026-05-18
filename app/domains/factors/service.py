@@ -60,10 +60,12 @@ class FactorService:
         from datetime import date as date_type
 
         from app.domains.factors.expression_engine import (
+            augment_factor_eval_ohlcv,
             compute_custom_factor,
             compute_factor_metrics,
             compute_forward_returns,
             fetch_ohlcv,
+            normalize_factor_expression,
         )
 
         factor = self.get_factor(user_id, factor_id)
@@ -79,7 +81,15 @@ class FactorService:
                 logger.warning("[factor-eval] No OHLCV data for %s–%s, using stub", start_date, end_date)
                 metrics = self._stub_metrics()
             else:
-                factor_values = compute_custom_factor(expression, ohlcv)
+                eval_ohlcv = augment_factor_eval_ohlcv(ohlcv)
+                try:
+                    factor_values = compute_custom_factor(expression, eval_ohlcv)
+                except Exception:
+                    normalized_expression = normalize_factor_expression(expression)
+                    if normalized_expression == expression:
+                        raise
+                    logger.info("[factor-eval] Retrying factor %d with normalized expression", factor_id)
+                    factor_values = compute_custom_factor(normalized_expression, eval_ohlcv)
                 fwd_returns = compute_forward_returns(ohlcv, periods=1)
                 metrics = compute_factor_metrics(factor_values, fwd_returns)
         except Exception:

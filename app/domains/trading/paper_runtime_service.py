@@ -24,10 +24,16 @@ class PaperStrategyKind(str, Enum):
     PORTFOLIO = "portfolio"
 
 
+class PaperDeploymentSourceType(str, Enum):
+    STRATEGY = "strategy"
+    COMPOSITE = "composite"
+
+
 class PaperRuntimeMode(str, Enum):
     NATIVE_CTA_RUNTIME = "native_cta_runtime"
     LEGACY_EXECUTOR_BRIDGE = "legacy_executor_bridge"
     PORTFOLIO_STRATEGY_BRIDGE = "portfolio_strategy_bridge"
+    COMPOSITE_STRATEGY_BRIDGE = "composite_strategy_bridge"
     VNPY_PAPER_GATEWAY = "vnpy_paper_gateway"
 
 
@@ -37,6 +43,8 @@ class PaperRuntimeSession:
     paper_account_id: int
     user_id: int
     strategy_id: Optional[int]
+    composite_strategy_id: Optional[int]
+    strategy_source_type: PaperDeploymentSourceType
     strategy_name: str
     vt_symbol: str
     parameters: Dict[str, Any]
@@ -78,6 +86,8 @@ class PaperRuntimeService:
         paper_account_id: int,
         user_id: int,
         strategy_id: Optional[int],
+        composite_strategy_id: Optional[int] = None,
+        strategy_source_type: str = PaperDeploymentSourceType.STRATEGY.value,
         strategy_name: str,
         vt_symbol: str,
         parameters: Optional[Dict[str, Any]] = None,
@@ -92,19 +102,23 @@ class PaperRuntimeService:
                     "runtime": self._session_payload(existing),
                 }
 
+            source_type = PaperDeploymentSourceType(strategy_source_type or PaperDeploymentSourceType.STRATEGY.value)
             strategy_kind = self._infer_strategy_kind(
                 user_id=user_id,
                 strategy_id=strategy_id,
+                strategy_source_type=source_type,
                 strategy_name=strategy_name,
                 vt_symbol=vt_symbol,
             )
-            runtime_mode = self._runtime_mode_for(strategy_kind)
+            runtime_mode = self._runtime_mode_for(strategy_kind, source_type)
             gateway = PaperGateway(gateway_name=f"PAPER.{deployment_id}")
             session = PaperRuntimeSession(
                 deployment_id=deployment_id,
                 paper_account_id=paper_account_id,
                 user_id=user_id,
                 strategy_id=strategy_id,
+                composite_strategy_id=composite_strategy_id,
+                strategy_source_type=source_type,
                 strategy_name=strategy_name,
                 vt_symbol=vt_symbol,
                 parameters=dict(parameters or {}),
@@ -115,7 +129,13 @@ class PaperRuntimeService:
             self._sessions[deployment_id] = session
             self._gateways[deployment_id] = gateway
 
-        if session.strategy_kind == PaperStrategyKind.PORTFOLIO:
+        if session.strategy_source_type == PaperDeploymentSourceType.COMPOSITE:
+            start_result = self._start_composite_executor(
+                session=session,
+                execution_mode=execution_mode,
+                gateway=gateway,
+            )
+        elif session.strategy_kind == PaperStrategyKind.PORTFOLIO:
             start_result = self._start_portfolio_executor(
                 session=session,
                 execution_mode=execution_mode,
@@ -154,22 +174,28 @@ class PaperRuntimeService:
         paper_account_id: int,
         user_id: int,
         strategy_id: Optional[int],
+        composite_strategy_id: Optional[int] = None,
+        strategy_source_type: str = PaperDeploymentSourceType.STRATEGY.value,
         strategy_name: str,
         vt_symbol: str,
         parameters: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+        source_type = PaperDeploymentSourceType(strategy_source_type or PaperDeploymentSourceType.STRATEGY.value)
         strategy_kind = self._infer_strategy_kind(
             user_id=user_id,
             strategy_id=strategy_id,
+            strategy_source_type=source_type,
             strategy_name=strategy_name,
             vt_symbol=vt_symbol,
         )
-        runtime_mode = self._runtime_mode_for(strategy_kind)
+        runtime_mode = self._runtime_mode_for(strategy_kind, source_type)
         session = PaperRuntimeSession(
             deployment_id=deployment_id,
             paper_account_id=paper_account_id,
             user_id=user_id,
             strategy_id=strategy_id,
+            composite_strategy_id=composite_strategy_id,
+            strategy_source_type=source_type,
             strategy_name=strategy_name,
             vt_symbol=vt_symbol,
             parameters=dict(parameters or {}),
@@ -182,7 +208,9 @@ class PaperRuntimeService:
 
     def stop_deployment(self, deployment_id: int) -> Dict[str, Any]:
         session = self._sessions.get(deployment_id)
-        if session and session.strategy_kind == PaperStrategyKind.PORTFOLIO:
+        if session and session.strategy_source_type == PaperDeploymentSourceType.COMPOSITE:
+            stopped = self._stop_composite_executor(deployment_id)
+        elif session and session.strategy_kind == PaperStrategyKind.PORTFOLIO:
             stopped = self._stop_portfolio_executor(deployment_id)
         else:
             stopped = self._stop_legacy_executor(deployment_id)
@@ -206,6 +234,7 @@ class PaperRuntimeService:
         payload = asdict(session)
         payload["strategy_kind"] = session.strategy_kind.value
         payload["runtime_mode"] = session.runtime_mode.value
+        payload["strategy_source_type"] = session.strategy_source_type.value
         payload["capabilities"] = self._capabilities_for(session)
         return payload
 
@@ -214,9 +243,13 @@ class PaperRuntimeService:
         *,
         user_id: int,
         strategy_id: Optional[int],
+        strategy_source_type: PaperDeploymentSourceType,
         strategy_name: str,
         vt_symbol: str,
     ) -> PaperStrategyKind:
+        if strategy_source_type == PaperDeploymentSourceType.COMPOSITE:
+            return PaperStrategyKind.PORTFOLIO
+
         strategy_cls = PaperRuntimeService._load_strategy_class(
             user_id=user_id,
             strategy_id=strategy_id,
@@ -244,7 +277,12 @@ class PaperRuntimeService:
         return PaperStrategyKind.CTA
 
     @staticmethod
-    def _runtime_mode_for(strategy_kind: PaperStrategyKind) -> PaperRuntimeMode:
+    def _runtime_mode_for(
+        strategy_kind: PaperStrategyKind,
+        strategy_source_type: PaperDeploymentSourceType,
+    ) -> PaperRuntimeMode:
+        if strategy_source_type == PaperDeploymentSourceType.COMPOSITE:
+            return PaperRuntimeMode.COMPOSITE_STRATEGY_BRIDGE
         if strategy_kind == PaperStrategyKind.PORTFOLIO:
             return PaperRuntimeMode.PORTFOLIO_STRATEGY_BRIDGE
         return PaperRuntimeMode.NATIVE_CTA_RUNTIME
@@ -277,6 +315,7 @@ class PaperRuntimeService:
             "legacy_executor_bridge": session.runtime_mode == PaperRuntimeMode.LEGACY_EXECUTOR_BRIDGE,
             "native_gateway_execution": session.runtime_mode == PaperRuntimeMode.NATIVE_CTA_RUNTIME,
             "portfolio_runtime": session.strategy_kind == PaperStrategyKind.PORTFOLIO,
+            "composite_runtime": session.runtime_mode == PaperRuntimeMode.COMPOSITE_STRATEGY_BRIDGE,
             "native_tick_feed": session.strategy_kind == PaperStrategyKind.CTA,
             "checkpoint_recovery": True,
             "recovery": False,
@@ -317,6 +356,26 @@ class PaperRuntimeService:
         )
 
     @staticmethod
+    def _start_composite_executor(*, session: PaperRuntimeSession, execution_mode: str, gateway: Any = None) -> Dict[str, Any]:
+        from app.domains.trading.paper_composite_executor import PaperCompositeExecutor
+
+        if session.composite_strategy_id is None:
+            return {"success": False, "error": "Composite strategy id is required"}
+
+        executor = PaperCompositeExecutor()
+        return executor.start_deployment(
+            deployment_id=session.deployment_id,
+            paper_account_id=session.paper_account_id,
+            user_id=session.user_id,
+            composite_strategy_id=session.composite_strategy_id,
+            strategy_name=session.strategy_name,
+            vt_symbol=session.vt_symbol,
+            parameters=session.parameters,
+            execution_mode=execution_mode,
+            gateway=gateway,
+        )
+
+    @staticmethod
     def _stop_legacy_executor(deployment_id: int) -> bool:
         from app.domains.trading.paper_strategy_executor import PaperStrategyExecutor
 
@@ -328,4 +387,11 @@ class PaperRuntimeService:
         from app.domains.trading.paper_portfolio_executor import PaperPortfolioExecutor
 
         executor = PaperPortfolioExecutor()
+        return executor.stop_deployment(deployment_id)
+
+    @staticmethod
+    def _stop_composite_executor(deployment_id: int) -> bool:
+        from app.domains.trading.paper_composite_executor import PaperCompositeExecutor
+
+        executor = PaperCompositeExecutor()
         return executor.stop_deployment(deployment_id)

@@ -12,10 +12,15 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text
 
+from app.domains.composite.dao.composite_strategy_dao import CompositeStrategyDao
+from app.domains.composite.dao.strategy_component_dao import StrategyComponentDao
 from app.domains.trading.paper_execution_ledger import PaperExecutionLedger
 from app.infrastructure.db.connections import connection
 
 logger = logging.getLogger(__name__)
+
+_DEFAULT_STRATEGY_SOURCE_TYPE = "strategy"
+_COMPOSITE_STRATEGY_SOURCE_TYPE = "composite"
 
 
 class PaperTradingService:
@@ -29,31 +34,69 @@ class PaperTradingService:
     def deploy(
         self,
         user_id: int,
-        strategy_id: int,
+        strategy_id: Optional[int],
         vt_symbol: str,
         parameters: Optional[Dict[str, Any]] = None,
         paper_account_id: Optional[int] = None,
         execution_mode: str = "auto",
         source_backtest_job_id: Optional[str] = None,
         source_version_id: Optional[int] = None,
+        strategy_source_type: str = _DEFAULT_STRATEGY_SOURCE_TYPE,
+        composite_strategy_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Deploy a strategy to paper trading mode."""
+        source_type = (strategy_source_type or _DEFAULT_STRATEGY_SOURCE_TYPE).strip().lower()
+        strategy_name: Optional[str] = None
+        resolved_vt_symbol = (vt_symbol or "").strip()
+
         with connection("quantmate") as conn:
-            # Verify strategy exists and belongs to user
-            row = conn.execute(
-                text("SELECT id, name FROM strategies WHERE id = :sid AND user_id = :uid"),
-                {"sid": strategy_id, "uid": user_id},
-            ).fetchone()
-            if not row:
-                return {"success": False, "error": "Strategy not found"}
+            if source_type == _COMPOSITE_STRATEGY_SOURCE_TYPE:
+                if composite_strategy_id is None:
+                    return {"success": False, "error": "Composite strategy not found"}
+
+                row = conn.execute(
+                    text(
+                        """
+                        SELECT id, name, is_active
+                        FROM composite_strategies
+                        WHERE id = :cid AND user_id = :uid
+                        """
+                    ),
+                    {"cid": composite_strategy_id, "uid": user_id},
+                ).fetchone()
+                if not row:
+                    return {"success": False, "error": "Composite strategy not found"}
+                if not bool(getattr(row, "is_active", True)):
+                    return {"success": False, "error": "Composite strategy is inactive"}
+
+                strategy_name = row.name
+                if not resolved_vt_symbol:
+                    resolved_vt_symbol = self._derive_composite_vt_symbol(user_id, composite_strategy_id)
+                if not resolved_vt_symbol:
+                    return {
+                        "success": False,
+                        "error": "vt_symbol or vt_symbols is required for composite strategies without explicit universe symbols",
+                    }
+            else:
+                if strategy_id is None:
+                    return {"success": False, "error": "Strategy not found"}
+
+                row = conn.execute(
+                    text("SELECT id, name FROM strategies WHERE id = :sid AND user_id = :uid"),
+                    {"sid": strategy_id, "uid": user_id},
+                ).fetchone()
+                if not row:
+                    return {"success": False, "error": "Strategy not found"}
+                strategy_name = row.name
 
             result = conn.execute(
                 text("""
-                    INSERT INTO paper_deployments (user_id, paper_account_id, strategy_id, strategy_name,
+                    INSERT INTO paper_deployments (user_id, paper_account_id, strategy_id, composite_strategy_id,
+                                                   strategy_source_type, strategy_name,
                                                    vt_symbol, parameters, status, execution_mode,
                                                    desired_status, runtime_status,
                                                    source_backtest_job_id, source_version_id)
-                    VALUES (:uid, :paid, :sid, :sname, :sym, :params, 'running', :emode,
+                    VALUES (:uid, :paid, :sid, :csid, :source_type, :sname, :sym, :params, 'running', :emode,
                             'running', 'pending',
                             :source_backtest_job_id, :source_version_id)
                 """),
@@ -61,8 +104,10 @@ class PaperTradingService:
                     "uid": user_id,
                     "paid": paper_account_id,
                     "sid": strategy_id,
-                    "sname": row.name,
-                    "sym": vt_symbol,
+                    "csid": composite_strategy_id,
+                    "source_type": source_type,
+                    "sname": strategy_name,
+                    "sym": resolved_vt_symbol,
                     "params": json.dumps(parameters or {}),
                     "emode": execution_mode,
                     "source_backtest_job_id": source_backtest_job_id,
@@ -72,15 +117,32 @@ class PaperTradingService:
             conn.commit()
             deployment_id = int(result.lastrowid)
 
-        logger.info("Paper deployment %d started: strategy=%d symbol=%s mode=%s", deployment_id, strategy_id, vt_symbol, execution_mode)
-        return {"success": True, "deployment_id": deployment_id, "status": "running", "strategy_name": row.name}
+        logger.info(
+            "Paper deployment %d started: source=%s strategy=%s composite=%s symbol=%s mode=%s",
+            deployment_id,
+            source_type,
+            strategy_id,
+            composite_strategy_id,
+            resolved_vt_symbol,
+            execution_mode,
+        )
+        return {
+            "success": True,
+            "deployment_id": deployment_id,
+            "status": "running",
+            "strategy_name": strategy_name,
+            "strategy_source_type": source_type,
+            "strategy_id": strategy_id,
+            "composite_strategy_id": composite_strategy_id,
+            "vt_symbol": resolved_vt_symbol,
+        }
 
     def list_deployments(self, user_id: int) -> List[Dict[str, Any]]:
         """List all paper trading deployments for a user."""
         with connection("quantmate") as conn:
             rows = conn.execute(
                 text("""
-                    SELECT id, strategy_id, strategy_name, vt_symbol, parameters,
+                    SELECT id, strategy_id, composite_strategy_id, strategy_source_type, strategy_name, vt_symbol, parameters,
                            status, started_at, stopped_at, source_backtest_job_id, source_version_id,
                            risk_check_status, risk_check_summary,
                            desired_status, runtime_status, runtime_worker_id,
@@ -95,6 +157,8 @@ class PaperTradingService:
                 {
                     "id": r.id,
                     "strategy_id": r.strategy_id,
+                    "composite_strategy_id": getattr(r, "composite_strategy_id", None),
+                    "strategy_source_type": getattr(r, "strategy_source_type", _DEFAULT_STRATEGY_SOURCE_TYPE),
                     "strategy_name": r.strategy_name,
                     "vt_symbol": r.vt_symbol,
                     "parameters": json.loads(r.parameters) if r.parameters else {},
@@ -144,7 +208,8 @@ class PaperTradingService:
             row = conn.execute(
                 text(
                     """
-                    SELECT d.id, d.strategy_id, d.strategy_name, d.vt_symbol, d.status,
+                          SELECT d.id, d.strategy_id, d.composite_strategy_id, d.strategy_source_type,
+                              d.strategy_name, d.vt_symbol, d.status,
                            d.desired_status, d.runtime_status, d.runtime_worker_id,
                            d.runtime_heartbeat_at, d.runtime_error, d.runtime_warning,
                            h.runtime_mode, h.strategy_kind, h.gateway_name, h.message,
@@ -164,6 +229,8 @@ class PaperTradingService:
         return {
             "deployment_id": row.id,
             "strategy_id": row.strategy_id,
+            "composite_strategy_id": getattr(row, "composite_strategy_id", None),
+            "strategy_source_type": getattr(row, "strategy_source_type", _DEFAULT_STRATEGY_SOURCE_TYPE),
             "strategy_name": row.strategy_name,
             "vt_symbol": row.vt_symbol,
             "status": row.status,
@@ -179,6 +246,48 @@ class PaperTradingService:
             "heartbeat_message": getattr(row, "message", None),
             "heartbeat_at": str(getattr(row, "heartbeat_at", None)) if getattr(row, "heartbeat_at", None) else None,
         }
+
+    @staticmethod
+    def _derive_composite_vt_symbol(user_id: int, composite_strategy_id: int) -> str:
+        composite_dao = CompositeStrategyDao()
+        component_dao = StrategyComponentDao()
+        bindings = composite_dao.get_bindings(composite_strategy_id)
+
+        symbols: list[str] = []
+        seen: set[str] = set()
+        for binding in sorted(bindings, key=lambda item: item.get("ordinal", 0)):
+            if binding.get("layer") != "universe":
+                continue
+
+            component = component_dao.get_for_user(binding["component_id"], user_id)
+            if not component:
+                continue
+
+            config = component.get("config") or {}
+            if isinstance(config, str):
+                try:
+                    config = json.loads(config)
+                except (TypeError, json.JSONDecodeError):
+                    config = {}
+
+            override = binding.get("config_override")
+            if isinstance(override, str):
+                try:
+                    override = json.loads(override)
+                except (TypeError, json.JSONDecodeError):
+                    override = {}
+            if not isinstance(override, dict):
+                override = {}
+
+            merged = {**config, **override}
+            for symbol in merged.get("symbols", []) or []:
+                normalized = str(symbol).strip()
+                if not normalized or normalized in seen:
+                    continue
+                seen.add(normalized)
+                symbols.append(normalized)
+
+        return ",".join(symbols)
 
     # ── Positions ───────────────────────────────────────────
 

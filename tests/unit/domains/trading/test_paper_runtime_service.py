@@ -156,3 +156,36 @@ def test_runtime_service_routes_portfolio_strategies(monkeypatch):
     assert runtime["strategy_kind"] == "portfolio"
     assert runtime["runtime_mode"] == PaperRuntimeMode.PORTFOLIO_STRATEGY_BRIDGE.value
     assert runtime["capabilities"]["portfolio_runtime"] is True
+
+
+def test_runtime_service_routes_composite_deployments(monkeypatch):
+    service = PaperRuntimeService()
+    service._sessions.clear()
+    service._gateways.clear()
+
+    monkeypatch.setattr(
+        service,
+        "_start_composite_executor",
+        lambda *, session, execution_mode, gateway=None: {"success": True, "execution_mode": execution_mode},
+    )
+
+    result = service.start_deployment(
+        deployment_id=52,
+        paper_account_id=2,
+        user_id=3,
+        strategy_id=None,
+        composite_strategy_id=99,
+        strategy_source_type="composite",
+        strategy_name="Composite Alpha",
+        vt_symbol="600519.SH,000858.SZ",
+        parameters={},
+        execution_mode="auto",
+    )
+
+    runtime = result["runtime"]
+
+    assert result["success"] is True
+    assert runtime["strategy_source_type"] == "composite"
+    assert runtime["strategy_kind"] == "portfolio"
+    assert runtime["runtime_mode"] == PaperRuntimeMode.COMPOSITE_STRATEGY_BRIDGE.value
+    assert runtime["capabilities"]["composite_runtime"] is True

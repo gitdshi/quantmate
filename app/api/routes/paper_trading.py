@@ -45,7 +45,9 @@ def _safe_record_ledger(callable_obj) -> None:
 
 
 class DeployRequest(BaseModel):
-    strategy_id: int
+    strategy_id: Optional[int] = None
+    composite_strategy_id: Optional[int] = None
+    strategy_source_type: str = "strategy"
     vt_symbol: Optional[str] = None
     vt_symbols: Optional[list[str]] = None
     parameters: dict = {}
@@ -79,8 +81,16 @@ async def deploy_strategy(req: DeployRequest, current_user: TokenData = Depends(
     if req.execution_mode not in ("auto", "semi_auto"):
         raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message="execution_mode must be 'auto' or 'semi_auto'")
 
+    strategy_source_type = (req.strategy_source_type or "strategy").strip().lower()
+    if strategy_source_type not in {"strategy", "composite"}:
+        raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message="strategy_source_type must be 'strategy' or 'composite'")
+    if strategy_source_type == "strategy" and req.strategy_id is None:
+        raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message="strategy_id is required")
+    if strategy_source_type == "composite" and req.composite_strategy_id is None:
+        raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message="composite_strategy_id is required")
+
     resolved_vt_symbol = req.resolved_vt_symbol()
-    if not resolved_vt_symbol:
+    if strategy_source_type != "composite" and not resolved_vt_symbol:
         raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message="vt_symbol or vt_symbols is required")
     if req.vt_symbol and req.vt_symbols and req.vt_symbol.strip() != resolved_vt_symbol:
         raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message="vt_symbol and vt_symbols must match when both are provided")
@@ -104,6 +114,8 @@ async def deploy_strategy(req: DeployRequest, current_user: TokenData = Depends(
         execution_mode=req.execution_mode,
         source_backtest_job_id=req.source_backtest_job_id,
         source_version_id=req.source_version_id,
+        strategy_source_type=strategy_source_type,
+        composite_strategy_id=req.composite_strategy_id,
     )
     if not result.get("success"):
         raise APIError(
@@ -121,13 +133,15 @@ async def deploy_strategy(req: DeployRequest, current_user: TokenData = Depends(
             paper_account_id=req.paper_account_id,
             user_id=current_user.user_id,
             strategy_id=req.strategy_id,
+            composite_strategy_id=req.composite_strategy_id,
+            strategy_source_type=strategy_source_type,
             strategy_name=result.get("strategy_name", ""),
-            vt_symbol=resolved_vt_symbol,
+            vt_symbol=result.get("vt_symbol") or resolved_vt_symbol,
             parameters=req.parameters,
         )
 
     # Audit: log paper deployment from backtest
-    if req.source_backtest_job_id or req.source_version_id:
+    if strategy_source_type == "strategy" and req.strategy_id is not None and (req.source_backtest_job_id or req.source_version_id):
         from app.domains.audit.service import get_audit_service
         audit_svc = get_audit_service()
         audit_svc.log_paper_deploy(

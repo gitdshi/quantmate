@@ -112,6 +112,56 @@ class TestDeploy:
         assert kwargs["vt_symbol"] == "000001.SZSE,000002.SZSE"
         assert resp.json()["runtime"]["runtime_mode"] == "portfolio_strategy_bridge"
 
+    @patch("app.api.routes.paper_trading.PaperRuntimeService")
+    @patch("app.api.routes.paper_trading.PaperAccountService")
+    @patch("app.api.routes.paper_trading.PaperTradingService")
+    def test_deploy_composite_strategy(self, MockSvc, MockAccountSvc, MockRuntimeSvc, client):
+        MockAccountSvc.return_value.get_account.return_value = {
+            "id": 8,
+            "status": "active",
+            "market": "CN",
+        }
+        MockSvc.return_value.deploy.return_value = {
+            "success": True,
+            "deployment_id": 12,
+            "status": "running",
+            "strategy_name": "Composite Alpha",
+            "vt_symbol": "000001.SZSE,000002.SZSE",
+        }
+        MockRuntimeSvc.return_value.preview_runtime.return_value = {
+            "status": "pending",
+            "runtime_mode": "composite_strategy_bridge",
+            "strategy_kind": "portfolio",
+            "gateway_name": "PAPER.12",
+        }
+
+        resp = client.post("/api/v1/paper-trade/deploy", json={
+            "strategy_source_type": "composite",
+            "composite_strategy_id": 3,
+            "paper_account_id": 8,
+            "execution_mode": "auto",
+        })
+
+        assert resp.status_code == 201
+        _, kwargs = MockSvc.return_value.deploy.call_args
+        assert kwargs["strategy_source_type"] == "composite"
+        assert kwargs["composite_strategy_id"] == 3
+        assert kwargs["strategy_id"] is None
+        assert kwargs["vt_symbol"] == ""
+        MockRuntimeSvc.return_value.preview_runtime.assert_called_once()
+        assert resp.json()["runtime"]["runtime_mode"] == "composite_strategy_bridge"
+
+    @patch("app.api.routes.paper_trading.PaperTradingService")
+    def test_deploy_composite_strategy_requires_composite_strategy_id(self, MockSvc, client):
+        resp = client.post("/api/v1/paper-trade/deploy", json={
+            "strategy_source_type": "composite",
+            "paper_account_id": 8,
+        })
+
+        assert resp.status_code == 400
+        assert "composite_strategy_id is required" in resp.json()["detail"]
+        MockSvc.return_value.deploy.assert_not_called()
+
     @patch("app.api.routes.paper_trading.PaperTradingService")
     def test_deploy_strategy_not_found(self, MockSvc, client):
         MockSvc.return_value.deploy.return_value = {
