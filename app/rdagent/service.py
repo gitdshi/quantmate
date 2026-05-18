@@ -14,6 +14,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 import traceback
 from pathlib import Path
 
@@ -37,6 +38,7 @@ _OPENCODE_ZEN_CHAT_MODEL = "minimax-m2.5-free"
 _OLLAMA_CHAT_MODEL = "ollama/qwen2.5:0.5b"
 _OLLAMA_EMBEDDING_MODEL = "ollama/nomic-embed-text:latest"
 _TIMEOUT_PER_ITERATION_SECONDS = int(os.getenv("RDAGENT_TIMEOUT_PER_ITERATION_SECONDS", "1800"))
+_IDLE_TIMEOUT_SECONDS = int(os.getenv("RDAGENT_IDLE_TIMEOUT_SECONDS", "300"))
 _SEEDED_FACTOR_COLUMNS = {
     "$open": [10.0, 11.2, 10.8, 11.5],
     "$high": [10.4, 11.5, 11.1, 11.8],
@@ -99,6 +101,9 @@ _SENSITIVE_ERROR_PATTERNS = (
     re.compile(r"(?i)\bsk-[A-Za-z0-9_-]{8,}\b"),
 )
 _RATE_LIMIT_ERROR_PATTERN = re.compile(r"(?i)(rate limit|too many requests|\b429\b)")
+_RETRYABLE_PROVIDER_ERROR_PATTERN = re.compile(
+    r"(?i)(rate limit|too many requests|\b429\b|timeout|timed out|deadline exceeded|connection reset|connection aborted|server disconnected|temporarily unavailable|stalled waiting for activity)"
+)
 
 
 def _build_rdagent_command(scenario: str, max_iterations: int) -> list[str]:
@@ -192,6 +197,10 @@ def _is_rate_limit_error(error_text: str | None) -> bool:
     return bool(error_text and _RATE_LIMIT_ERROR_PATTERN.search(error_text))
 
 
+def _is_retryable_provider_error(error_text: str | None) -> bool:
+    return bool(error_text and _RETRYABLE_PROVIDER_ERROR_PATTERN.search(error_text))
+
+
 def _workspace_rate_limit_error_text(run_dir: Path) -> str | None:
     for candidate in (run_dir / "selector.log", run_dir / "stderr.log"):
         if not candidate.exists() or not candidate.is_file():
@@ -206,6 +215,38 @@ def _workspace_rate_limit_error_text(run_dir: Path) -> str | None:
         if _is_rate_limit_error(text):
             return _redact_sensitive_error_text(text[-2000:])
     return None
+
+
+def _workspace_retryable_error_text(run_dir: Path) -> str | None:
+    for candidate in (run_dir / "selector.log", run_dir / "stderr.log"):
+        if not candidate.exists() or not candidate.is_file():
+            continue
+        try:
+            text = candidate.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        summary = _summarize_process_error(text, limit=2000)
+        if _is_retryable_provider_error(summary):
+            return summary
+        if _is_retryable_provider_error(text):
+            return _redact_sensitive_error_text(text[-2000:])
+    return None
+
+
+def _workspace_activity_marker(run_dir: Path) -> tuple[int, int]:
+    latest_mtime_ns = 0
+    latest_size = 0
+    for candidate in run_dir.rglob("*"):
+        if not candidate.is_file():
+            continue
+        try:
+            stat = candidate.stat()
+        except OSError:
+            continue
+        marker = (stat.st_mtime_ns, stat.st_size)
+        if marker > (latest_mtime_ns, latest_size):
+            latest_mtime_ns, latest_size = marker
+    return latest_mtime_ns, latest_size
 
 
 def _seed_factor_prompt_data(run_dir: Path, env: dict[str, str]) -> None:
@@ -396,7 +437,42 @@ def _run_rdagent_process(
         start_new_session=True,
     )
     _register_running_process(run_id, process)
-    _, stderr = process.communicate(timeout=max_iterations * _TIMEOUT_PER_ITERATION_SECONDS)
+
+    deadline = time.monotonic() + (max_iterations * _TIMEOUT_PER_ITERATION_SECONDS)
+    last_activity_at = time.monotonic()
+    last_activity_marker = _workspace_activity_marker(run_dir)
+    stderr = None
+
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise subprocess.TimeoutExpired(process.args, max_iterations * _TIMEOUT_PER_ITERATION_SECONDS)
+
+        try:
+            _, stderr = process.communicate(timeout=min(5, remaining))
+            break
+        except subprocess.TimeoutExpired:
+            current_marker = _workspace_activity_marker(run_dir)
+            if current_marker != last_activity_marker:
+                last_activity_marker = current_marker
+                last_activity_at = time.monotonic()
+                continue
+
+            if _IDLE_TIMEOUT_SECONDS > 0 and time.monotonic() - last_activity_at >= _IDLE_TIMEOUT_SECONDS:
+                logger.error(
+                    "rdagent run %s stalled for %ds without workspace activity",
+                    run_id,
+                    _IDLE_TIMEOUT_SECONDS,
+                )
+                _terminate_process(process)
+                try:
+                    _, stderr = process.communicate(timeout=5)
+                except subprocess.TimeoutExpired:
+                    stderr = None
+                error_summary = _summarize_process_error(stderr) or (
+                    f"RD-Agent process stalled waiting for activity for {_IDLE_TIMEOUT_SECONDS} seconds"
+                )
+                return 124, error_summary
 
     logger.info("rdagent exited with code %d", process.returncode)
     error_summary = _summarize_process_error(stderr)
@@ -460,17 +536,17 @@ def mine():
             env,
         )
 
-        rate_limit_error = error_summary if _is_rate_limit_error(error_summary) else _workspace_rate_limit_error_text(run_dir)
+        retryable_error = error_summary if _is_retryable_provider_error(error_summary) else _workspace_retryable_error_text(run_dir)
 
         ollama_model = env.get("RDAGENT_OLLAMA_CHAT_MODEL", _OLLAMA_CHAT_MODEL)
         if (
             returncode != 0
-            and rate_limit_error
+            and retryable_error
             and env.get("OLLAMA_API_BASE")
             and env.get("CHAT_MODEL") != ollama_model
         ):
             logger.warning(
-                "rdagent run %s hit provider rate limits on %s; retrying with ollama fallback %s",
+                "rdagent run %s hit retryable provider failure on %s; retrying with ollama fallback %s",
                 run_id,
                 env.get("CHAT_MODEL"),
                 ollama_model,

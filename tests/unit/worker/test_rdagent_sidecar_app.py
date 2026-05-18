@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib
 from pathlib import Path
+import signal
+import subprocess
 import sys
 from unittest.mock import MagicMock
 
@@ -374,6 +376,103 @@ def test_mine_retries_with_ollama_when_selector_log_has_rate_limit(monkeypatch, 
                 encoding="utf-8",
             )
             return 1, "RuntimeError: Failed to create chat completion after 10 retries."
+        return 0, None
+
+    monkeypatch.setattr(module, "_run_rdagent_process", fake_run_process)
+
+    client = module.app.test_client()
+    response = client.post(
+        "/mine",
+        json={
+            "run_id": "run-1",
+            "config": {
+                "scenario": "fin_factor",
+                "max_iterations": 1,
+                "llm_model": "minimax-m2.5-free",
+            },
+            "prompt_context": "factor context",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["status"] == "completed"
+    assert calls == ["openai/minimax-m2.5-free", "ollama/qwen2.5:0.5b"]
+    assert build_env.call_count == 2
+
+
+def test_run_rdagent_process_stalls_without_workspace_activity(monkeypatch, tmp_path):
+    module = _load_sidecar_module()
+
+    monkeypatch.setattr(module, "_IDLE_TIMEOUT_SECONDS", 1)
+    monotonic_values = iter([0.0, 0.0, 0.0, 2.0])
+    monkeypatch.setattr(module.time, "monotonic", lambda: next(monotonic_values))
+    monkeypatch.setattr(module, "_workspace_activity_marker", lambda run_dir: (0, 0))
+
+    terminated = []
+
+    class FakeProcess:
+        def __init__(self):
+            self.pid = 123
+            self.args = ["rdagent", "fin_factor", "--step-n", "1"]
+            self.returncode = None
+            self._communicate_calls = 0
+
+        def communicate(self, timeout=None):
+            self._communicate_calls += 1
+            if self._communicate_calls == 1:
+                raise subprocess.TimeoutExpired(self.args, timeout)
+            self.returncode = -signal.SIGTERM
+            return "", ""
+
+    process = FakeProcess()
+    monkeypatch.setattr(module.subprocess, "Popen", MagicMock(return_value=process))
+
+    def fake_terminate(proc):
+        terminated.append(proc.pid)
+        proc.returncode = -signal.SIGTERM
+
+    monkeypatch.setattr(module, "_terminate_process", fake_terminate)
+
+    returncode, error_summary = module._run_rdagent_process(
+        "run-1",
+        tmp_path,
+        "fin_factor",
+        1,
+        {"CHAT_MODEL": "openai/minimax-m2.5-free"},
+    )
+
+    assert returncode == 124
+    assert "stalled waiting for activity" in error_summary
+    assert terminated == [123]
+
+
+def test_mine_retries_with_ollama_after_stalled_primary_run(monkeypatch, tmp_path):
+    module = _load_sidecar_module()
+
+    module.WORKSPACE = tmp_path
+    initial_env = {
+        "CHAT_MODEL": "openai/minimax-m2.5-free",
+        "OLLAMA_API_BASE": "http://127.0.0.1:11434",
+        "RDAGENT_OLLAMA_CHAT_MODEL": "ollama/qwen2.5:0.5b",
+    }
+    fallback_env = {
+        "CHAT_MODEL": "ollama/qwen2.5:0.5b",
+        "OLLAMA_API_BASE": "http://127.0.0.1:11434",
+        "RDAGENT_OLLAMA_CHAT_MODEL": "ollama/qwen2.5:0.5b",
+    }
+    build_env = MagicMock(side_effect=[initial_env, fallback_env])
+    monkeypatch.setattr(module, "_build_rdagent_env", build_env)
+    monkeypatch.setattr(module, "_seed_factor_prompt_data", lambda run_dir, env: None)
+    monkeypatch.setattr(module, "_parse_iterations", lambda run_dir, max_iters: [{"iteration": 1, "status": "completed"}])
+    monkeypatch.setattr(module, "_parse_discovered_factors", lambda run_dir: [{"name": "f1", "expression": "close"}])
+
+    calls = []
+
+    def fake_run_process(run_id, run_dir, scenario, max_iterations, env):
+        calls.append(env["CHAT_MODEL"])
+        if len(calls) == 1:
+            return 124, "RD-Agent process stalled waiting for activity for 300 seconds"
         return 0, None
 
     monkeypatch.setattr(module, "_run_rdagent_process", fake_run_process)
