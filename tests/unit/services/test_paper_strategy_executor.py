@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
+from vnpy.trader.constant import Direction as VDirection, Offset
 
 import app.domains.trading.paper_strategy_executor as _mod
 from app.domains.trading.paper_gateway import PaperGateway, PaperGatewayOrderRequest
@@ -62,6 +64,49 @@ class TestPaperCtaEngine:
     def test_send_email(self, _patch_conn):
         e = self._make_engine(_patch_conn)
         e.send_email("test msg")  # no-op
+
+    def test_load_bar_prefers_market_history(self, monkeypatch, _patch_conn):
+        e = self._make_engine(_patch_conn)
+        callback = MagicMock()
+
+        class FakeMarketService:
+            def get_history(self, vt_symbol, start_date, end_date):
+                return [
+                    {"datetime": datetime(2026, 5, 1), "open": 10.0, "high": 10.2, "low": 9.9, "close": 10.1, "volume": 1000},
+                    {"datetime": datetime(2026, 5, 2), "open": 10.1, "high": 10.3, "low": 10.0, "close": 10.2, "volume": 1200},
+                ]
+
+        monkeypatch.setattr("app.domains.market.service.MarketService", FakeMarketService)
+        monkeypatch.setattr(
+            _mod.PaperStrategyExecutor,
+            "_history_to_bar",
+            staticmethod(lambda history_bar, vt_symbol: {"close": history_bar["close"]}),
+        )
+
+        bars = e.load_bar("000001.SZSE", 2, None, callback)
+
+        assert bars == [{"close": 10.1}, {"close": 10.2}]
+        callback.assert_not_called()
+
+    def test_load_bar_falls_back_to_quote_when_history_missing(self, monkeypatch, _patch_conn):
+        e = self._make_engine(_patch_conn)
+        callback = MagicMock()
+
+        class FakeMarketService:
+            def get_history(self, vt_symbol, start_date, end_date):
+                return []
+
+        gateway = MagicMock()
+        gateway.get_last_tick.return_value = {"price": 10.5}
+        e.gateway = gateway
+
+        monkeypatch.setattr("app.domains.market.service.MarketService", FakeMarketService)
+        monkeypatch.setattr(_mod.PaperStrategyExecutor, "_quote_to_bar", staticmethod(lambda quote, vt_symbol: {"price": 10.5}))
+
+        bars = e.load_bar("000001.SZSE", 5, None, callback)
+
+        assert bars == [{"price": 10.5}]
+        callback.assert_not_called()
 
     def test_get_pricetick(self, _patch_conn):
         e = self._make_engine(_patch_conn)
@@ -123,6 +168,33 @@ class TestPaperCtaEngine:
                     strategy, direction="LONG", offset="OPEN",
                     price=10.0, volume=100
                 )
+
+    def test_send_order_passes_volume_to_executor(self, _patch_conn):
+        gateway = PaperGateway("PAPER.1")
+        e = _mod._PaperCtaEngine(
+            executor=MagicMock(),
+            deployment_id=1,
+            paper_account_id=1,
+            user_id=1,
+            vt_symbol="000001.SZSE",
+            execution_mode="auto",
+            gateway=gateway,
+        )
+        strategy = MagicMock()
+
+        with patch.object(e, "_execute_order") as execute_order:
+            e.send_order(
+                strategy,
+                direction=VDirection.SHORT,
+                offset=Offset.OPEN,
+                price=10.0,
+                volume=100,
+            )
+
+        execute_order.assert_called_once()
+        assert execute_order.call_args.args[0] == "sell"
+        assert execute_order.call_args.args[1] == 100
+        assert execute_order.call_args.args[2] == 10.0
 
     def test_execute_order(self, _patch_conn):
         e = self._make_engine(_patch_conn)

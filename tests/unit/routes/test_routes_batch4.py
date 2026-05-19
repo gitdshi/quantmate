@@ -879,6 +879,9 @@ class TestWebSocketHelpers:
 # Multi-factor engine (33% → should cover most functions)
 # ================================================================
 
+import ast
+
+
 class TestMultiFactorEngine:
 
     def test_factor_spec(self):
@@ -940,6 +943,7 @@ class TestMultiFactorEngine:
         ]
         code = generate_cta_code("MyStrat", factors)
         assert "MyStrat" in code
+        ast.parse(code)
 
     def test_generate_cta_code_with_canonical_rdagent_factors(self):
         from app.domains.strategies.multi_factor_engine import generate_cta_code, FactorSpec
@@ -955,6 +959,7 @@ class TestMultiFactorEngine:
         assert "prev = self.am.close_array[-5 - 1]" in code
         assert "returns = self.am.close_array[-20 - 1:]" in code
         assert "self.am.volume_array[-20:]" in code
+        ast.parse(code)
 
     def test_generate_qlib_config(self):
         from app.domains.strategies.multi_factor_engine import generate_qlib_config, FactorSpec

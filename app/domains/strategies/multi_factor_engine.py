@@ -86,8 +86,8 @@ def generate_cta_code(
             # Default to a momentum proxy
             expr = "close / delay(close, 20) - 1"
         factor_computations.append(
-            f"        # Factor {i}: {f.factor_name}\n"
-            f"        raw_{safe_name} = self._compute_factor_{i}()"
+            f"# Factor {i}: {f.factor_name}\n"
+            f"raw_{safe_name} = self._compute_factor_{i}()"
         )
 
     factor_compute_blocks = "\n".join(factor_computations)
@@ -100,119 +100,119 @@ def generate_cta_code(
         method = _expression_to_am_method(expr, i, factors[i].factor_name)
         factor_methods.append(method)
 
-    factor_methods_str = "\n\n".join(factor_methods)
+    factor_methods_str = textwrap.indent("\n\n".join(factor_methods), " " * 4)
+    factor_compute_blocks = textwrap.indent(factor_compute_blocks, " " * 8)
 
-    code = textwrap.dedent(f'''\
-        """Multi-factor strategy: {class_name}
-        
-        Auto-generated from FactorLab.
-        Factors: {", ".join(f.factor_name for f in factors)}
-        """
-        
-        from vnpy_ctastrategy import (
-            CtaTemplate,
-            StopOrder,
-            TickData,
-            BarData,
-            TradeData,
-            OrderData,
-            BarGenerator,
-            ArrayManager,
-        )
-        import numpy as np
-        
-        
-        class {class_name}(CtaTemplate):
-            """Multi-factor composite strategy."""
-        
-            author = "QuantMate-FactorLab"
-        
-            # Parameters
-            lookback_window: int = {lookback_window}
-            rebalance_interval: int = {rebalance_interval}
-            fixed_size: int = {fixed_size}
-            signal_threshold: float = {signal_threshold}
-        
-            parameters = ["lookback_window", "rebalance_interval", "fixed_size", "signal_threshold"]
-            variables = ["composite_score", "bar_count"]
-        
-            def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
-                super().__init__(cta_engine, strategy_name, vt_symbol, setting)
-                self.bg = BarGenerator(self.on_bar)
-                self.am = ArrayManager(size={max(lookback_window + 10, 50)})
-        
-                self.composite_score: float = 0.0
-                self.bar_count: int = 0
-        
-                # Factor weights and directions
-                self._weights = [{weights_str}]
-                self._directions = [{directions_str}]
-        
-            def on_init(self):
-                self.write_log("{class_name} initialising")
-                self.load_bar({max(lookback_window + 10, 50)})
-        
-            def on_start(self):
-                self.write_log("{class_name} started")
-        
-            def on_stop(self):
-                self.write_log("{class_name} stopped")
-        
-            def on_tick(self, tick: TickData):
-                self.bg.update_tick(tick)
-        
-            def on_bar(self, bar: BarData):
-                self.cancel_all()
-                self.am.update_bar(bar)
-                if not self.am.inited:
-                    return
-        
-                self.bar_count += 1
-        
-                # Rebalance every N bars
-                if self.bar_count % self.rebalance_interval != 0:
-                    return
-        
-                # Compute factor values
-        {factor_compute_blocks}
-        
-                # Normalise and combine
-                raw_values = [{", ".join(f"raw_{n}" for n in factor_names)}]
-                score = 0.0
-                for val, w, d in zip(raw_values, self._weights, self._directions):
-                    if val is not None and not np.isnan(val):
-                        score += val * w * d
-                self.composite_score = score
-        
-                # Trading logic
-                if self.pos == 0:
-                    if score > self.signal_threshold:
-                        self.buy(bar.close_price, self.fixed_size)
-                    elif score < -self.signal_threshold:
-                        self.short(bar.close_price, self.fixed_size)
-                elif self.pos > 0:
-                    if score < -self.signal_threshold:
-                        self.sell(bar.close_price, abs(self.pos))
-                        self.short(bar.close_price, self.fixed_size)
-                    elif score < 0:
-                        self.sell(bar.close_price, abs(self.pos))
-                elif self.pos < 0:
-                    if score > self.signal_threshold:
-                        self.cover(bar.close_price, abs(self.pos))
-                        self.buy(bar.close_price, self.fixed_size)
-                    elif score > 0:
-                        self.cover(bar.close_price, abs(self.pos))
-        
-                self.put_event()
-        
-            def on_order(self, order: OrderData): pass
-            def on_trade(self, trade: TradeData): pass
-            def on_stop_order(self, stop_order: StopOrder): pass
-        
-            # --- Factor computation methods ---
-        
-        {factor_methods_str}
-    ''')
+    code = f'''"""Multi-factor strategy: {class_name}
+
+Auto-generated from FactorLab.
+Factors: {", ".join(f.factor_name for f in factors)}
+"""
+
+from vnpy_ctastrategy import (
+    CtaTemplate,
+    StopOrder,
+    TickData,
+    BarData,
+    TradeData,
+    OrderData,
+    BarGenerator,
+    ArrayManager,
+)
+import numpy as np
+
+
+class {class_name}(CtaTemplate):
+    """Multi-factor composite strategy."""
+
+    author = "QuantMate-FactorLab"
+
+    # Parameters
+    lookback_window: int = {lookback_window}
+    rebalance_interval: int = {rebalance_interval}
+    fixed_size: int = {fixed_size}
+    signal_threshold: float = {signal_threshold}
+
+    parameters = ["lookback_window", "rebalance_interval", "fixed_size", "signal_threshold"]
+    variables = ["composite_score", "bar_count"]
+
+    def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
+        super().__init__(cta_engine, strategy_name, vt_symbol, setting)
+        self.bg = BarGenerator(self.on_bar)
+        self.am = ArrayManager(size={max(lookback_window + 10, 50)})
+
+        self.composite_score: float = 0.0
+        self.bar_count: int = 0
+
+        # Factor weights and directions
+        self._weights = [{weights_str}]
+        self._directions = [{directions_str}]
+
+    def on_init(self):
+        self.write_log("{class_name} initialising")
+        self.load_bar({max(lookback_window + 10, 50)})
+
+    def on_start(self):
+        self.write_log("{class_name} started")
+
+    def on_stop(self):
+        self.write_log("{class_name} stopped")
+
+    def on_tick(self, tick: TickData):
+        self.bg.update_tick(tick)
+
+    def on_bar(self, bar: BarData):
+        self.cancel_all()
+        self.am.update_bar(bar)
+        if not self.am.inited:
+            return
+
+        self.bar_count += 1
+
+        # Rebalance every N bars
+        if self.bar_count % self.rebalance_interval != 0:
+            return
+
+        # Compute factor values
+{factor_compute_blocks}
+
+        # Normalise and combine
+        raw_values = [{", ".join(f"raw_{n}" for n in factor_names)}]
+        score = 0.0
+        for val, w, d in zip(raw_values, self._weights, self._directions):
+            if val is not None and not np.isnan(val):
+                score += val * w * d
+        self.composite_score = score
+
+        # Trading logic
+        if self.pos == 0:
+            if score > self.signal_threshold:
+                self.buy(bar.close_price, self.fixed_size)
+            elif score < -self.signal_threshold:
+                self.short(bar.close_price, self.fixed_size)
+        elif self.pos > 0:
+            if score < -self.signal_threshold:
+                self.sell(bar.close_price, abs(self.pos))
+                self.short(bar.close_price, self.fixed_size)
+            elif score < 0:
+                self.sell(bar.close_price, abs(self.pos))
+        elif self.pos < 0:
+            if score > self.signal_threshold:
+                self.cover(bar.close_price, abs(self.pos))
+                self.buy(bar.close_price, self.fixed_size)
+            elif score > 0:
+                self.cover(bar.close_price, abs(self.pos))
+
+        self.put_event()
+
+    def on_order(self, order: OrderData): pass
+    def on_trade(self, trade: TradeData): pass
+    def on_stop_order(self, stop_order: StopOrder): pass
+
+    # --- Factor computation methods ---
+
+{factor_methods_str}
+'''
 
     return code
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, Optional
 
 from sqlalchemy import text
@@ -100,7 +100,6 @@ class _PaperCtaEngine:
     def send_order(
         self,
         strategy: Any,
-        order_type=None,
         direction=None,
         offset=None,
         price: float = 0.0,
@@ -122,7 +121,7 @@ class _PaperCtaEngine:
                 PaperGatewayOrderRequest(
                     vt_symbol=self.vt_symbol,
                     direction=dir_str,
-                    order_type="stop" if stop else getattr(order_type, "value", None) or "market",
+                    order_type="stop" if stop else "market",
                     volume=qty,
                     price=price,
                     stop=stop,
@@ -162,22 +161,44 @@ class _PaperCtaEngine:
         return 1
 
     def load_bar(self, vt_symbol: str, days: int, interval, callback, use_database: bool = False) -> None:
+        from app.domains.market.service import MarketService
+
+        bars = []
+        history_bars: list[dict[str, Any]] = []
+        try:
+            lookback_days = max(int(days or 0), 1)
+            end_date = date.today()
+            start_date = end_date - timedelta(days=max(lookback_days * 3, lookback_days + 5))
+            history_bars = MarketService().get_history(vt_symbol, start_date, end_date)
+        except Exception:
+            logger.debug("[paper-engine] load_bar history fallback for %s", vt_symbol, exc_info=True)
+
+        for history_bar in history_bars[-max(int(days or 0), 1):]:
+            bar = PaperStrategyExecutor._history_to_bar(history_bar, vt_symbol)
+            if bar is not None:
+                bars.append(bar)
+
+        if bars:
+            return bars
+
         gateway = self._get_gateway()
         quote = gateway.get_last_tick(vt_symbol) if gateway is not None else None
         if quote is None:
-            return
+            return []
         bar = PaperStrategyExecutor._quote_to_bar(quote, vt_symbol)
         if bar is not None:
-            callback(bar)
+            return [bar]
+        return []
 
     def load_tick(self, vt_symbol: str, days: int, callback) -> None:
         gateway = self._get_gateway()
         quote = gateway.get_last_tick(vt_symbol) if gateway is not None else None
         if quote is None:
-            return
+            return []
         tick = PaperStrategyExecutor._quote_to_tick(quote, vt_symbol)
         if tick is not None:
-            callback(tick)
+            return [tick]
+        return []
 
     def sync_strategy_data(self, strategy: Any) -> None:
         gateway = self._get_gateway()
@@ -635,6 +656,44 @@ class PaperStrategyExecutor:
             )
         except ImportError:
             logger.debug("[paper-executor] vnpy not available, cannot create BarData")
+            return None
+
+    @staticmethod
+    def _history_to_bar(history_bar: dict, vt_symbol: str):
+        """Convert a stored history row to a vnpy BarData."""
+        try:
+            from vnpy.trader.constant import Interval
+            from vnpy.trader.object import BarData
+
+            close_price = float(history_bar.get("close") or 0)
+            if close_price <= 0:
+                return None
+
+            bar_dt = history_bar.get("datetime")
+            if isinstance(bar_dt, str):
+                try:
+                    bar_dt = datetime.fromisoformat(bar_dt)
+                except ValueError:
+                    return None
+            if not isinstance(bar_dt, datetime):
+                return None
+
+            symbol, exchange = _split_vt_symbol(vt_symbol)
+            return BarData(
+                symbol=symbol,
+                exchange=exchange,
+                interval=Interval.DAILY,
+                datetime=bar_dt,
+                gateway_name="paper_history",
+                open_price=float(history_bar.get("open") or close_price),
+                high_price=float(history_bar.get("high") or close_price),
+                low_price=float(history_bar.get("low") or close_price),
+                close_price=close_price,
+                volume=float(history_bar.get("volume") or 0),
+                turnover=float(history_bar.get("amount") or 0),
+            )
+        except ImportError:
+            logger.debug("[paper-executor] vnpy not available, cannot create history BarData")
             return None
 
     @staticmethod
