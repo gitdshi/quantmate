@@ -513,6 +513,21 @@ def _resolve_idle_timeout_seconds(env: dict[str, str]) -> int:
     return _IDLE_TIMEOUT_SECONDS
 
 
+def _resolve_retry_chat_model(env: dict[str, str], retryable_error: str | None) -> str | None:
+    if not retryable_error or not env.get("OLLAMA_API_BASE"):
+        return None
+
+    ollama_model = env.get("RDAGENT_OLLAMA_CHAT_MODEL", _OLLAMA_CHAT_MODEL)
+    ollama_fast_model = env.get("RDAGENT_OLLAMA_FAST_CHAT_MODEL", _OLLAMA_FAST_CHAT_MODEL)
+    current_model = env.get("CHAT_MODEL")
+
+    if current_model != ollama_model:
+        return ollama_model
+    if ollama_fast_model and current_model != ollama_fast_model:
+        return ollama_fast_model
+    return None
+
+
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})
@@ -559,24 +574,24 @@ def mine():
     try:
         env = _build_rdagent_env(run_dir, llm_model)
         _seed_factor_prompt_data(run_dir, env)
-        returncode, error_summary = _run_rdagent_process(
-            run_id,
-            run_dir,
-            scenario,
-            max_iterations,
-            env,
-        )
+        try:
+            returncode, error_summary = _run_rdagent_process(
+                run_id,
+                run_dir,
+                scenario,
+                max_iterations,
+                env,
+            )
+        except subprocess.TimeoutExpired:
+            logger.error("Mining run %s timed out", run_id)
+            process = _get_running_process(run_id)
+            if process is not None:
+                _terminate_process(process)
+            returncode, error_summary = 124, "Mining run timed out"
 
         retryable_error = error_summary if _is_retryable_provider_error(error_summary) else _workspace_retryable_error_text(run_dir)
 
-        ollama_model = env.get("RDAGENT_OLLAMA_CHAT_MODEL", _OLLAMA_CHAT_MODEL)
-        ollama_fast_model = env.get("RDAGENT_OLLAMA_FAST_CHAT_MODEL", _OLLAMA_FAST_CHAT_MODEL)
-        retry_model = None
-        if returncode != 0 and retryable_error and env.get("OLLAMA_API_BASE"):
-            if env.get("CHAT_MODEL") != ollama_model:
-                retry_model = ollama_model
-            elif ollama_fast_model and env.get("CHAT_MODEL") != ollama_fast_model:
-                retry_model = ollama_fast_model
+        retry_model = _resolve_retry_chat_model(env, retryable_error) if returncode != 0 else None
 
         if retry_model:
             logger.warning(
@@ -587,13 +602,20 @@ def mine():
             )
             env = _build_rdagent_env(run_dir, retry_model)
             _seed_factor_prompt_data(run_dir, env)
-            returncode, error_summary = _run_rdagent_process(
-                run_id,
-                run_dir,
-                scenario,
-                max_iterations,
-                env,
-            )
+            try:
+                returncode, error_summary = _run_rdagent_process(
+                    run_id,
+                    run_dir,
+                    scenario,
+                    max_iterations,
+                    env,
+                )
+            except subprocess.TimeoutExpired:
+                logger.error("Mining run %s timed out after retry on %s", run_id, retry_model)
+                process = _get_running_process(run_id)
+                if process is not None:
+                    _terminate_process(process)
+                returncode, error_summary = 124, "Mining run timed out"
 
         status = "cancelled" if returncode == -signal.SIGTERM else "completed" if returncode == 0 else "failed"
 
@@ -604,12 +626,6 @@ def mine():
             "error": error_summary if returncode != 0 else None,
         })
 
-    except subprocess.TimeoutExpired:
-        logger.error("Mining run %s timed out", run_id)
-        process = _get_running_process(run_id)
-        if process is not None:
-            _terminate_process(process)
-        return jsonify({"status": "failed", "error": "Mining run timed out", "iterations": [], "discovered_factors": []})
     except Exception as exc:
         logger.exception("Mining run %s failed: %s", run_id, exc)
         return jsonify({

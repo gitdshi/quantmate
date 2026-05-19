@@ -576,6 +576,61 @@ def test_mine_retries_with_fast_ollama_after_primary_ollama_timeout(monkeypatch,
     assert build_env.call_count == 2
 
 
+def test_mine_retries_with_fast_ollama_after_primary_ollama_process_timeout(monkeypatch, tmp_path):
+    module = _load_sidecar_module()
+
+    module.WORKSPACE = tmp_path
+    initial_env = {
+        "CHAT_MODEL": "ollama/mistral:7b",
+        "OLLAMA_API_BASE": "http://127.0.0.1:11434",
+        "RDAGENT_OLLAMA_CHAT_MODEL": "ollama/mistral:7b",
+        "RDAGENT_OLLAMA_FAST_CHAT_MODEL": "ollama/qwen2.5:0.5b",
+    }
+    fallback_env = {
+        "CHAT_MODEL": "ollama/qwen2.5:0.5b",
+        "OLLAMA_API_BASE": "http://127.0.0.1:11434",
+        "RDAGENT_OLLAMA_CHAT_MODEL": "ollama/mistral:7b",
+        "RDAGENT_OLLAMA_FAST_CHAT_MODEL": "ollama/qwen2.5:0.5b",
+    }
+    build_env = MagicMock(side_effect=[initial_env, fallback_env])
+    monkeypatch.setattr(module, "_build_rdagent_env", build_env)
+    monkeypatch.setattr(module, "_seed_factor_prompt_data", lambda run_dir, env: None)
+    monkeypatch.setattr(module, "_parse_iterations", lambda run_dir, max_iters: [{"iteration": 1, "status": "completed"}])
+    monkeypatch.setattr(module, "_parse_discovered_factors", lambda run_dir: [{"name": "f1", "expression": "close"}])
+    monkeypatch.setattr(module, "_workspace_retryable_error_text", lambda run_dir: "litellm.Timeout: request timed out")
+    monkeypatch.setattr(module, "_get_running_process", lambda run_id: None)
+
+    calls = []
+
+    def fake_run_process(run_id, run_dir, scenario, max_iterations, env):
+        calls.append(env["CHAT_MODEL"])
+        if len(calls) == 1:
+            raise subprocess.TimeoutExpired(["rdagent"], 1800)
+        return 0, None
+
+    monkeypatch.setattr(module, "_run_rdagent_process", fake_run_process)
+
+    client = module.app.test_client()
+    response = client.post(
+        "/mine",
+        json={
+            "run_id": "run-1",
+            "config": {
+                "scenario": "fin_factor",
+                "max_iterations": 1,
+                "llm_model": "ollama/mistral:7b",
+            },
+            "prompt_context": "factor context",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["status"] == "completed"
+    assert calls == ["ollama/mistral:7b", "ollama/qwen2.5:0.5b"]
+    assert build_env.call_count == 2
+
+
 def test_parse_discovered_factors_falls_back_to_selector_log(tmp_path):
     module = _load_sidecar_module()
 
