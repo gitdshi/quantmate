@@ -941,6 +941,21 @@ class TestMultiFactorEngine:
         code = generate_cta_code("MyStrat", factors)
         assert "MyStrat" in code
 
+    def test_generate_cta_code_with_canonical_rdagent_factors(self):
+        from app.domains.strategies.multi_factor_engine import generate_cta_code, FactorSpec
+
+        factors = [
+            FactorSpec("ret5", expression="return_5d", weight=1.0),
+            FactorSpec("vol20", expression="volatility_20d", weight=1.0),
+            FactorSpec("vr20", expression="volume_ratio_20d", weight=1.0),
+        ]
+
+        code = generate_cta_code("RDAgentComposite", factors)
+
+        assert "prev = self.am.close_array[-5 - 1]" in code
+        assert "returns = self.am.close_array[-20 - 1:]" in code
+        assert "self.am.volume_array[-20:]" in code
+
     def test_generate_qlib_config(self):
         from app.domains.strategies.multi_factor_engine import generate_qlib_config, FactorSpec
         factors = [FactorSpec("sma", expression="sma_20")]

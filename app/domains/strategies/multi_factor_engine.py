@@ -10,6 +10,7 @@ Also manages the strategy_factors bridge table.
 from __future__ import annotations
 
 import logging
+import re
 import textwrap
 from typing import Any, Optional
 
@@ -18,6 +19,13 @@ from sqlalchemy import text
 from app.infrastructure.db.connections import connection
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_window(expr_lower: str, default: int = 20) -> int:
+    match = re.search(r"(\d+)d", expr_lower)
+    if not match:
+        return default
+    return max(int(match.group(1)), 2)
 
 
 # ---------------------------------------------------------------------------
@@ -233,12 +241,39 @@ def _expression_to_am_method(expr: str, idx: int, name: str) -> str:
                 rsi = self.am.rsi(self.lookback_window)
                 return (rsi - 50.0) / 50.0  # normalise to [-1, 1]""")
 
-    if "std" in expr_lower or "volatility" in expr_lower:
+    if "volume_ratio" in expr_lower or "vr_" in expr_lower:
+        window = _extract_window(expr_lower)
         return textwrap.dedent(f"""\
             def _compute_factor_{idx}(self):
                 \"\"\"Factor {idx}: {name}\"\"\"
-                std = self.am.close_array[-self.lookback_window:].std()
-                mean = self.am.close_array[-self.lookback_window:].mean()
+                if len(self.am.volume_array) < {window}:
+                    return 0.0
+                current = float(self.am.volume_array[-1])
+                baseline = float(self.am.volume_array[-{window}:].mean())
+                return current / (baseline + 1e-9)""")
+
+    if "return" in expr_lower or "momentum" in expr_lower or "r_{" in expr_lower:
+        window = _extract_window(expr_lower)
+        return textwrap.dedent(f"""\
+            def _compute_factor_{idx}(self):
+                \"\"\"Factor {idx}: {name}\"\"\"
+                if len(self.am.close_array) < {window} + 1:
+                    return 0.0
+                prev = self.am.close_array[-{window} - 1]
+                curr = self.am.close_array[-1]
+                return (curr - prev) / (prev + 1e-9)""")
+
+    if "std" in expr_lower or "volatility" in expr_lower:
+        window = _extract_window(expr_lower)
+        return textwrap.dedent(f"""\
+            def _compute_factor_{idx}(self):
+                \"\"\"Factor {idx}: {name}\"\"\"
+                if len(self.am.close_array) < {window} + 1:
+                    return 0.0
+                returns = self.am.close_array[-{window} - 1:]
+                returns = (returns[1:] - returns[:-1]) / (returns[:-1] + 1e-9)
+                std = returns.std()
+                mean = abs(returns.mean())
                 return std / (mean + 1e-9)""")
 
     # Default: momentum (close / delay) normalised
