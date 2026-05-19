@@ -36,6 +36,7 @@ _FACTOR_DATA_DEBUG_DIR = "git_ignore_folder/factor_implementation_source_data_de
 _OPENCODE_ZEN_API_BASE = "https://opencode.ai/zen/v1"
 _OPENCODE_ZEN_CHAT_MODEL = "minimax-m2.5-free"
 _OLLAMA_CHAT_MODEL = "ollama/qwen2.5:0.5b"
+_OLLAMA_FAST_CHAT_MODEL = os.getenv("RDAGENT_OLLAMA_FAST_CHAT_MODEL", _OLLAMA_CHAT_MODEL)
 _OLLAMA_EMBEDDING_MODEL = "ollama/nomic-embed-text:latest"
 _TIMEOUT_PER_ITERATION_SECONDS = int(os.getenv("RDAGENT_TIMEOUT_PER_ITERATION_SECONDS", "1800"))
 _IDLE_TIMEOUT_SECONDS = int(os.getenv("RDAGENT_IDLE_TIMEOUT_SECONDS", "300"))
@@ -569,19 +570,22 @@ def mine():
         retryable_error = error_summary if _is_retryable_provider_error(error_summary) else _workspace_retryable_error_text(run_dir)
 
         ollama_model = env.get("RDAGENT_OLLAMA_CHAT_MODEL", _OLLAMA_CHAT_MODEL)
-        if (
-            returncode != 0
-            and retryable_error
-            and env.get("OLLAMA_API_BASE")
-            and env.get("CHAT_MODEL") != ollama_model
-        ):
+        ollama_fast_model = env.get("RDAGENT_OLLAMA_FAST_CHAT_MODEL", _OLLAMA_FAST_CHAT_MODEL)
+        retry_model = None
+        if returncode != 0 and retryable_error and env.get("OLLAMA_API_BASE"):
+            if env.get("CHAT_MODEL") != ollama_model:
+                retry_model = ollama_model
+            elif ollama_fast_model and env.get("CHAT_MODEL") != ollama_fast_model:
+                retry_model = ollama_fast_model
+
+        if retry_model:
             logger.warning(
                 "rdagent run %s hit retryable provider failure on %s; retrying with ollama fallback %s",
                 run_id,
                 env.get("CHAT_MODEL"),
-                ollama_model,
+                retry_model,
             )
-            env = _build_rdagent_env(run_dir, ollama_model)
+            env = _build_rdagent_env(run_dir, retry_model)
             _seed_factor_prompt_data(run_dir, env)
             returncode, error_summary = _run_rdagent_process(
                 run_id,
