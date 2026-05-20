@@ -45,6 +45,15 @@ class TestPaperTradingRoutes:
         assert resp.json()["deployments"] == [{"id": 1}]
 
     @patch(f"{_ROUTE}.PaperTradingService")
+    def test_list_deployments_with_account_filter(self, MockSvc, client):
+        MockSvc.return_value.list_deployments.return_value = [{"id": 1}]
+
+        resp = client.get("/api/v1/paper-trade/deployments?paper_account_id=8")
+
+        assert resp.status_code == 200
+        MockSvc.return_value.list_deployments.assert_called_once_with(user_id=1, paper_account_id=8)
+
+    @patch(f"{_ROUTE}.PaperTradingService")
     def test_get_deployment_runtime(self, MockSvc, client):
         MockSvc.return_value.get_deployment_runtime.return_value = {
             "deployment_id": 1,
@@ -106,6 +115,15 @@ class TestPaperTradingRoutes:
         assert resp.status_code == 200
 
     @patch(f"{_ROUTE}.PaperTradingService")
+    def test_get_positions_with_account_filter(self, MockSvc, client):
+        MockSvc.return_value.get_positions.return_value = [{"symbol": "000001.SZ"}]
+
+        resp = client.get("/api/v1/paper-trade/positions?paper_account_id=8")
+
+        assert resp.status_code == 200
+        MockSvc.return_value.get_positions.assert_called_once_with(user_id=1, paper_account_id=8)
+
+    @patch(f"{_ROUTE}.PaperTradingService")
     def test_get_performance(self, MockSvc, client):
         MockSvc.return_value.get_performance.return_value = {"pnl": 1000}
         resp = client.get("/api/v1/paper-trade/performance")
@@ -156,3 +174,19 @@ class TestPaperTradingRoutes:
         MockDao.return_value.list_by_user.return_value = ([], 0)
         resp = client.get("/api/v1/paper-trade/orders")
         assert resp.status_code == 200
+
+    @patch(f"{_ROUTE}.OrderDao")
+    def test_list_orders_with_account_filter(self, MockDao, client):
+        MockDao.return_value.list_by_user.return_value = ([], 0)
+
+        resp = client.get("/api/v1/paper-trade/orders?paper_account_id=8")
+
+        assert resp.status_code == 200
+        MockDao.return_value.list_by_user.assert_called_once_with(
+            user_id=1,
+            status=None,
+            mode="paper",
+            page=1,
+            page_size=50,
+            paper_account_id=8,
+        )

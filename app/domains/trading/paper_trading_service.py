@@ -137,21 +137,27 @@ class PaperTradingService:
             "vt_symbol": resolved_vt_symbol,
         }
 
-    def list_deployments(self, user_id: int) -> List[Dict[str, Any]]:
+    def list_deployments(self, user_id: int, paper_account_id: Optional[int] = None) -> List[Dict[str, Any]]:
         """List all paper trading deployments for a user."""
         with connection("quantmate") as conn:
+            conditions = ["user_id = :uid"]
+            params: Dict[str, Any] = {"uid": user_id}
+            if paper_account_id is not None:
+                conditions.append("paper_account_id = :paper_account_id")
+                params["paper_account_id"] = paper_account_id
+            where = " AND ".join(conditions)
             rows = conn.execute(
-                text("""
+                text(f"""
                     SELECT id, strategy_id, composite_strategy_id, strategy_source_type, strategy_name, vt_symbol, parameters,
                            status, started_at, stopped_at, source_backtest_job_id, source_version_id,
                            risk_check_status, risk_check_summary,
                            desired_status, runtime_status, runtime_worker_id,
                            runtime_heartbeat_at, runtime_error, runtime_warning
                     FROM paper_deployments
-                    WHERE user_id = :uid
+                    WHERE {where}
                     ORDER BY started_at DESC
                 """),
-                {"uid": user_id},
+                params,
             ).fetchall()
             return [
                 {
@@ -291,27 +297,33 @@ class PaperTradingService:
 
     # ── Positions ───────────────────────────────────────────
 
-    def get_positions(self, user_id: int) -> List[Dict[str, Any]]:
+    def get_positions(self, user_id: int, paper_account_id: Optional[int] = None) -> List[Dict[str, Any]]:
         """Compute aggregated paper positions from filled paper orders."""
         try:
-            ledger_positions = self._ledger.get_positions(user_id=user_id)
+            ledger_positions = self._ledger.get_positions(user_id=user_id, paper_account_id=paper_account_id)
             if ledger_positions:
                 return ledger_positions
         except Exception:
             logger.warning("Paper ledger positions unavailable, falling back to orders", exc_info=True)
 
         with connection("quantmate") as conn:
+            conditions = ["user_id = :uid", "mode = 'paper'", "status = 'filled'"]
+            params: Dict[str, Any] = {"uid": user_id}
+            if paper_account_id is not None:
+                conditions.append("paper_account_id = :paper_account_id")
+                params["paper_account_id"] = paper_account_id
+            where = " AND ".join(conditions)
             rows = conn.execute(
-                text("""
+                text(f"""
                     SELECT symbol, direction,
                            SUM(filled_quantity) as total_qty,
                            SUM(filled_quantity * avg_fill_price) / NULLIF(SUM(filled_quantity), 0) as avg_cost,
                            SUM(fee) as total_fee
                     FROM orders
-                    WHERE user_id = :uid AND mode = 'paper' AND status = 'filled'
+                    WHERE {where}
                     GROUP BY symbol, direction
                 """),
-                {"uid": user_id},
+                params,
             ).fetchall()
 
         positions = []

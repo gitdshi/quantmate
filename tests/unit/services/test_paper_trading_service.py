@@ -112,6 +112,16 @@ class TestPaperTradingService:
         assert len(result) == 1
         assert result[0]["parameters"]["fast"] == 5
 
+    def test_list_deployments_filters_by_account(self, _mock_connection):
+        _mock_connection.execute.return_value = MagicMock(fetchall=MagicMock(return_value=[]))
+
+        _mod.PaperTradingService().list_deployments(user_id=1, paper_account_id=9)
+
+        statement = str(_mock_connection.execute.call_args.args[0])
+        params = _mock_connection.execute.call_args.args[1]
+        assert "paper_account_id = :paper_account_id" in statement
+        assert params["paper_account_id"] == 9
+
     def test_stop_deployment(self, _mock_connection):
         _mock_connection.execute.return_value = MagicMock(rowcount=1)
         result = _mod.PaperTradingService().stop_deployment(deployment_id=1, user_id=1)
@@ -163,8 +173,21 @@ class TestPaperTradingService:
 
     def test_get_positions_prefers_ledger(self, _mock_connection, _mock_ledger):
         _mock_ledger.get_positions.return_value = [{"symbol": "000001.SZ", "quantity": 100}]
-        result = _mod.PaperTradingService().get_positions(user_id=1)
+        result = _mod.PaperTradingService().get_positions(user_id=1, paper_account_id=5)
         assert result == [{"symbol": "000001.SZ", "quantity": 100}]
+        _mock_ledger.get_positions.assert_called_once_with(user_id=1, paper_account_id=5)
+
+    def test_get_positions_fallback_filters_by_account(self, _mock_connection, _mock_ledger):
+        _mock_connection.execute.return_value = MagicMock(
+            fetchall=MagicMock(return_value=[])
+        )
+
+        _mod.PaperTradingService().get_positions(user_id=1, paper_account_id=7)
+
+        statement = str(_mock_connection.execute.call_args.args[0])
+        params = _mock_connection.execute.call_args.args[1]
+        assert "paper_account_id = :paper_account_id" in statement
+        assert params["paper_account_id"] == 7
 
     def test_get_performance(self, _mock_connection, _mock_ledger):
         _mock_connection.execute.return_value = MagicMock(

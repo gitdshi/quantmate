@@ -157,10 +157,13 @@ async def deploy_strategy(req: DeployRequest, current_user: TokenData = Depends(
 
 
 @router.get("/deployments", dependencies=[require_permission("trading", "read")])
-async def list_deployments(current_user: TokenData = Depends(get_current_user)):
+async def list_deployments(
+    paper_account_id: Optional[int] = Query(None),
+    current_user: TokenData = Depends(get_current_user),
+):
     """List all paper trading deployments for the current user."""
     svc = PaperTradingService()
-    deployments = svc.list_deployments(user_id=current_user.user_id)
+    deployments = svc.list_deployments(user_id=current_user.user_id, paper_account_id=paper_account_id)
     return {"deployments": deployments}
 
 
@@ -361,6 +364,7 @@ async def create_paper_order(req: PaperOrderRequest, current_user: TokenData = D
 @router.get("/orders")
 async def list_paper_orders(
     status_filter: Optional[str] = Query(None, alias="status"),
+    paper_account_id: Optional[int] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     current_user: TokenData = Depends(get_current_user),
@@ -373,6 +377,7 @@ async def list_paper_orders(
         mode="paper",
         page=page,
         page_size=page_size,
+        paper_account_id=paper_account_id,
     )
     return {"orders": orders, "meta": {"total": total, "page": page, "page_size": page_size}}
 
@@ -424,10 +429,13 @@ async def cancel_paper_order(order_id: int, current_user: TokenData = Depends(ge
 
 
 @router.get("/positions")
-async def get_paper_positions(current_user: TokenData = Depends(get_current_user)):
+async def get_paper_positions(
+    paper_account_id: Optional[int] = Query(None),
+    current_user: TokenData = Depends(get_current_user),
+):
     """Get aggregated paper positions computed from filled paper orders."""
     svc = PaperTradingService()
-    positions = svc.get_positions(user_id=current_user.user_id)
+    positions = svc.get_positions(user_id=current_user.user_id, paper_account_id=paper_account_id)
     return {"positions": positions}
 
 

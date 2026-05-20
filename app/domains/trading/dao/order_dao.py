@@ -73,7 +73,13 @@ class OrderDao:
             return self._row_to_dict(row)
 
     def list_by_user(
-        self, user_id: int, status: Optional[str] = None, mode: Optional[str] = None, page: int = 1, page_size: int = 20
+        self,
+        user_id: int,
+        status: Optional[str] = None,
+        mode: Optional[str] = None,
+        page: int = 1,
+        page_size: int = 20,
+        paper_account_id: Optional[int] = None,
     ) -> tuple[list[dict], int]:
         with connection("quantmate") as conn:
             conditions = ["user_id = :uid"]
@@ -84,6 +90,9 @@ class OrderDao:
             if mode:
                 conditions.append("mode = :mode")
                 params["mode"] = mode
+            if paper_account_id is not None:
+                conditions.append("paper_account_id = :paper_account_id")
+                params["paper_account_id"] = paper_account_id
 
             where = " AND ".join(conditions)
 
