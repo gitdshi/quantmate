@@ -80,6 +80,9 @@ class CollaborationService:
     def list_shared_with_me(self, user_id: int) -> list[dict[str, Any]]:
         return self._share_dao.list_shared_with_user(user_id)
 
+    def list_sent_shares(self, user_id: int) -> list[dict[str, Any]]:
+        return self._share_dao.list_shared_by_user(user_id)
+
     def share_strategy(
         self,
         strategy_id: int,

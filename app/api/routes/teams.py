@@ -130,8 +130,21 @@ async def list_shared_with_me(current_user: TokenData = Depends(get_current_user
     return service.list_shared_with_me(current_user.user_id)
 
 
+@router.get("/shares/sent", dependencies=[require_permission("teams", "read")])
+async def list_sent_shares(current_user: TokenData = Depends(get_current_user)):
+    service = CollaborationService()
+    return service.list_sent_shares(current_user.user_id)
+
+
 @router.post("/shares", status_code=status.HTTP_201_CREATED, dependencies=[require_permission("teams", "write")])
 async def share_strategy(req: ShareCreate, current_user: TokenData = Depends(get_current_user)):
+    if bool(req.shared_with_user_id) == bool(req.shared_with_team_id):
+        raise APIError(
+            status_code=400,
+            code=ErrorCode.VALIDATION_ERROR,
+            message="Provide exactly one share target",
+        )
+
     service = CollaborationService()
     share_id = service.share_strategy(
         req.strategy_id,

@@ -166,6 +166,12 @@ class TestStrategyShareDao:
         monkeypatch.setattr(_dao_mod, "connection", lambda n: FCtx(conn))
         assert len(dao.list_shared_with_user(20)) == 1
 
+    def test_list_shared_by_user(self, dao, monkeypatch):
+        row = R({"id": 1, "strategy_id": 5, "shared_by": 20})
+        conn = FC(result=FR(rows=[row]))
+        monkeypatch.setattr(_dao_mod, "connection", lambda n: FCtx(conn))
+        assert len(dao.list_shared_by_user(20)) == 1
+
     def test_share(self, dao, monkeypatch):
         conn = FC(result=FR(lastrowid=9))
         monkeypatch.setattr(_dao_mod, "connection", lambda n: FCtx(conn))

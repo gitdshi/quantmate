@@ -148,12 +148,27 @@ class TestShareRoutes:
         assert resp.status_code == 200
 
     @patch("app.domains.collaboration.service.StrategyShareDao")
+    def test_list_sent_shares(self, MockShareDao, client):
+        MockShareDao.return_value.list_shared_by_user.return_value = []
+        resp = client.get("/api/v1/teams/shares/sent")
+        assert resp.status_code == 200
+
+    @patch("app.domains.collaboration.service.StrategyShareDao")
     def test_share_strategy(self, MockShareDao, client):
         MockShareDao.return_value.share.return_value = 1
         resp = client.post("/api/v1/teams/shares", json={
             "strategy_id": 1, "shared_with_user_id": 2, "permission": "view",
         })
         assert resp.status_code == 201
+
+    @patch("app.domains.collaboration.service.StrategyShareDao")
+    def test_share_strategy_requires_single_target(self, MockShareDao, client):
+        resp = client.post("/api/v1/teams/shares", json={
+            "strategy_id": 1,
+            "permission": "view",
+        })
+        assert resp.status_code == 400
+        MockShareDao.return_value.share.assert_not_called()
 
     @patch("app.domains.collaboration.service.StrategyShareDao")
     def test_revoke_share(self, MockShareDao, client):

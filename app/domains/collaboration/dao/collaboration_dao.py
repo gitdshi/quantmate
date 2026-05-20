@@ -16,9 +16,19 @@ class TeamWorkspaceDao:
         with connection("quantmate") as conn:
             rows = conn.execute(
                 text(
-                    "SELECT tw.* FROM team_workspaces tw "
-                    "INNER JOIN workspace_members wm ON tw.id = wm.workspace_id "
-                    "WHERE wm.user_id = :uid AND tw.status = 'active' "
+                    "SELECT tw.*, wm.role AS role, "
+                    "COALESCE(member_counts.members, 0) AS members, "
+                    "COALESCE(strategy_counts.strategies, 0) AS strategies "
+                    "FROM team_workspaces tw "
+                    "INNER JOIN workspace_members wm ON tw.id = wm.workspace_id AND wm.user_id = :uid "
+                    "LEFT JOIN ("
+                    "SELECT workspace_id, COUNT(*) AS members FROM workspace_members GROUP BY workspace_id"
+                    ") member_counts ON member_counts.workspace_id = tw.id "
+                    "LEFT JOIN ("
+                    "SELECT shared_with_team_id AS workspace_id, COUNT(*) AS strategies "
+                    "FROM strategy_shares WHERE shared_with_team_id IS NOT NULL GROUP BY shared_with_team_id"
+                    ") strategy_counts ON strategy_counts.workspace_id = tw.id "
+                    "WHERE tw.status = 'active' "
                     "ORDER BY tw.name"
                 ),
                 {"uid": user_id},
@@ -79,7 +89,14 @@ class WorkspaceMemberDao:
     def list_members(self, workspace_id: int) -> list[dict[str, Any]]:
         with connection("quantmate") as conn:
             rows = conn.execute(
-                text("SELECT * FROM workspace_members WHERE workspace_id = :wid ORDER BY joined_at"),
+                text(
+                    "SELECT wm.id, wm.workspace_id, wm.user_id, wm.role, wm.joined_at, "
+                    "u.username, u.email "
+                    "FROM workspace_members wm "
+                    "LEFT JOIN users u ON u.id = wm.user_id "
+                    "WHERE wm.workspace_id = :wid "
+                    "ORDER BY wm.joined_at"
+                ),
                 {"wid": workspace_id},
             ).fetchall()
             return [dict(r._mapping) for r in rows]
@@ -132,7 +149,18 @@ class StrategyShareDao:
     def list_for_strategy(self, strategy_id: int) -> list[dict[str, Any]]:
         with connection("quantmate") as conn:
             rows = conn.execute(
-                text("SELECT * FROM strategy_shares WHERE strategy_id = :sid"),
+                text(
+                    "SELECT ss.*, s.name AS strategy_name, "
+                    "sender.username AS shared_by_username, recipient.username AS shared_with_username, "
+                    "tw.name AS shared_with_team_name "
+                    "FROM strategy_shares ss "
+                    "LEFT JOIN strategies s ON s.id = ss.strategy_id "
+                    "LEFT JOIN users sender ON sender.id = ss.shared_by "
+                    "LEFT JOIN users recipient ON recipient.id = ss.shared_with_user_id "
+                    "LEFT JOIN team_workspaces tw ON tw.id = ss.shared_with_team_id "
+                    "WHERE ss.strategy_id = :sid "
+                    "ORDER BY ss.created_at DESC"
+                ),
                 {"sid": strategy_id},
             ).fetchall()
             return [dict(r._mapping) for r in rows]
@@ -140,7 +168,40 @@ class StrategyShareDao:
     def list_shared_with_user(self, user_id: int) -> list[dict[str, Any]]:
         with connection("quantmate") as conn:
             rows = conn.execute(
-                text("SELECT * FROM strategy_shares WHERE shared_with_user_id = :uid"),
+                text(
+                    "SELECT DISTINCT ss.*, s.name AS strategy_name, "
+                    "sender.username AS shared_by_username, recipient.username AS shared_with_username, "
+                    "tw.name AS shared_with_team_name "
+                    "FROM strategy_shares ss "
+                    "LEFT JOIN strategies s ON s.id = ss.strategy_id "
+                    "LEFT JOIN users sender ON sender.id = ss.shared_by "
+                    "LEFT JOIN users recipient ON recipient.id = ss.shared_with_user_id "
+                    "LEFT JOIN team_workspaces tw ON tw.id = ss.shared_with_team_id "
+                    "WHERE ss.shared_with_user_id = :uid "
+                    "OR ss.shared_with_team_id IN ("
+                    "SELECT workspace_id FROM workspace_members WHERE user_id = :uid"
+                    ") "
+                    "ORDER BY ss.created_at DESC"
+                ),
+                {"uid": user_id},
+            ).fetchall()
+            return [dict(r._mapping) for r in rows]
+
+    def list_shared_by_user(self, user_id: int) -> list[dict[str, Any]]:
+        with connection("quantmate") as conn:
+            rows = conn.execute(
+                text(
+                    "SELECT ss.*, s.name AS strategy_name, "
+                    "sender.username AS shared_by_username, recipient.username AS shared_with_username, "
+                    "tw.name AS shared_with_team_name "
+                    "FROM strategy_shares ss "
+                    "LEFT JOIN strategies s ON s.id = ss.strategy_id "
+                    "LEFT JOIN users sender ON sender.id = ss.shared_by "
+                    "LEFT JOIN users recipient ON recipient.id = ss.shared_with_user_id "
+                    "LEFT JOIN team_workspaces tw ON tw.id = ss.shared_with_team_id "
+                    "WHERE ss.shared_by = :uid "
+                    "ORDER BY ss.created_at DESC"
+                ),
                 {"uid": user_id},
             ).fetchall()
             return [dict(r._mapping) for r in rows]
