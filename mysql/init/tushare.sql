@@ -571,6 +571,22 @@ PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @sql = (
     SELECT IF(COUNT(*) > 0,
+        'ALTER TABLE `tushare`.`cn_pmi` DROP INDEX `ux_cn_pmi_create_time`',
+        'SELECT 1') FROM information_schema.statistics
+    WHERE table_schema = 'tushare' AND table_name = 'cn_pmi' AND index_name = 'ux_cn_pmi_create_time'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql = (
+    SELECT IF(COUNT(*) > 0,
+        'ALTER TABLE `tushare`.`cn_pmi` DROP INDEX `ux_cn_pmi_update_time`',
+        'SELECT 1') FROM information_schema.statistics
+    WHERE table_schema = 'tushare' AND table_name = 'cn_pmi' AND index_name = 'ux_cn_pmi_update_time'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql = (
+    SELECT IF(COUNT(*) > 0,
         'ALTER TABLE `tushare`.`cn_pmi` DROP INDEX `ux_cn_pmi_pmi030000`',
         'SELECT 1') FROM information_schema.statistics
     WHERE table_schema = 'tushare' AND table_name = 'cn_pmi' AND index_name = 'ux_cn_pmi_pmi030000'

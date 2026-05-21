@@ -10,6 +10,8 @@ import numpy as np
 import pandas as pd
 from sqlalchemy import text
 
+from app.datasync.sources.tushare import ddl
+
 from app.infrastructure.db.connections import get_tushare_engine
 
 logger = logging.getLogger(__name__)
@@ -955,6 +957,19 @@ def insert_catalog_rows(
     upserter = _CATALOG_UPSERTS.get(table_name)
     if upserter is not None:
         return upserter(dataframe)
+    if (
+        column_specs is None
+        and key_columns is None
+        and not dataframe.empty
+        and not ddl.uses_sample_inferred_schema(table_name)
+    ):
+        inferred_schema = ddl.infer_dynamic_table_schema(
+            table_name,
+            dataframe,
+            preferred_key_fields=tuple(key_fields or ()),
+        )
+        column_specs = list(inferred_schema["column_specs"])
+        key_columns = tuple(inferred_schema["key_columns"])
     if not column_specs or not key_columns:
         raise ValueError(
             f"Dynamic Tushare table {table_name} requires inferred column_specs and key_columns"

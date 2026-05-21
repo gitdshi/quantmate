@@ -64,6 +64,7 @@ def _backfill_workers() -> int:
 _FORCE_RETRY_ERROR_SIGNATURES: dict[tuple[str, str], tuple[str, ...]] = {
     ("tushare", "trade_cal"): ("unknown column", "updated_at"),
     ("tushare", "block_trade"): ("unknown column", "symbol"),
+    ("tushare", "stk_managers"): ("failed entities:",),
 }
 
 _STALE_RUNNING_RECOVERY_MARKER = "Recovered stale running status for retry"

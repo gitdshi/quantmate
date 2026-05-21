@@ -404,6 +404,19 @@ class TestBackfillHelpers:
 
         assert _effective_retry_count(record) == 0
 
+    def test_reopens_stk_managers_failed_entities_after_terminal_retries(self):
+        from app.datasync.service.sync_engine import _effective_retry_count
+
+        record = (
+            date(2024, 1, 3),
+            "tushare",
+            "stk_managers",
+            3,
+            "Failed entities: 000001.SZ, 000002.SZ, 000004.SZ",
+        )
+
+        assert _effective_retry_count(record) == 0
+
     def test_keeps_other_terminal_errors_closed(self):
         from app.datasync.service.sync_engine import _effective_retry_count
 

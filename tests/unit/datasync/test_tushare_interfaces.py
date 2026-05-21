@@ -304,6 +304,38 @@ class TestTushareDynamicCatalogSchema:
         assert iface._schema_date_column() == "end_date"
         assert schema["key_columns"] == ("end_date", "ts_code")
 
+    def test_catalog_schema_override_uses_month_for_cn_pmi(self):
+        from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface, TushareCatalogSpec
+
+        iface = TushareCatalogInterface(
+            TushareCatalogSpec(
+                interface_key="cn_pmi",
+                display_name="采购经理指数",
+                api_name="cn_pmi",
+                target_table="cn_pmi",
+                sync_priority=100,
+            )
+        )
+
+        df = pd.DataFrame(
+            {
+                "create_time": ["2026-04-15 13:31:13"],
+                "update_time": ["2026-04-15 13:31:13"],
+                "month": ["202401"],
+                "pmi010000": [52.1],
+            }
+        )
+
+        with patch("app.datasync.table_manager.ensure_inferred_table"):
+            schema = iface._ensure_inferred_table(df)
+
+        override = __import__(
+            "app.datasync.sources.tushare.catalog_interfaces",
+            fromlist=["_INFERRED_KEY_COLUMN_OVERRIDES"],
+        )._INFERRED_KEY_COLUMN_OVERRIDES
+        assert override["cn_pmi"] == ("month",)
+        assert schema["key_columns"] == ("month",)
+
     def test_dynamic_catalog_skips_precreate_and_ensures_inferred_schema_on_sync(self):
         from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface, TushareCatalogSpec
 
@@ -547,6 +579,17 @@ class TestTushareTop10HoldersInterface:
 
 
 class TestTushareCatalogInterface:
+    def test_get_backfill_rows_by_date_returns_empty_when_table_missing(self):
+        from app.datasync.sources.tushare.catalog_interfaces import _get_table_rows_by_date
+
+        with patch(f"{_CATALOG_MOD}.get_tushare_engine") as mock_engine:
+            mock_conn = mock_engine.return_value.connect.return_value.__enter__.return_value
+            mock_conn.execute.side_effect = RuntimeError("(1146, \"Table 'tushare.idx_factor_pro' doesn't exist\")")
+
+            result = _get_table_rows_by_date("idx_factor_pro", "trade_date", date(2024, 1, 5), date(2024, 1, 8))
+
+        assert result == {}
+
     def test_get_backfill_rows_by_date_uses_schema_date_column(self):
         from app.datasync.sources.tushare.catalog_interfaces import TushareCatalogInterface, TushareCatalogSpec
 

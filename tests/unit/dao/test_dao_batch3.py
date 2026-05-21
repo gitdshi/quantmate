@@ -454,6 +454,34 @@ class TestTushareDao:
         assert self.mod.insert_catalog_rows("block_trade", df) == 7
         assert seen and seen[0].equals(df)
 
+    def test_insert_catalog_rows_infers_schema_when_static_catalog_table_has_no_upserter(self, monkeypatch):
+        import pandas as pd
+
+        df = pd.DataFrame(
+            {
+                "ts_code": ["110001.SH"],
+                "issue_date": ["20240105"],
+                "rate": [1.25],
+            }
+        )
+        seen: dict[str, object] = {}
+
+        def _fake(table_name, rows, *, column_specs, key_columns):
+            seen["table_name"] = table_name
+            seen["rows"] = rows
+            seen["column_specs"] = column_specs
+            seen["key_columns"] = key_columns
+            return 3
+
+        monkeypatch.setattr(self.mod, "upsert_rows", _fake)
+
+        result = self.mod.insert_catalog_rows("cb_rate", df, key_fields=("ts_code", "issue_date"))
+
+        assert result == 3
+        assert seen["table_name"] == "cb_rate"
+        assert seen["rows"].equals(df)
+        assert seen["key_columns"] == ("issue_date", "ts_code")
+
     def test_insert_catalog_rows_requires_dynamic_schema_for_generic_catalog_table(self):
         import pandas as pd
 

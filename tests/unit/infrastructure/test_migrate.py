@@ -320,3 +320,15 @@ def test_tushare_init_includes_extended_tushare_tables_and_followup_fixes():
     assert "CREATE TABLE IF NOT EXISTS us_stock_daily" in sql
     assert "ALTER TABLE `tushare`.`pledge_detail` MODIFY COLUMN `holder_name` VARCHAR(128) NOT NULL" in sql
     assert "ALTER TABLE `tushare`.`cb_rate` DROP INDEX `ux_cb_rate_ts_code`" in sql
+    assert "ALTER TABLE `tushare`.`cn_pmi` DROP INDEX `ux_cn_pmi_create_time`" in sql
+    assert "ALTER TABLE `tushare`.`cn_pmi` DROP INDEX `ux_cn_pmi_update_time`" in sql
+
+
+def test_stk_managers_unique_key_fix_migration_exists():
+    migration_path = Path(__file__).resolve().parents[3] / "mysql" / "migrations" / "051_fix_stk_managers_unique_key.sql"
+
+    sql = migration_path.read_text(encoding="utf-8")
+
+    assert "DROP INDEX `ux_stk_managers_ann_date_ts_code`" in sql
+    assert "ADD UNIQUE KEY `ux_stk_mgr_ann_ts_name_title_lev_begin`" in sql
+    assert "ann_date,ts_code,name,title,lev,begin_date" in sql

@@ -16,18 +16,31 @@ from app.infrastructure.db.connections import get_quantmate_engine, get_tushare_
 logger = logging.getLogger(__name__)
 
 
+def _is_missing_table_error(exc: Exception, table_name: str) -> bool:
+    message = str(exc).lower()
+    return table_name.lower() in message and (
+        "doesn't exist" in message or "unknown table" in message or "1146" in message
+    )
+
+
 def _get_table_rows_by_date(table_name: str, date_column: str, start: date, end: date) -> dict[date, int]:
     engine = get_tushare_engine()
-    with engine.connect() as conn:
-        rows = conn.execute(
-            text(
-                f"SELECT `{date_column}`, COUNT(*) "
-                f"FROM `{table_name}` "
-                f"WHERE `{date_column}` BETWEEN :start_date AND :end_date "
-                f"GROUP BY `{date_column}`"
-            ),
-            {"start_date": start, "end_date": end},
-        ).fetchall()
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    f"SELECT `{date_column}`, COUNT(*) "
+                    f"FROM `{table_name}` "
+                    f"WHERE `{date_column}` BETWEEN :start_date AND :end_date "
+                    f"GROUP BY `{date_column}`"
+                ),
+                {"start_date": start, "end_date": end},
+            ).fetchall()
+    except Exception as exc:
+        if _is_missing_table_error(exc, table_name):
+            logger.info("Skipping row count for missing table %s", table_name)
+            return {}
+        raise
     return {row[0]: int(row[1]) for row in rows}
 
 _TUSHARE_CATALOG_SQL = """
@@ -297,7 +310,9 @@ _APPEND_ONLY_DYNAMIC_TABLES = {
 }
 
 _INFERRED_KEY_COLUMN_OVERRIDES: dict[str, tuple[str, ...]] = {
+    "cn_pmi": ("month",),
     "fund_sales_vol": ("year", "quarter", "inst_name"),
+    "idx_factor_pro": ("trade_date", "ts_code"),
 }
 
 
