@@ -84,6 +84,14 @@ ensure_env_key() {
   fi
 }
 
+read_env_key() {
+  key="$1"
+  if [ ! -f "$ENV_FILE" ]; then
+    return
+  fi
+  grep "^${key}=" "$ENV_FILE" | tail -n 1 | cut -d= -f2-
+}
+
 require_env_key() {
   key="$1"
   if ! grep -q "^${key}=.\+" "$ENV_FILE"; then
@@ -149,7 +157,10 @@ cleanup_repo_images() {
 
 cleanup_managed_images() {
   cleanup_repo_images "ghcr.io/$GITHUB_OWNER/quantmate-api" "ghcr.io/$GITHUB_OWNER/quantmate-api:$IMAGE_TAG" "quantmate-api"
-  cleanup_repo_images "ghcr.io/$GITHUB_OWNER/quantmate-portal" "ghcr.io/$GITHUB_OWNER/quantmate-portal:$PORTAL_IMAGE_TAG" "quantmate-portal"
+  current_portal_tag=$(read_env_key PORTAL_IMAGE_TAG)
+  if [ -n "$current_portal_tag" ]; then
+    cleanup_repo_images "ghcr.io/$GITHUB_OWNER/quantmate-portal" "ghcr.io/$GITHUB_OWNER/quantmate-portal:$current_portal_tag" "quantmate-portal"
+  fi
 }
 
 restart_nginx() {
