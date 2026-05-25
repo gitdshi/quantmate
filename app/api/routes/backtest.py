@@ -15,6 +15,7 @@ from app.api.models.backtest import (
     BatchBacktestJob,
     BacktestStatus,
 )
+from app.api.models.backtest_ai_report import BacktestAIReport, BacktestAIReportCreateResponse
 from app.api.services.auth_service import get_current_user
 from app.api.services.backtest_service import BacktestService
 from app.worker.service.tasks import save_backtest_to_db
@@ -24,6 +25,7 @@ from app.api.exception_handlers import APIError
 from app.api.pagination import PaginationParams, paginate
 
 from app.domains.backtests.dao.backtest_history_dao import BacktestHistoryDao
+from app.domains.ai.backtest_report_service import BacktestReportService
 
 router = APIRouter(prefix="/backtest", tags=["Backtest"])
 
@@ -101,6 +103,33 @@ async def get_backtest_status(job_id: str, current_user: TokenData = Depends(get
         return _jobs[job_id]
 
     raise APIError(status_code=404, code=ErrorCode.JOB_NOT_FOUND, message="Job not found")
+
+
+@router.get("/{job_id}/ai-report", response_model=BacktestAIReport, dependencies=[require_permission("backtests", "read")])
+async def get_backtest_ai_report(job_id: str, current_user: TokenData = Depends(get_current_user)):
+    """Get a stored AI interpretation report for a completed backtest."""
+    service = BacktestReportService()
+    report = service.get_report(current_user.user_id, job_id)
+    if not report:
+        raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="AI backtest report not found")
+    return BacktestAIReport(**report)
+
+
+@router.post("/{job_id}/ai-report", response_model=BacktestAIReportCreateResponse, dependencies=[require_permission("backtests", "read")])
+async def create_backtest_ai_report(job_id: str, current_user: TokenData = Depends(get_current_user)):
+    """Generate and store an AI interpretation report for a completed backtest."""
+    service = BacktestReportService()
+    try:
+        service.generate_report(current_user.user_id, job_id)
+    except KeyError:
+        raise APIError(status_code=404, code=ErrorCode.JOB_NOT_FOUND, message="Backtest job not found")
+    except ValueError as exc:
+        raise APIError(status_code=400, code=ErrorCode.BAD_REQUEST, message=str(exc))
+    return BacktestAIReportCreateResponse(
+        job_id=job_id,
+        status="completed",
+        message="AI backtest report generated",
+    )
 
 
 @router.get(

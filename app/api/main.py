@@ -44,6 +44,7 @@ from app.api.routes import trade_log
 from app.api.routes import mfa
 from app.api.routes import api_keys
 from app.api.routes import sessions
+from app.api.routes import workbench as workbench_routes
 from app.api.routes import trading
 from app.api.routes import paper_trading
 from app.api.routes import paper_account
@@ -250,6 +251,7 @@ app.include_router(trade_log.router, prefix="/api/v1")
 app.include_router(mfa.router, prefix="/api/v1")
 app.include_router(api_keys.router, prefix="/api/v1")
 app.include_router(sessions.router, prefix="/api/v1")
+app.include_router(workbench_routes.router, prefix="/api/v1")
 app.include_router(trading.router, prefix="/api/v1")
 app.include_router(paper_trading.router, prefix="/api/v1")
 app.include_router(paper_account.router, prefix="/api/v1")
