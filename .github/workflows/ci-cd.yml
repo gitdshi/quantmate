@@ -6,6 +6,7 @@ on:
     paths:
       - ".dockerignore"
       - ".env.example"
+      - ".github/scripts/**"
       - "app/**"
       - "tests/**"
       - "requirements.txt"
@@ -20,6 +21,7 @@ on:
     paths:
       - ".dockerignore"
       - ".env.example"
+      - ".github/scripts/**"
       - "app/**"
       - "tests/**"
       - "requirements.txt"
