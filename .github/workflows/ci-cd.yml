@@ -166,14 +166,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Configure staging SSH
-        run: |
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          printf '%s\n' '${{ secrets.STAGING_SSH_KEY }}' > ~/.ssh/staging_key
-          chmod 600 ~/.ssh/staging_key
-          ssh-keyscan -H '${{ secrets.STAGING_HOST }}' >> ~/.ssh/known_hosts
-
       - name: Prepare staging config bundle
         run: |
           mkdir -p .deploy_bundle/nginx .deploy_bundle/.github/scripts
@@ -184,44 +176,56 @@ jobs:
           cp .github/scripts/deploy_backend_staging.sh .deploy_bundle/.github/scripts/deploy_backend_staging.sh
 
       - name: Pre-deploy staging disk cleanup
-        run: |
-          ssh -i ~/.ssh/staging_key '${{ secrets.STAGING_USER }}@${{ secrets.STAGING_HOST }}' '
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
             set -e
             docker system prune -af || true
             docker builder prune -af || true
             df -h /
             docker system df || true
-          '
 
       # Push the latest docker-compose.staging.yml and nginx config to the server
       - name: Copy config files to staging server
-        run: |
-          ssh -i ~/.ssh/staging_key '${{ secrets.STAGING_USER }}@${{ secrets.STAGING_HOST }}' '
-            mkdir -p /opt/quantmate/nginx /opt/quantmate/.github/scripts
-          '
-          scp -i ~/.ssh/staging_key .deploy_bundle/docker-compose.staging.yml '${{ secrets.STAGING_USER }}@${{ secrets.STAGING_HOST }}:/opt/quantmate/docker-compose.staging.yml'
-          scp -i ~/.ssh/staging_key .deploy_bundle/.env.example.incoming '${{ secrets.STAGING_USER }}@${{ secrets.STAGING_HOST }}:/opt/quantmate/.env.example.incoming'
-          scp -i ~/.ssh/staging_key .deploy_bundle/nginx/staging.conf '${{ secrets.STAGING_USER }}@${{ secrets.STAGING_HOST }}:/opt/quantmate/nginx/staging.conf'
-          scp -i ~/.ssh/staging_key .deploy_bundle/.github/scripts/merge_env_from_example.py '${{ secrets.STAGING_USER }}@${{ secrets.STAGING_HOST }}:/opt/quantmate/.github/scripts/merge_env_from_example.py'
-          scp -i ~/.ssh/staging_key .deploy_bundle/.github/scripts/deploy_backend_staging.sh '${{ secrets.STAGING_USER }}@${{ secrets.STAGING_HOST }}:/opt/quantmate/.github/scripts/deploy_backend_staging.sh'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          source: ".deploy_bundle/docker-compose.staging.yml,.deploy_bundle/.env.example.incoming,.deploy_bundle/nginx/staging.conf,.deploy_bundle/.github/scripts/merge_env_from_example.py,.deploy_bundle/.github/scripts/deploy_backend_staging.sh"
+          target: /opt/quantmate
+          strip_components: 1
 
       # Pull new image and rolling-restart backend services only.
       # The portal image is published by the portal repo and may not share this commit SHA.
       - name: Deploy via SSH
-        run: |
-          ssh -i ~/.ssh/staging_key '${{ secrets.STAGING_USER }}@${{ secrets.STAGING_HOST }}' "
+        uses: appleboy/ssh-action@v1
+        env:
+          GITHUB_OWNER: ${{ github.repository_owner }}
+          IMAGE_TAG: sha-${{ github.sha }}
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          envs: GITHUB_OWNER,IMAGE_TAG
+          script: |
             set -e
             cd /opt/quantmate
-            GITHUB_OWNER='${{ github.repository_owner }}' IMAGE_TAG='sha-${{ github.sha }}' \
+            GITHUB_OWNER=$GITHUB_OWNER IMAGE_TAG=$IMAGE_TAG \
               sh .github/scripts/deploy_backend_staging.sh
-          "
 
       # Post-deploy status check
       - name: Post-deploy health check
-        run: |
-          ssh -i ~/.ssh/staging_key '${{ secrets.STAGING_USER }}@${{ secrets.STAGING_HOST }}' '
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
             curl -sf http://localhost:8000/health | python3 -m json.tool
             df -h /
             docker system df || true
             docker compose -f /opt/quantmate/docker-compose.staging.yml ps
-          '
