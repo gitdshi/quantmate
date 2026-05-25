@@ -175,6 +175,19 @@ jobs:
           cp .github/scripts/merge_env_from_example.py .deploy_bundle/.github/scripts/merge_env_from_example.py
           cp .github/scripts/deploy_backend_staging.sh .deploy_bundle/.github/scripts/deploy_backend_staging.sh
 
+      - name: Pre-deploy staging disk cleanup
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            set -e
+            docker system prune -af || true
+            docker builder prune -af || true
+            df -h /
+            docker system df || true
+
       # Push the latest docker-compose.staging.yml and nginx config to the server
       - name: Copy config files to staging server
         uses: appleboy/scp-action@v0.1.7
@@ -213,4 +226,6 @@ jobs:
           key: ${{ secrets.STAGING_SSH_KEY }}
           script: |
             curl -sf http://localhost:8000/health | python3 -m json.tool
+            df -h /
+            docker system df || true
             docker compose -f /opt/quantmate/docker-compose.staging.yml ps

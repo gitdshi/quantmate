@@ -12,6 +12,7 @@ DEPLOY_PORTAL_SCRIPT=deploy_portal_staging.sh
 IMAGE_SERVICES="api worker paper-runtime datasync datasync-backfill rdagent-service"
 POST_API_SERVICES="worker paper-runtime datasync datasync-backfill rdagent-service"
 ALL_SERVICES="api worker paper-runtime datasync datasync-backfill rdagent-service"
+DISK_USAGE_THRESHOLD_PERCENT="80"
 
 cleanup_staging_directory() {
   echo "==> Removing stale source/artifact files from staging root"
@@ -93,9 +94,13 @@ require_env_key() {
 
 print_disk_diagnostics() {
   echo "==> Filesystem usage"
-  df -h || true
+  df -h / || true
   echo "==> Docker disk usage"
   docker system df || true
+}
+
+root_usage_percent() {
+  df -P / | awk 'NR == 2 {gsub(/%/, "", $5); print $5}'
 }
 
 cleanup_docker_artifacts() {
@@ -103,6 +108,17 @@ cleanup_docker_artifacts() {
   docker system prune -af || true
   docker builder prune -af || true
   print_disk_diagnostics
+}
+
+cleanup_if_root_usage_high() {
+  reason="$1"
+  usage=$(root_usage_percent)
+  if [ -n "$usage" ] && [ "$usage" -ge "$DISK_USAGE_THRESHOLD_PERCENT" ]; then
+    echo "==> Root filesystem usage is ${usage}% (${reason}); running Docker cleanup"
+    cleanup_docker_artifacts
+  else
+    echo "==> Root filesystem usage is ${usage:-unknown}% (${reason}); cleanup not needed"
+  fi
 }
 
 cleanup_repo_images() {
@@ -180,6 +196,7 @@ upsert_env_key GITHUB_OWNER "$GITHUB_OWNER"
 upsert_env_key IMAGE_TAG "$IMAGE_TAG"
 require_env_key PORTAL_IMAGE_TAG
 print_disk_diagnostics
+cleanup_if_root_usage_high "before image pull"
 
 echo "==> Pulling image tag: $IMAGE_TAG"
 if ! GITHUB_OWNER=$GITHUB_OWNER IMAGE_TAG=$IMAGE_TAG \
@@ -264,5 +281,6 @@ upsert_env_key GITHUB_OWNER "$GITHUB_OWNER"
 upsert_env_key IMAGE_TAG "$IMAGE_TAG"
 
 cleanup_managed_images
+cleanup_if_root_usage_high "after managed image cleanup"
 
 echo "Staging deploy successful: $IMAGE_TAG"
