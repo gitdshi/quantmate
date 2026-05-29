@@ -11,7 +11,10 @@ from vnpy_ctastrategy import (
 )
 
 # 导入通用止损模块
-from app.strategies.stop_loss import StopLossManager
+try:
+    from strategies.stop_loss import StopLossManager
+except Exception:  # pragma: no cover - compatibility fallback
+    from app.strategies.stop_loss import StopLossManager
 
 
 class TurtleTradingStrategy(CtaTemplate):

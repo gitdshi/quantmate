@@ -59,6 +59,8 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     else \
       cp requirements.txt requirements.docker.txt; \
     fi \
+    && grep -Ev '^(pyqtgraph|PySide6|PySide6_Addons|PySide6_Essentials|QDarkStyle|QtPy|shiboken6|vnpy|vnpy_ctabacktester|vnpy_ctastrategy|vnpy_portfoliostrategy|vnpy_datamanager|vnpy_mysql|vnpy_sqlite|vnpy_tushare|rdagent|azureml-mlflow|mlflow|mlflow-skinny)==' requirements.docker.txt > requirements.docker.filtered.txt \
+    && mv requirements.docker.filtered.txt requirements.docker.txt \
     && if [ -n "$PIP_INDEX_URL" ] && [ -n "$PIP_TRUSTED_HOST" ]; then \
       PIP_DISABLE_PIP_VERSION_CHECK=1 pip install \
         --index-url "$PIP_INDEX_URL" \
@@ -71,10 +73,48 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     else \
       PIP_DISABLE_PIP_VERSION_CHECK=1 pip install \
         -r requirements.docker.txt; \
+    fi \
+    && if [ -n "$PIP_INDEX_URL" ] && [ -n "$PIP_TRUSTED_HOST" ]; then \
+      PIP_DISABLE_PIP_VERSION_CHECK=1 pip install \
+        --no-deps \
+        --index-url "$PIP_INDEX_URL" \
+        --trusted-host "$PIP_TRUSTED_HOST" \
+        vnpy==4.3.0 \
+        vnpy_ctabacktester==1.3.0 \
+        vnpy_ctastrategy==1.4.0 \
+        vnpy_portfoliostrategy==1.2.2 \
+        vnpy_datamanager==1.2.0 \
+        vnpy_mysql==1.1.1 \
+        vnpy_sqlite==1.1.3 \
+        vnpy_tushare==1.4.21.0; \
+    elif [ -n "$PIP_INDEX_URL" ]; then \
+      PIP_DISABLE_PIP_VERSION_CHECK=1 pip install \
+        --no-deps \
+        --index-url "$PIP_INDEX_URL" \
+        vnpy==4.3.0 \
+        vnpy_ctabacktester==1.3.0 \
+        vnpy_ctastrategy==1.4.0 \
+        vnpy_portfoliostrategy==1.2.2 \
+        vnpy_datamanager==1.2.0 \
+        vnpy_mysql==1.1.1 \
+        vnpy_sqlite==1.1.3 \
+        vnpy_tushare==1.4.21.0; \
+    else \
+      PIP_DISABLE_PIP_VERSION_CHECK=1 pip install \
+        --no-deps \
+        vnpy==4.3.0 \
+        vnpy_ctabacktester==1.3.0 \
+        vnpy_ctastrategy==1.4.0 \
+        vnpy_portfoliostrategy==1.2.2 \
+        vnpy_datamanager==1.2.0 \
+        vnpy_mysql==1.1.1 \
+        vnpy_sqlite==1.1.3 \
+        vnpy_tushare==1.4.21.0; \
     fi
 
 # Copy application code
 COPY app/ ./app/
+COPY strategies/ ./strategies/
 
 # Copy scripts used by staging SOP/DataSync bootstrap
 COPY scripts/ ./scripts/

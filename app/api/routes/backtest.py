@@ -14,6 +14,11 @@ from app.api.models.backtest import (
     BacktestJob,
     BatchBacktestJob,
     BacktestStatus,
+    BacktestRunRequest,
+    BacktestRunSubmitResponse,
+    BacktestRunListItem,
+    BacktestRunDetail,
+    BacktestSubjectType,
 )
 from app.api.models.backtest_ai_report import BacktestAIReport, BacktestAIReportCreateResponse
 from app.api.services.auth_service import get_current_user
@@ -26,6 +31,9 @@ from app.api.pagination import PaginationParams, paginate
 
 from app.domains.backtests.dao.backtest_history_dao import BacktestHistoryDao
 from app.domains.ai.backtest_report_service import BacktestReportService
+from app.domains.composite.service import CompositeStrategyService
+from app.domains.factors.backtest_task import run_factor_backtest_task
+from app.domains.factors.service import FactorService
 
 router = APIRouter(prefix="/backtest", tags=["Backtest"])
 
@@ -40,6 +48,302 @@ class BacktestSubmitResponse(BaseModel):
     job_id: str
     status: BacktestStatus
     message: str
+
+
+def _json_or_empty(value):
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return value
+    try:
+        parsed = json.loads(value) if isinstance(value, str) else value
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _infer_subject_type(row: dict) -> BacktestSubjectType | None:
+    raw = row.get("subject_type")
+    if raw:
+        try:
+            return BacktestSubjectType(raw)
+        except ValueError:
+            return None
+    if row.get("strategy_id") or row.get("strategy_class") or row.get("vt_symbol"):
+        return BacktestSubjectType.STRATEGY
+    return None
+
+
+def _derive_summary(row: dict) -> dict:
+    explicit = _json_or_empty(row.get("summary_json"))
+    if explicit:
+        return explicit
+
+    result_data = _json_or_empty(row.get("result"))
+    if isinstance(result_data.get("statistics"), dict):
+        return result_data["statistics"]
+
+    keys = [
+        "total_return",
+        "annual_return",
+        "max_drawdown",
+        "max_drawdown_percent",
+        "sharpe_ratio",
+        "alpha",
+        "beta",
+        "benchmark_return",
+        "total_trades",
+        "win_rate",
+        "profit_factor",
+    ]
+    return {key: result_data[key] for key in keys if key in result_data and result_data[key] is not None}
+
+
+def _serialize_run_item(row: dict) -> BacktestRunListItem:
+    subject_type = _infer_subject_type(row)
+    return BacktestRunListItem(
+        id=row.get("id"),
+        job_id=row.get("job_id"),
+        subject_type=subject_type,
+        subject_id=row.get("subject_id") if row.get("subject_id") is not None else row.get("strategy_id"),
+        subject_name=row.get("subject_name") or row.get("strategy_class"),
+        engine_type=row.get("engine_type") or ("vnpy" if row.get("vt_symbol") else None),
+        scope_type=row.get("scope_type") or ("single_symbol" if row.get("vt_symbol") else None),
+        status=row.get("status"),
+        start_date=str(row.get("start_date")) if row.get("start_date") else None,
+        end_date=str(row.get("end_date")) if row.get("end_date") else None,
+        summary=_derive_summary(row),
+        created_at=row.get("created_at"),
+        completed_at=row.get("completed_at"),
+    )
+
+
+def _serialize_run_detail(row: dict) -> BacktestRunDetail:
+    item = _serialize_run_item(row)
+    request_payload = _json_or_empty(row.get("request_payload"))
+    result_payload = _json_or_empty(row.get("result"))
+    return BacktestRunDetail(
+        **item.model_dump(),
+        request=request_payload,
+        result=result_payload,
+        artifacts=_json_or_empty(row.get("artifacts_json")),
+        diagnostics=_json_or_empty(row.get("diagnostics_json")),
+        extensions=_json_or_empty(row.get("extensions_json")),
+        error=row.get("error"),
+    )
+
+
+def _build_strategy_backtest_request(request: BacktestRunRequest) -> BacktestRequest:
+    profile = request.profile or {}
+    vt_symbol = str(profile.get("vt_symbol") or "").strip()
+    if not vt_symbol:
+        raise APIError(status_code=400, code=ErrorCode.BAD_REQUEST, message="strategy profile.vt_symbol is required")
+
+    payload = {
+        "strategy_id": request.subject_id or profile.get("strategy_id"),
+        "strategy_class": profile.get("strategy_class") or request.subject_name,
+        "vt_symbol": vt_symbol,
+        "start_date": request.start_date,
+        "end_date": request.end_date,
+        "parameters": profile.get("parameters") or {},
+        "capital": request.initial_capital,
+        "benchmark": request.benchmark,
+        "period": profile.get("period", "daily"),
+    }
+    if request.costs.get("commission_rate") is not None:
+        payload["rate"] = request.costs.get("commission_rate")
+    if request.costs.get("slippage") is not None:
+        payload["slippage"] = request.costs.get("slippage")
+    if (profile.get("size") or request.costs.get("size")) is not None:
+        payload["size"] = profile.get("size") or request.costs.get("size")
+    return BacktestRequest(**payload)
+
+
+@router.post("/runs", response_model=BacktestRunSubmitResponse, dependencies=[require_permission("backtests", "write")])
+async def submit_backtest_run(
+    request: BacktestRunRequest,
+    background_tasks: BackgroundTasks,
+    current_user: TokenData = Depends(get_current_user),
+):
+    """Submit a unified backtest run."""
+    if request.subject_type == BacktestSubjectType.FACTOR:
+        profile = request.profile or {}
+        factor_id = request.subject_id or profile.get("factor_id")
+        factor = None
+        if factor_id is not None:
+            try:
+                factor = FactorService().get_factor(current_user.user_id, int(factor_id))
+            except KeyError:
+                raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Factor not found")
+
+        expression = str(profile.get("expression") or (factor or {}).get("expression") or "").strip()
+        if not expression:
+            raise APIError(
+                status_code=400,
+                code=ErrorCode.BAD_REQUEST,
+                message="factor subject_id or profile.expression is required",
+            )
+
+        job_id = str(uuid.uuid4())
+        created_at = datetime.utcnow()
+        subject_id = int(factor_id) if factor_id is not None else None
+        subject_name = request.subject_name or (factor or {}).get("name") or "Custom Factor"
+        task_payload = request.model_dump(mode="json")
+        task_payload["subject_id"] = subject_id
+        task_payload["subject_name"] = subject_name
+
+        dao = BacktestHistoryDao()
+        dao.upsert_history(
+            user_id=current_user.user_id,
+            job_id=job_id,
+            strategy_id=None,
+            strategy_class=None,
+            strategy_version=None,
+            source="runs_api",
+            vt_symbol="",
+            start_date=str(request.start_date),
+            end_date=str(request.end_date),
+            parameters=profile,
+            status=BacktestStatus.PENDING.value,
+            result=None,
+            error=None,
+            created_at=created_at,
+            completed_at=None,
+            subject_type=request.subject_type.value,
+            subject_id=subject_id,
+            subject_name=subject_name,
+            engine_type="portfolio_daily",
+            scope_type="cross_sectional_portfolio",
+            request_payload=task_payload,
+            result_schema_version=2,
+        )
+
+        job = BacktestJob(
+            job_id=job_id,
+            status=BacktestStatus.PENDING,
+            progress=0.0,
+            message="Queued for execution",
+            created_at=created_at,
+        )
+        _jobs[job_id] = job
+        background_tasks.add_task(run_factor_backtest_task, job_id, current_user.user_id, task_payload)
+
+        return BacktestRunSubmitResponse(
+            job_id=job_id,
+            status=BacktestStatus.PENDING,
+            subject_type=request.subject_type,
+            message="Factor backtest run queued successfully",
+        )
+
+    if request.subject_type == BacktestSubjectType.COMPOSITE:
+        composite_id = request.subject_id or request.profile.get("composite_strategy_id")
+        if composite_id is None:
+            raise APIError(
+                status_code=400,
+                code=ErrorCode.BAD_REQUEST,
+                message="composite subject_id or profile.composite_strategy_id is required",
+            )
+        try:
+            row = CompositeStrategyService().submit_backtest(
+                user_id=current_user.user_id,
+                composite_strategy_id=int(composite_id),
+                start_date=str(request.start_date),
+                end_date=str(request.end_date),
+                initial_capital=request.initial_capital,
+                benchmark=request.benchmark or "000300.SH",
+            )
+        except KeyError:
+            raise APIError(status_code=404, code=ErrorCode.COMPOSITE_NOT_FOUND, message="Composite strategy not found")
+        except ValueError as exc:
+            raise APIError(status_code=400, code=ErrorCode.COMPOSITE_VALIDATION_FAILED, message=str(exc))
+
+        return BacktestRunSubmitResponse(
+            job_id=row["job_id"],
+            status=BacktestStatus.PENDING,
+            subject_type=request.subject_type,
+            message="Composite backtest run queued successfully",
+        )
+
+    if request.subject_type != BacktestSubjectType.STRATEGY:
+        raise APIError(
+            status_code=501,
+            code=ErrorCode.BAD_REQUEST,
+            message=f"Unified {request.subject_type.value} backtest submission is not implemented yet",
+        )
+
+    strategy_request = _build_strategy_backtest_request(request)
+    job_id = str(uuid.uuid4())
+    created_at = datetime.utcnow()
+    dao = BacktestHistoryDao()
+    dao.upsert_history(
+        user_id=current_user.user_id,
+        job_id=job_id,
+        strategy_id=strategy_request.strategy_id,
+        strategy_class=strategy_request.strategy_class,
+        strategy_version=request.profile.get("strategy_version"),
+        source="runs_api",
+        vt_symbol=strategy_request.vt_symbol,
+        start_date=str(request.start_date),
+        end_date=str(request.end_date),
+        parameters=strategy_request.parameters,
+        status=BacktestStatus.PENDING.value,
+        result=None,
+        error=None,
+        created_at=created_at,
+        completed_at=None,
+        subject_type=request.subject_type.value,
+        subject_id=request.subject_id or strategy_request.strategy_id,
+        subject_name=request.subject_name or strategy_request.strategy_class,
+        engine_type="vnpy",
+        scope_type="single_symbol",
+        request_payload=request.model_dump(mode="json"),
+        result_schema_version=2,
+    )
+
+    job = BacktestJob(
+        job_id=job_id,
+        status=BacktestStatus.PENDING,
+        progress=0.0,
+        message="Queued for execution",
+        created_at=created_at,
+    )
+    _jobs[job_id] = job
+    background_tasks.add_task(run_backtest_task, job_id, strategy_request, current_user.user_id)
+
+    return BacktestRunSubmitResponse(
+        job_id=job_id,
+        status=BacktestStatus.PENDING,
+        subject_type=request.subject_type,
+        message="Backtest run queued successfully",
+    )
+
+
+@router.get("/runs", dependencies=[require_permission("backtests", "read")])
+async def list_backtest_runs(
+    subject_type: BacktestSubjectType | None = None,
+    pagination: PaginationParams = Depends(),
+    current_user: TokenData = Depends(get_current_user),
+):
+    """List unified backtest runs for current user."""
+    dao = BacktestHistoryDao()
+    total = dao.count_runs_for_user(current_user.user_id, subject_type.value if subject_type else None)
+    rows = dao.list_runs_for_user(
+        user_id=current_user.user_id,
+        limit=pagination.limit,
+        offset=pagination.offset,
+        subject_type=subject_type.value if subject_type else None,
+    )
+    return paginate([_serialize_run_item(row).model_dump(mode="json") for row in rows], total, pagination)
+
+
+@router.get("/runs/{job_id}", response_model=BacktestRunDetail, dependencies=[require_permission("backtests", "read")])
+async def get_backtest_run(job_id: str, current_user: TokenData = Depends(get_current_user)):
+    """Get unified backtest run detail."""
+    dao = BacktestHistoryDao()
+    row = dao.get_run_detail_for_user(job_id=job_id, user_id=current_user.user_id)
+    if not row:
+        raise APIError(status_code=404, code=ErrorCode.BACKTEST_NOT_FOUND, message="Backtest run not found")
+    return _serialize_run_detail(row)
 
 
 @router.post("", response_model=BacktestSubmitResponse, dependencies=[require_permission("backtests", "write")])

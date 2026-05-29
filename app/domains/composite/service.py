@@ -329,6 +329,7 @@ class CompositeStrategyService:
         if not existing:
             raise KeyError("Composite strategy not found")
 
+        from app.domains.backtests.dao.backtest_history_dao import BacktestHistoryDao
         from app.worker.service.config import get_queue
 
         job_id = f"cbt_{uuid.uuid4().hex[:16]}"
@@ -341,11 +342,52 @@ class CompositeStrategyService:
             initial_capital=initial_capital,
             benchmark=benchmark,
         )
+        BacktestHistoryDao().upsert_history(
+            user_id=user_id,
+            job_id=job_id,
+            strategy_id=None,
+            strategy_class=None,
+            strategy_version=None,
+            source="composite_backtests",
+            vt_symbol="",
+            start_date=start_date,
+            end_date=end_date,
+            parameters={},
+            status="queued",
+            result=None,
+            error=None,
+            created_at=datetime.utcnow(),
+            completed_at=None,
+            subject_type="composite",
+            subject_id=composite_strategy_id,
+            subject_name=existing.get("name"),
+            engine_type="composite",
+            scope_type="cross_sectional_portfolio",
+            request_payload={
+                "subject_type": "composite",
+                "subject_id": composite_strategy_id,
+                "subject_name": existing.get("name"),
+                "start_date": start_date,
+                "end_date": end_date,
+                "benchmark": benchmark,
+                "initial_capital": initial_capital,
+                "profile": {"composite_strategy_id": composite_strategy_id},
+            },
+            result_schema_version=2,
+        )
 
         queue = get_queue("backtest")
         queue.enqueue(
             "app.domains.composite.tasks.run_composite_backtest_task",
-            kwargs={"job_id": job_id},
+            kwargs={
+                "job_id": job_id,
+                "composite_strategy_id": composite_strategy_id,
+                "user_id": user_id,
+                "start_date": start_date,
+                "end_date": end_date,
+                "initial_capital": initial_capital,
+                "benchmark": benchmark,
+            },
             job_id=job_id,
             job_timeout=get_runtime_int(
                 env_keys="BACKTEST_JOB_TIMEOUT_SECONDS",

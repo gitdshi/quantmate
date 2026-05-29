@@ -139,6 +139,12 @@ class TestBacktestHistoryDao:
         monkeypatch.setattr(_dao_mod, "connection", lambda n: FCtx(conn))
         assert dao.count_for_user(10) == 15
 
+    def test_count_runs_for_user(self, dao, monkeypatch):
+        row = R({"total": 3})
+        conn = FC(result=FR(rows=[row]))
+        monkeypatch.setattr(_dao_mod, "connection", lambda n: FCtx(conn))
+        assert dao.count_runs_for_user(10, "strategy") == 3
+
     def test_list_for_user(self, dao, monkeypatch):
         row = R({"id": 1, "job_id": "j1", "strategy_id": 1, "strategy_class": "S",
                  "strategy_version": 1, "vt_symbol": "000001.SZ",
@@ -165,3 +171,61 @@ class TestBacktestHistoryDao:
         conn = FC(result=FR(rows=[]))
         monkeypatch.setattr(_dao_mod, "connection", lambda n: FCtx(conn))
         assert dao.get_detail_for_user(job_id="nonexistent", user_id=10) is None
+
+    def test_list_runs_for_user(self, dao, monkeypatch):
+        row = R({
+            "id": 1,
+            "job_id": "j1",
+            "subject_type": "strategy",
+            "subject_id": 1,
+            "subject_name": "S",
+            "engine_type": "vnpy",
+            "scope_type": "single_symbol",
+            "strategy_id": 1,
+            "strategy_class": "S",
+            "vt_symbol": "000001.SZ",
+            "start_date": "2024-01-01",
+            "end_date": "2024-06-01",
+            "status": "completed",
+            "summary_json": "{}",
+            "result": None,
+            "created_at": "2024",
+            "completed_at": "2024",
+        })
+        conn = FC(result=FR(rows=[row]))
+        monkeypatch.setattr(_dao_mod, "connection", lambda n: FCtx(conn))
+        r = dao.list_runs_for_user(user_id=10, limit=20, offset=0, subject_type="strategy")
+        assert len(r) == 1
+        assert r[0]["subject_type"] == "strategy"
+
+    def test_get_run_detail_for_user_found(self, dao, monkeypatch):
+        row = R({
+            "id": 1,
+            "job_id": "j1",
+            "subject_type": "strategy",
+            "subject_id": 1,
+            "subject_name": "S",
+            "engine_type": "vnpy",
+            "scope_type": "single_symbol",
+            "strategy_id": 1,
+            "strategy_class": "S",
+            "vt_symbol": "000001.SZ",
+            "start_date": "2024-01-01",
+            "end_date": "2024-06-01",
+            "parameters": "{}",
+            "status": "completed",
+            "result": "{}",
+            "error": None,
+            "request_payload": "{}",
+            "summary_json": "{}",
+            "artifacts_json": "{}",
+            "diagnostics_json": "{}",
+            "extensions_json": "{}",
+            "result_schema_version": 2,
+            "created_at": "2024",
+            "completed_at": "2024",
+        })
+        conn = FC(result=FR(rows=[row]))
+        monkeypatch.setattr(_dao_mod, "connection", lambda n: FCtx(conn))
+        r = dao.get_run_detail_for_user(job_id="j1", user_id=10)
+        assert r["job_id"] == "j1"

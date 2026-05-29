@@ -31,6 +31,8 @@
 .venv
 logs
 strategies
+!strategies
+!strategies/**
 tests
 LICENSE
 README.md

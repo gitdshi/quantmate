@@ -108,6 +108,7 @@ def run_composite_backtest_task(
     from app.domains.composite.dao.composite_strategy_dao import CompositeStrategyDao
     from app.domains.composite.dao.strategy_component_dao import StrategyComponentDao
     from app.domains.composite.dao.composite_backtest_dao import CompositeBacktestDao
+    from app.domains.backtests.dao.backtest_history_dao import BacktestHistoryDao
     from app.domains.composite.orchestrator import CompositeStrategyOrchestrator
     from app.domains.composite.backtest_engine import CompositeBacktestEngine
     from app.domains.composite.market_constraints import MarketConstraints
@@ -119,6 +120,43 @@ def run_composite_backtest_task(
 
     bt_dao = CompositeBacktestDao()
 
+    def _sync_history(
+        *,
+        status: str,
+        subject_name: Optional[str] = None,
+        result: Optional[Dict[str, Any]] = None,
+        summary: Optional[Dict[str, Any]] = None,
+        artifacts: Optional[Dict[str, Any]] = None,
+        extensions: Optional[Dict[str, Any]] = None,
+        error: Optional[str] = None,
+    ) -> None:
+        BacktestHistoryDao().upsert_history(
+            user_id=user_id,
+            job_id=job_id,
+            strategy_id=None,
+            strategy_class=None,
+            strategy_version=None,
+            source="composite_backtests",
+            vt_symbol="",
+            start_date=start_date,
+            end_date=end_date,
+            parameters={},
+            status=status,
+            result=result,
+            error=error,
+            created_at=datetime.utcnow(),
+            completed_at=datetime.utcnow() if status in {"completed", "failed"} else None,
+            subject_type="composite",
+            subject_id=composite_strategy_id,
+            subject_name=subject_name,
+            engine_type="composite",
+            scope_type="cross_sectional_portfolio",
+            summary_json=summary,
+            artifacts_json=artifacts,
+            extensions_json=extensions,
+            result_schema_version=2,
+        )
+
     try:
         # Mark as running
         bt_dao.update_status(job_id, "running")
@@ -129,9 +167,10 @@ def run_composite_backtest_task(
 
         # 1. Load composite strategy + bindings
         cs_dao = CompositeStrategyDao()
-        strategy = cs_dao.get_for_user(user_id, composite_strategy_id)
+        strategy = cs_dao.get_for_user(composite_strategy_id, user_id)
         if not strategy:
             raise ValueError(f"Composite strategy {composite_strategy_id} not found")
+        _sync_history(status="running", subject_name=strategy.get("name"))
 
         bindings = cs_dao.get_bindings(composite_strategy_id)
         if not bindings:
@@ -142,7 +181,7 @@ def run_composite_backtest_task(
         component_ids = [b["component_id"] for b in bindings]
         components_map: Dict[int, Dict] = {}
         for cid in set(component_ids):
-            comp = comp_dao.get_for_user(user_id, cid)
+            comp = comp_dao.get_for_user(cid, user_id)
             if comp:
                 components_map[cid] = comp
 
@@ -200,12 +239,8 @@ def run_composite_backtest_task(
             if isinstance(syms, list):
                 symbols_to_load.update(syms)
 
-        # If no explicit symbols, use a default CSI 300 sample (first few)
         if not symbols_to_load:
-            symbols_to_load = {
-                "600519.SH", "000858.SZ", "601318.SH",
-                "000333.SZ", "600036.SH",
-            }
+            raise ValueError("Composite strategy universe has no explicit symbols")
 
         all_symbols = sorted(symbols_to_load)
 
@@ -247,6 +282,24 @@ def run_composite_backtest_task(
             },
             attribution=result.get("attribution"),
         )
+        _sync_history(
+            status="completed",
+            subject_name=strategy.get("name"),
+            result={
+                "statistics": result["metrics"],
+                "equity_curve": result["equity_curve"],
+                "trade_log": result["trade_log"],
+                "position_history": result["position_history"],
+                "attribution": result.get("attribution") or {},
+            },
+            summary=result["metrics"],
+            artifacts={
+                "equity_curve": result["equity_curve"],
+                "trade_log": result["trade_log"],
+                "position_history": result["position_history"],
+            },
+            extensions={"composite": {"attribution": result.get("attribution") or {}}},
+        )
         logger.info("[composite_bt] Job %s completed", job_id)
         return {"status": "completed", "metrics": result["metrics"]}
 
@@ -257,6 +310,7 @@ def run_composite_backtest_task(
             bt_dao.update_status(
                 job_id, "failed", error_message=error_msg
             )
+            _sync_history(status="failed", error=error_msg)
         except Exception:
             logger.exception("[composite_bt] Failed to update error status")
         return {"status": "failed", "error": error_msg}

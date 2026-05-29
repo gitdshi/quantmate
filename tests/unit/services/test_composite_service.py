@@ -327,9 +327,10 @@ class TestDeleteComposite:
 # ── Backtests ────────────────────────────────────────────────────
 
 class TestSubmitBacktest:
-    def test_success(self):
+    @patch("app.domains.backtests.dao.backtest_history_dao.BacktestHistoryDao")
+    def test_success(self, MockHistoryDao):
         svc, _, cs, cb = _make_svc()
-        cs.get_for_user.return_value = {"id": 1}
+        cs.get_for_user.return_value = {"id": 1, "name": "Composite Alpha"}
         cb.insert.return_value = None
         cb.get_by_job_id.return_value = {"job_id": "cbt_abc", "status": "queued"}
         with patch("app.worker.service.config.get_queue") as mock_q:
@@ -338,6 +339,10 @@ class TestSubmitBacktest:
             result = svc.submit_backtest(1, 1, "2024-01-01", "2024-12-31", 100000, "399300.SZ")
         assert result["status"] == "queued"
         mock_queue.enqueue.assert_called_once()
+        kwargs = mock_queue.enqueue.call_args.kwargs["kwargs"]
+        assert kwargs["composite_strategy_id"] == 1
+        assert kwargs["user_id"] == 1
+        MockHistoryDao.return_value.upsert_history.assert_called_once()
 
     def test_not_found(self):
         svc, _, cs, _ = _make_svc()

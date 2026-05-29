@@ -34,6 +34,29 @@ class BacktestStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class BacktestSubjectType(str, Enum):
+    """Supported backtest subject types."""
+
+    STRATEGY = "strategy"
+    FACTOR = "factor"
+    COMPOSITE = "composite"
+
+
+class BacktestEngineType(str, Enum):
+    """Supported backtest engine types."""
+
+    VNPY = "vnpy"
+    PORTFOLIO_DAILY = "portfolio_daily"
+    COMPOSITE = "composite"
+
+
+class BacktestScopeType(str, Enum):
+    """Supported backtest scope types."""
+
+    SINGLE_SYMBOL = "single_symbol"
+    CROSS_SECTIONAL_PORTFOLIO = "cross_sectional_portfolio"
+
+
 class BacktestRequest(BaseModel):
     """Single backtest request."""
 
@@ -121,6 +144,58 @@ class BacktestJob(BaseModel):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     result: Optional[BacktestResult] = None
+    error: Optional[str] = None
+
+
+class BacktestRunRequest(BaseModel):
+    """Unified backtest run request."""
+
+    subject_type: BacktestSubjectType
+    subject_id: Optional[int] = None
+    subject_name: Optional[str] = None
+    start_date: date
+    end_date: date
+    benchmark: Optional[str] = None
+    initial_capital: float = Field(default_factory=_default_backtest_capital)
+    costs: Dict[str, Any] = Field(default_factory=dict)
+    profile: Dict[str, Any] = Field(default_factory=dict)
+
+
+class BacktestRunSubmitResponse(BaseModel):
+    """Response returned after submitting a unified backtest run."""
+
+    job_id: str
+    status: BacktestStatus
+    subject_type: BacktestSubjectType
+    message: str
+
+
+class BacktestRunListItem(BaseModel):
+    """Unified backtest run list item."""
+
+    id: Optional[int] = None
+    job_id: str
+    subject_type: Optional[BacktestSubjectType] = None
+    subject_id: Optional[int] = None
+    subject_name: Optional[str] = None
+    engine_type: Optional[BacktestEngineType] = None
+    scope_type: Optional[BacktestScopeType] = None
+    status: str
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    summary: Dict[str, Any] = Field(default_factory=dict)
+    created_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+
+
+class BacktestRunDetail(BacktestRunListItem):
+    """Unified backtest run detail payload."""
+
+    request: Dict[str, Any] = Field(default_factory=dict)
+    result: Dict[str, Any] = Field(default_factory=dict)
+    artifacts: Dict[str, Any] = Field(default_factory=dict)
+    diagnostics: Dict[str, Any] = Field(default_factory=dict)
+    extensions: Dict[str, Any] = Field(default_factory=dict)
     error: Optional[str] = None
 
 

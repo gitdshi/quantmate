@@ -217,6 +217,28 @@ def save_backtest_to_db(
     strategy_version: int = None,
 ):
     """Save backtest result to database for permanent storage."""
+
+    def _extract_summary(result_payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        if not isinstance(result_payload, dict):
+            return {}
+        if isinstance(result_payload.get("statistics"), dict):
+            return dict(result_payload["statistics"])
+
+        keys = [
+            "total_return",
+            "annual_return",
+            "max_drawdown",
+            "max_drawdown_percent",
+            "sharpe_ratio",
+            "alpha",
+            "beta",
+            "benchmark_return",
+            "total_trades",
+            "win_rate",
+            "profit_factor",
+        ]
+        return {key: result_payload[key] for key in keys if key in result_payload and result_payload[key] is not None}
+
     try:
         now = datetime.utcnow()
         BacktestHistoryDao().upsert_history(
@@ -234,6 +256,25 @@ def save_backtest_to_db(
             error=error,
             created_at=now,
             completed_at=now if status in ["completed", "failed"] else None,
+            subject_type="strategy",
+            subject_id=strategy_id,
+            subject_name=strategy_class,
+            engine_type="vnpy",
+            scope_type="single_symbol",
+            request_payload={
+                "subject_type": "strategy",
+                "subject_id": strategy_id,
+                "subject_name": strategy_class,
+                "start_date": start_date,
+                "end_date": end_date,
+                "profile": {
+                    "strategy_class": strategy_class,
+                    "vt_symbol": symbol,
+                    "parameters": parameters or {},
+                },
+            },
+            summary_json=_extract_summary(result),
+            result_schema_version=2,
         )
         logger.info("[worker] Saved backtest %s to database", job_id)
     except Exception as e:
@@ -1242,13 +1283,24 @@ def run_optimization_task(
         if strategy_code:
             strategy_class = compile_strategy(strategy_code, strategy_class_name)
         else:
-            from app.strategies.triple_ma_strategy import TripleMAStrategy
-            from app.strategies.turtle_trading import TurtleTradingStrategy
-
-            builtin_strategies = {
-                "TripleMAStrategy": TripleMAStrategy,
-                "TurtleTradingStrategy": TurtleTradingStrategy,
-            }
+            builtin_strategies = {}
+            for builtin_name, module_names in (
+                (
+                    "TripleMAStrategy",
+                    ("strategies.triple_ma_strategy", "app.strategies.triple_ma_strategy"),
+                ),
+                (
+                    "TurtleTradingStrategy",
+                    ("strategies.turtle_trading", "app.strategies.turtle_trading"),
+                ),
+            ):
+                for module_name in module_names:
+                    try:
+                        module = __import__(module_name, fromlist=[builtin_name])
+                        builtin_strategies[builtin_name] = getattr(module, builtin_name)
+                        break
+                    except Exception:
+                        continue
             strategy_class = builtin_strategies.get(strategy_class_name)
 
             if not strategy_class:

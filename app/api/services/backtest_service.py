@@ -223,8 +223,8 @@ class BacktestServiceV2:
     def __init__(self):
         self.job_storage = get_job_storage()
         self.builtin_strategies = {
-            "TripleMAStrategy": "app.strategies.triple_ma_strategy",
-            "TurtleTradingStrategy": "app.strategies.turtle_trading",
+            "TripleMAStrategy": "strategies.triple_ma_strategy",
+            "TurtleTradingStrategy": "strategies.turtle_trading",
         }
 
     def submit_backtest(
@@ -614,18 +614,30 @@ class BacktestService(BacktestServiceV2):
 
     def _load_builtin_strategies(self) -> Dict[str, type]:
         strategies = {}
-        try:
-            from app.strategies.triple_ma_strategy import TripleMAStrategy
-
-            strategies["TripleMAStrategy"] = TripleMAStrategy
-        except Exception:
-            pass
-        try:
-            from app.strategies.turtle_trading import TurtleTradingStrategy
-
-            strategies["TurtleTradingStrategy"] = TurtleTradingStrategy
-        except Exception:
-            pass
+        for loader in (
+            (
+                "TripleMAStrategy",
+                (
+                    "strategies.triple_ma_strategy",
+                    "app.strategies.triple_ma_strategy",
+                ),
+            ),
+            (
+                "TurtleTradingStrategy",
+                (
+                    "strategies.turtle_trading",
+                    "app.strategies.turtle_trading",
+                ),
+            ),
+        ):
+            strategy_name, module_names = loader
+            for module_name in module_names:
+                try:
+                    module = __import__(module_name, fromlist=[strategy_name])
+                    strategies[strategy_name] = getattr(module, strategy_name)
+                    break
+                except Exception:
+                    continue
         return strategies
 
     def _get_strategy_class(

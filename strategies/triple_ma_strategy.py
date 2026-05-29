@@ -25,7 +25,10 @@ from vnpy_ctastrategy import (
     ArrayManager,
 )
 
-from app.strategies.stop_loss import StopLossManager
+try:
+    from strategies.stop_loss import StopLossManager
+except Exception:  # pragma: no cover - compatibility fallback
+    from app.strategies.stop_loss import StopLossManager
 
 
 class TripleMAStrategy(CtaTemplate):
