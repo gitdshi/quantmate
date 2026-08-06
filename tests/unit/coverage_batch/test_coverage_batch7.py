@@ -1587,6 +1587,10 @@ class TestPaperStrategyExecutor:
         dao.create.return_value = 102
         monkeypatch.setattr("app.domains.trading.dao.order_dao.OrderDao", lambda: dao)
 
+        ledger = MagicMock()
+        ledger.get_position_quantity.return_value = 200
+        engine._ledger = ledger
+
         engine._execute_order("sell", 100, 10.0)
         acct_svc.settle_sell.assert_called_once()
 

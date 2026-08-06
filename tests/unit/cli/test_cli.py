@@ -63,15 +63,30 @@ def test_db_status_ok():
 # ── cmd_sync_status ───────────────────────────────────────────────
 
 def test_sync_status_ok():
-    mock_row = MagicMock()
-    mock_row._mapping = {
-        "item_key": "tushare.daily",
-        "last_sync_date": "2025-01-01",
-        "status": "ok",
-        "error_count": 0,
+    summary_row = MagicMock()
+    summary_row._mapping = {"status": "success", "cnt": 100}
+    pending_row = MagicMock()
+    pending_row._mapping = {
+        "sync_date": "2025-01-01",
+        "source": "tushare",
+        "interface_key": "stock_daily",
+        "status": "pending",
+        "started_at": None,
+    }
+    error_row = MagicMock()
+    error_row._mapping = {
+        "sync_date": "2025-01-01",
+        "source": "tushare",
+        "interface_key": "stock_basic",
+        "retry_count": 2,
+        "err": "timeout",
     }
     mock_conn = MagicMock()
-    mock_conn.execute.return_value.fetchall.return_value = [mock_row]
+    mock_conn.execute.side_effect = [
+        MagicMock(fetchall=lambda: [summary_row]),
+        MagicMock(fetchall=lambda: [pending_row]),
+        MagicMock(fetchall=lambda: [error_row]),
+    ]
     mock_ctx = MagicMock()
     mock_ctx.__enter__ = lambda s: mock_conn
     mock_ctx.__exit__ = MagicMock(return_value=False)
