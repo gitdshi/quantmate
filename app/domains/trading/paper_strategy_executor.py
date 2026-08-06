@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
+from dataclasses import asdict
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, Optional
 
@@ -21,6 +23,27 @@ logger = logging.getLogger(__name__)
 
 # How often to poll for new bars (seconds)
 _POLL_INTERVAL = 5
+
+# Per-deployment warning cooldown to prevent log flooding on recurring failures
+# (e.g. strategy keeps issuing buy orders on an account with insufficient funds).
+_WARN_COOLDOWN_SECONDS = 300
+_warn_cooldowns: dict[tuple[int, str], float] = {}
+
+
+def _throttled_warning(deployment_id: int, message: str, *args: Any) -> None:
+    """Emit ``logger.warning`` at most once per (deployment, message) every cooldown window.
+
+    Subsequent calls within the window are downgraded to ``logger.debug`` so the
+    failure is still traceable without flooding the logs.
+    """
+    key = (deployment_id, message)
+    now = time.monotonic()
+    last = _warn_cooldowns.get(key, 0.0)
+    if now - last >= _WARN_COOLDOWN_SECONDS:
+        logger.warning(message, *args)
+        _warn_cooldowns[key] = now
+    else:
+        logger.debug(message, *args)
 
 
 def _normalize_vt_symbols(vt_symbol: str | list[str]) -> list[str]:
@@ -50,7 +73,7 @@ def _build_runtime_checkpoint(*, deployment_id: int, vt_symbols: list[str], gate
     checkpoint = {
         "deployment_id": deployment_id,
         "vt_symbols": vt_symbols,
-        "gateway": gateway.snapshot().__dict__ if gateway is not None else None,
+        "gateway": asdict(gateway.snapshot()) if gateway is not None else None,
         "captured_at": datetime.utcnow().isoformat(),
     }
     if strategy is not None:
@@ -279,10 +302,19 @@ class _PaperCtaEngine:
             total_cost = fill.fill_price * fill.fill_quantity + fill.fee.total
             ok = acct_svc.freeze_funds(self.paper_account_id, total_cost)
             if not ok:
-                logger.warning("[paper-engine] Insufficient funds for buy")
+                _throttled_warning(self.deployment_id, "[paper-engine] Insufficient funds for buy")
                 return
             acct_svc.settle_buy(self.paper_account_id, total_cost, total_cost)
         else:
+            symbol_code = self.vt_symbol.split(".")[0] if "." in self.vt_symbol else self.vt_symbol
+            pos_qty = ledger.get_position_quantity(self.paper_account_id, symbol_code)
+            if pos_qty < fill.fill_quantity:
+                _throttled_warning(
+                    self.deployment_id,
+                    "[paper-engine] Insufficient position for sell on %s: %d < %d",
+                    symbol_code, pos_qty, fill.fill_quantity,
+                )
+                return
             proceeds = fill.fill_price * fill.fill_quantity - fill.fee.total
             acct_svc.settle_sell(self.paper_account_id, proceeds)
 

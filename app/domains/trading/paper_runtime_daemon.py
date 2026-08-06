@@ -135,13 +135,15 @@ class PaperRuntimeDaemon:
             rows = conn.execute(
                 text(
                     """
-                      SELECT id, user_id, paper_account_id, strategy_id, composite_strategy_id,
-                          strategy_source_type, strategy_name, vt_symbol,
-                          parameters, execution_mode, desired_status
-                    FROM paper_deployments
-                    WHERE paper_account_id IS NOT NULL
-                      AND desired_status IN ('running', 'stopped')
-                    ORDER BY id ASC
+                      SELECT pd.id, pd.user_id, pd.paper_account_id, pd.strategy_id, pd.composite_strategy_id,
+                          pd.strategy_source_type, pd.strategy_name, pd.vt_symbol,
+                          pd.parameters, pd.execution_mode, pd.desired_status
+                    FROM paper_deployments pd
+                    LEFT JOIN paper_accounts pa ON pa.id = pd.paper_account_id
+                    WHERE pd.paper_account_id IS NOT NULL
+                      AND pd.desired_status IN ('running', 'stopped')
+                      AND (pa.id IS NULL OR pa.status = 'active')
+                    ORDER BY pd.id ASC
                     """
                 )
             ).fetchall()

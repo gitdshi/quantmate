@@ -22,6 +22,7 @@ from app.domains.trading.paper_strategy_executor import (
     _get_quote_price,
     _normalize_vt_symbols,
     _split_vt_symbol,
+    _throttled_warning,
     PaperStrategyExecutor,
 )
 
@@ -202,10 +203,18 @@ class _PaperPortfolioEngine:
             total_cost = fill.fill_price * fill.fill_quantity + fill.fee.total
             ok = acct_svc.freeze_funds(self.paper_account_id, total_cost)
             if not ok:
-                logger.warning("[paper-portfolio] Insufficient funds for buy")
+                _throttled_warning(self.deployment_id, "[paper-portfolio] Insufficient funds for buy")
                 return
             acct_svc.settle_buy(self.paper_account_id, total_cost, total_cost)
         else:
+            pos_qty = self._ledger.get_position_quantity(self.paper_account_id, symbol)
+            if pos_qty < fill.fill_quantity:
+                _throttled_warning(
+                    self.deployment_id,
+                    "[paper-portfolio] Insufficient position for sell on %s: %d < %d",
+                    symbol, pos_qty, fill.fill_quantity,
+                )
+                return
             proceeds = fill.fill_price * fill.fill_quantity - fill.fee.total
             acct_svc.settle_sell(self.paper_account_id, proceeds)
 

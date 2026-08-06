@@ -211,6 +211,22 @@ class PaperExecutionLedger:
             )
         return positions
 
+    def get_position_quantity(self, paper_account_id: int, symbol: str, side: str = "long") -> int:
+        """Return total open quantity for a given symbol/side on an account (0 if none)."""
+        with connection("quantmate") as conn:
+            row = conn.execute(
+                text(
+                    """
+                    SELECT COALESCE(SUM(remaining_quantity), 0) AS qty
+                    FROM paper_position_lots
+                    WHERE paper_account_id = :aid AND symbol = :symbol AND side = :side
+                      AND status = 'open' AND remaining_quantity > 0
+                    """
+                ),
+                {"aid": paper_account_id, "symbol": symbol, "side": side},
+            ).fetchone()
+        return int(row.qty or 0) if row else 0
+
     def get_performance_summary(self, *, user_id: int, paper_account_id: Optional[int] = None) -> Dict[str, Any]:
         params: Dict[str, Any] = {"uid": user_id}
         account_filter = ""

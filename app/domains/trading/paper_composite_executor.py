@@ -28,6 +28,7 @@ from app.domains.trading.paper_strategy_executor import (
     _POLL_INTERVAL,
     _build_runtime_checkpoint,
     _normalize_vt_symbols,
+    _throttled_warning,
 )
 from app.domains.trading.paper_account_service import PaperAccountService
 from app.infrastructure.db.connections import connection
@@ -494,10 +495,20 @@ class PaperCompositeExecutor:
             if not ok:
                 if gateway_order_id and gateway is not None:
                     gateway.update_order_status(gateway_order_id, "rejected")
-                logger.warning("[paper-composite] Insufficient funds for buy on %s", order.symbol)
+                _throttled_warning(deployment_id, "[paper-composite] Insufficient funds for buy on %s", order.symbol)
                 return
             acct_svc.settle_buy(paper_account_id, total_cost, total_cost)
         else:
+            pos_qty = ledger.get_position_quantity(paper_account_id, order.symbol)
+            if pos_qty < order.quantity:
+                if gateway_order_id and gateway is not None:
+                    gateway.update_order_status(gateway_order_id, "rejected")
+                _throttled_warning(
+                    deployment_id,
+                    "[paper-composite] Insufficient position for sell on %s: %d < %d",
+                    order.symbol, pos_qty, order.quantity,
+                )
+                return
             proceeds = amount - fee
             acct_svc.settle_sell(paper_account_id, proceeds)
 

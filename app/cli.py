@@ -237,16 +237,67 @@ def cmd_sync_status(args):
         from sqlalchemy import text
 
         with connection("quantmate") as conn:
+            print("=" * 80)
+            print("Data Sync Status Summary")
+            print("=" * 80)
             rows = conn.execute(
-                text("SELECT item_key, last_sync_date, status, error_count FROM data_source_items ORDER BY item_key")
+                text(
+                    """
+                    SELECT status, COUNT(*) AS cnt
+                    FROM data_sync_status
+                    GROUP BY status
+                    ORDER BY cnt DESC
+                    """
+                )
             ).fetchall()
-            print(f"{'Item':<30} {'Last Sync':<20} {'Status':<12} {'Errors'}")
-            print("-" * 75)
+            print(f"{'Status':<20} {'Count'}")
+            print("-" * 35)
             for r in rows:
                 m = r._mapping
-                print(
-                    f"{m['item_key']:<30} {str(m.get('last_sync_date', 'N/A')):<20} {m.get('status', 'N/A'):<12} {m.get('error_count', 0)}"
+                print(f"{m['status']:<20} {m['cnt']}")
+
+            print()
+            print("=" * 80)
+            print("Recent Pending/Running (last 20)")
+            print("=" * 80)
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT sync_date, source, interface_key, status, started_at, finished_at
+                    FROM data_sync_status
+                    WHERE status IN ('pending', 'running')
+                    ORDER BY sync_date DESC, id DESC
+                    LIMIT 20
+                    """
                 )
+            ).fetchall()
+            print(f"{'Date':<12} {'Source':<10} {'Interface':<35} {'Status':<10} {'Started'}")
+            print("-" * 100)
+            for r in rows:
+                m = r._mapping
+                started = str(m.get("started_at") or "N/A")[:19]
+                print(f"{str(m['sync_date']):<12} {m['source']:<10} {m['interface_key']:<35} {m['status']:<10} {started}")
+
+            print()
+            print("=" * 80)
+            print("Recent Errors (last 10)")
+            print("=" * 80)
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT sync_date, source, interface_key, retry_count, LEFT(error_message, 120) AS err
+                    FROM data_sync_status
+                    WHERE status = 'error'
+                    ORDER BY id DESC
+                    LIMIT 10
+                    """
+                )
+            ).fetchall()
+            print(f"{'Date':<12} {'Source':<10} {'Interface':<35} {'Retries':<8} {'Error'}")
+            print("-" * 120)
+            for r in rows:
+                m = r._mapping
+                print(f"{str(m['sync_date']):<12} {m['source']:<10} {m['interface_key']:<35} {m['retry_count']:<8} {m['err'] or ''}")
     except Exception as e:
         print(f"Error: {e}")
         return 1
