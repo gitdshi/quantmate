@@ -971,6 +971,8 @@ def insert_catalog_rows(
         column_specs = list(inferred_schema["column_specs"])
         key_columns = tuple(inferred_schema["key_columns"])
     if not column_specs or not key_columns:
+        if dataframe.empty:
+            return 0
         raise ValueError(
             f"Dynamic Tushare table {table_name} requires inferred column_specs and key_columns"
         )
@@ -995,14 +997,18 @@ def upsert_rows(
     ]
     key_column_set = {str(name) for name in key_columns}
     update_columns = [name for name in column_names if name not in key_column_set]
-    update_clause = ""
     if update_columns:
         update_clause = " ON DUPLICATE KEY UPDATE " + ", ".join(
             f"`{name}` = VALUES(`{name}`)" for name in update_columns
         )
+        insert_prefix = "INSERT INTO"
+    else:
+        # No update columns - use INSERT IGNORE to avoid duplicate key errors
+        update_clause = ""
+        insert_prefix = "INSERT IGNORE INTO"
 
     insert_sql = text(
-        f"INSERT INTO `{table_name}` ({', '.join(f'`{name}`' for name in column_names)}) "
+        f"{insert_prefix} `{table_name}` ({', '.join(f'`{name}`' for name in column_names)}) "
         f"VALUES ({', '.join(f':{name}' for name in column_names)}){update_clause}"
     )
 

@@ -729,11 +729,20 @@ def _resolve_key_columns(
     # Avoid picking DOUBLE / BIGINT / TINYINT columns because numeric values
     # can repeat across rows, causing spurious duplicate-key errors (e.g. cn_pmi
     # PMI value 52.1 appearing in two different months).
+    # Also skip audit/metadata columns that share the same value across rows.
+    _AUDIT_COLUMN_NAMES = frozenset({
+        "update_by", "create_by", "update_time", "create_time", "id",
+        "created_at", "updated_at", "modifier", "creator",
+    })
     _VALUE_TYPE_PREFIXES = ("double", "bigint", "tinyint", "float", "decimal", "int")
     for spec in column_specs:
         sql_type = str(spec.get("sql_type") or "").strip().lower()
-        if not sql_type.startswith(_VALUE_TYPE_PREFIXES):
-            return (str(spec["name"]),)
+        col_name = str(spec["name"])
+        if sql_type.startswith(_VALUE_TYPE_PREFIXES):
+            continue
+        if _normalize_column_name(col_name) in _AUDIT_COLUMN_NAMES:
+            continue
+        return (col_name,)
 
     # All columns are numeric — no meaningful unique key.  The insert path
     # (`insert_catalog_rows`) requires at least one key column, so pick the

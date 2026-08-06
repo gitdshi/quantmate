@@ -141,6 +141,17 @@ def run_backfill_loop(idle_hours: int | None = None, registry=None):
         registry = _build_registry()
 
     logger.info("Backfill loop starting (idle every %dh)", idle_hours)
+
+    # On startup, reset ALL running tasks to pending — no tasks can actually be
+    # running since the daemon process was just (re)started.
+    try:
+        from app.datasync.service.sync_engine import reset_all_running_to_pending
+        reset_count = reset_all_running_to_pending()
+        if reset_count:
+            logger.info("Reset %d running tasks to pending on daemon startup", reset_count)
+    except Exception:
+        logger.exception("Failed to reset running tasks on startup")
+
     while True:
         if is_backfill_locked():
             if _release_self_stale_backfill_lock():

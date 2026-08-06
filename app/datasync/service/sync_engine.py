@@ -164,7 +164,7 @@ def _running_stale_hours() -> int:
         default=get_runtime_int(
             env_keys="BACKFILL_LOCK_STALE_HOURS",
             db_key="datasync.backfill_lock_stale_hours",
-            default=6,
+            default=1,
         ),
     )
 
@@ -218,6 +218,30 @@ def normalize_stale_running_statuses_best_effort(max_age_hours: int | None = Non
     except Exception:
         logger.exception("Failed to normalize stale running sync statuses")
         return 0
+
+
+def reset_all_running_to_pending() -> int:
+    """Reset ALL running tasks to pending. Called on daemon startup since no tasks
+    can actually be running when the process was just (re)started."""
+    engine = get_quantmate_engine()
+    with engine.begin() as conn:
+        result = conn.execute(
+            text(
+                """
+                UPDATE data_sync_status
+                SET status = :pending_status,
+                    started_at = NULL,
+                    finished_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE status = :running_status
+                """
+            ),
+            {
+                "pending_status": SyncStatus.PENDING.value,
+                "running_status": SyncStatus.RUNNING.value,
+            },
+        )
+    return int(result.rowcount or 0)
 
 
 # ---------------------------------------------------------------------------
