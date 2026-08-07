@@ -114,15 +114,19 @@ RUN --mount=type=cache,target=/root/.cache/pip \
         vnpy_tushare==1.4.21.0; \
     fi
 
-# Install pyqlib from the official PyPI (not available on the Tsinghua
-# mirror). pyqlib publishes prebuilt wheels for x86_64 (manylinux2014)
-# only — no aarch64 wheel and no sdist. On arm64 we skip installation;
-# the application code degrades gracefully via is_qlib_available() so
-# non-Qlib features keep working. To enable Qlib on arm64 in the future,
-# build pyqlib from the microsoft/qlib GitHub source inside the image.
+# Install pyqlib. On x86_64 a prebuilt wheel is available from the
+# official PyPI. On arm64 (aarch64) there is no wheel and no sdist, so
+# we clone the microsoft/qlib release tag and build from source.
+# Build deps (Cython, numpy, setuptools) are installed first so the
+# C-extension can be compiled.
 RUN --mount=type=cache,target=/root/.cache/pip \
     if [ "$TARGETARCH" = "arm64" ]; then \
-      echo "[docker] arm64 detected — skipping pyqlib (no aarch64 wheel on PyPI); Qlib features disabled at runtime"; \
+      echo "[docker] arm64 detected — building pyqlib from source"; \
+      apt-get update && apt-get install -y --no-install-recommends git build-essential && rm -rf /var/lib/apt/lists/*; \
+      PIP_DISABLE_PIP_VERSION_CHECK=1 pip install --prefer-binary "Cython<3.1" "numpy<2" setuptools wheel; \
+      git clone --depth 1 --branch v0.9.7 https://github.com/microsoft/qlib.git /tmp/qlib; \
+      cd /tmp/qlib && PIP_DISABLE_PIP_VERSION_CHECK=1 pip install . ; \
+      rm -rf /tmp/qlib; \
     else \
       PIP_DISABLE_PIP_VERSION_CHECK=1 pip install --prefer-binary \
         "pyqlib>=0.9.6,<0.10.0"; \
