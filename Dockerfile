@@ -53,9 +53,12 @@ COPY requirements.txt ./
 # Clear any proxy environment that might break apt in the build environment
 ARG TARGETARCH
 ENV http_proxy= https_proxy= HTTP_PROXY= HTTPS_PROXY= no_proxy= NO_PROXY=
+# pyqlib is not available on the Tsinghua mirror; install it from the
+# official PyPI in a dedicated step below. Filter it out of the mirror
+# install so the mirror step does not abort with "no matching distribution".
 RUN --mount=type=cache,target=/root/.cache/pip \
     cp requirements.txt requirements.docker.txt \
-    && grep -Ev '^(pyqtgraph|PySide6|PySide6_Addons|PySide6_Essentials|QDarkStyle|QtPy|shiboken6|vnpy|vnpy_ctabacktester|vnpy_ctastrategy|vnpy_portfoliostrategy|vnpy_datamanager|vnpy_mysql|vnpy_sqlite|vnpy_tushare|rdagent|azureml-mlflow|mlflow|mlflow-skinny)==' requirements.docker.txt > requirements.docker.filtered.txt \
+    && grep -Ev '^(pyqlib|pyqtgraph|PySide6|PySide6_Addons|PySide6_Essentials|QDarkStyle|QtPy|shiboken6|vnpy|vnpy_ctabacktester|vnpy_ctastrategy|vnpy_portfoliostrategy|vnpy_datamanager|vnpy_mysql|vnpy_sqlite|vnpy_tushare|rdagent|azureml-mlflow|mlflow|mlflow-skinny)==' requirements.docker.txt > requirements.docker.filtered.txt \
     && mv requirements.docker.filtered.txt requirements.docker.txt \
     && if [ -n "$PIP_INDEX_URL" ] && [ -n "$PIP_TRUSTED_HOST" ]; then \
       PIP_DISABLE_PIP_VERSION_CHECK=1 pip install \
@@ -110,6 +113,13 @@ RUN --mount=type=cache,target=/root/.cache/pip \
         vnpy_sqlite==1.1.3 \
         vnpy_tushare==1.4.21.0; \
     fi
+
+# Install pyqlib from the official PyPI (not available on the Tsinghua
+# mirror). --prefer-binary picks the wheel when one exists; on arm64 where
+# no prebuilt wheel is published this falls back to an sdist build.
+RUN --mount=type=cache,target=/root/.cache/pip \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 pip install --prefer-binary \
+      "pyqlib>=0.9.6,<0.10.0"
 
 # Copy application code
 COPY app/ ./app/
