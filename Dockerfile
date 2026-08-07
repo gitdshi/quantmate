@@ -115,11 +115,18 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     fi
 
 # Install pyqlib from the official PyPI (not available on the Tsinghua
-# mirror). --prefer-binary picks the wheel when one exists; on arm64 where
-# no prebuilt wheel is published this falls back to an sdist build.
+# mirror). pyqlib publishes prebuilt wheels for x86_64 (manylinux2014)
+# only — no aarch64 wheel and no sdist. On arm64 we skip installation;
+# the application code degrades gracefully via is_qlib_available() so
+# non-Qlib features keep working. To enable Qlib on arm64 in the future,
+# build pyqlib from the microsoft/qlib GitHub source inside the image.
 RUN --mount=type=cache,target=/root/.cache/pip \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 pip install --prefer-binary \
-      "pyqlib>=0.9.6,<0.10.0"
+    if [ "$TARGETARCH" = "arm64" ]; then \
+      echo "[docker] arm64 detected — skipping pyqlib (no aarch64 wheel on PyPI); Qlib features disabled at runtime"; \
+    else \
+      PIP_DISABLE_PIP_VERSION_CHECK=1 pip install --prefer-binary \
+        "pyqlib>=0.9.6,<0.10.0"; \
+    fi
 
 # Copy application code
 COPY app/ ./app/
