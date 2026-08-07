@@ -74,7 +74,9 @@ class TestQlibConfigExt:
         assert len(calls) == 1
 
     def test_ensure_qlib_initialized_raises_when_init_fails(self, monkeypatch):
-        qlib_config._qlib_initialized = False
+        # TASK-002: reset the fork-safe pid guard so the next call is forced
+        # to re-run init_qlib (which we mock to return False).
+        qlib_config._qlib_initialized_pid = None
         monkeypatch.setattr(qlib_config, "init_qlib", lambda *args, **kwargs: False)
 
         try:

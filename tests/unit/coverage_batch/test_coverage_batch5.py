@@ -283,7 +283,10 @@ class TestQlibModelService:
         dataset = MagicMock()
         dataset.prepare.return_value = pd.DataFrame(label)
         result = svc._calculate_metrics(pred, dataset)
-        assert result == {}
+        # TASK-001: when pred and label have no overlap, the function now
+        # returns a structured empty-result dict instead of {} so callers
+        # can distinguish "no data" from "not computed".
+        assert result == {"ic": None, "rank_ic": None, "prediction_count": 0}
 
     def test_train_model_unsupported_model(self):
         svc = self._cls()()

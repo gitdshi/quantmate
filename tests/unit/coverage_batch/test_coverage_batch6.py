@@ -564,6 +564,14 @@ class TestQlibBacktestTask:
         monkeypatch.setattr(self.mod, "_update_qlib_backtest_status", lambda *a: None)
         monkeypatch.setattr(self.mod, "_complete_qlib_backtest", lambda *a: None)
 
+        # TASK-005: with training_run_id set, the worker reuses a persisted
+        # model via service.load_trained_model instead of training inline.
+        mock_service = MagicMock()
+        mock_model = MagicMock()
+        mock_model.predict.return_value = pd.Series([0.1, 0.2])
+        mock_service.load_trained_model.return_value = (mock_model, dataset_mock)
+        monkeypatch.setattr(self.mod, "_get_qlib_model_service", lambda: lambda: mock_service)
+
         result = self.mod.run_qlib_backtest_task(
             user_id=1, job_id="qlib_test",
             training_run_id=1, model_type="LightGBM",
@@ -571,6 +579,7 @@ class TestQlibBacktestTask:
             start_date="2023-01-01", end_date="2023-06-01",
         )
         assert result["status"] == "completed"
+        mock_service.load_trained_model.assert_called_once_with(1)
 
     def test_run_qlib_backtest_task_failure(self, monkeypatch):
         qlib_config = MagicMock()
