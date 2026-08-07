@@ -58,7 +58,7 @@ ENV http_proxy= https_proxy= HTTP_PROXY= HTTPS_PROXY= no_proxy= NO_PROXY=
 # install so the mirror step does not abort with "no matching distribution".
 RUN --mount=type=cache,target=/root/.cache/pip \
     cp requirements.txt requirements.docker.txt \
-    && grep -Ev '^(pyqlib|pyqtgraph|PySide6|PySide6_Addons|PySide6_Essentials|QDarkStyle|QtPy|shiboken6|vnpy|vnpy_ctabacktester|vnpy_ctastrategy|vnpy_portfoliostrategy|vnpy_datamanager|vnpy_mysql|vnpy_sqlite|vnpy_tushare|rdagent|azureml-mlflow|mlflow|mlflow-skinny)==' requirements.docker.txt > requirements.docker.filtered.txt \
+    && grep -Ev '^(pyqlib([<>=!~]|$)|pyqtgraph==|PySide6==|PySide6_Addons==|PySide6_Essentials==|QDarkStyle==|QtPy==|shiboken6==|vnpy==|vnpy_ctabacktester==|vnpy_ctastrategy==|vnpy_portfoliostrategy==|vnpy_datamanager==|vnpy_mysql==|vnpy_sqlite==|vnpy_tushare==|rdagent==|azureml-mlflow==|mlflow==|mlflow-skinny==)' requirements.docker.txt > requirements.docker.filtered.txt \
     && mv requirements.docker.filtered.txt requirements.docker.txt \
     && if [ -n "$PIP_INDEX_URL" ] && [ -n "$PIP_TRUSTED_HOST" ]; then \
       PIP_DISABLE_PIP_VERSION_CHECK=1 pip install \
