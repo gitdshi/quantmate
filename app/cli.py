@@ -338,6 +338,32 @@ def cmd_create_user(args):
     return 0
 
 
+def cmd_qlib_convert_data(args) -> int:
+    """Convert tushare/akshare data to Qlib binary format (one-off / manual)."""
+    from app.infrastructure.qlib.data_converter import convert_to_qlib_format
+
+    try:
+        result = convert_to_qlib_format(use_akshare_supplement=False)
+        print(f"Conversion result: {result}")
+        return 0 if result.get("status") == "completed" else 1
+    except Exception as e:
+        print(f"Error: {e}")
+        return 1
+
+
+def cmd_data_catalog_refresh(args) -> int:
+    """Refresh qlib.data_catalog from tushare/akshare schemas."""
+    from app.worker.service.data_catalog_tasks import update_data_catalog
+
+    try:
+        result = update_data_catalog()
+        print(f"Refresh result: {result}")
+        return 0 if result.get("status") == "completed" else 1
+    except Exception as e:
+        print(f"Error: {e}")
+        return 1
+
+
 def main():
     parser = argparse.ArgumentParser(prog="quantmate", description="QuantMate CLI")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
@@ -345,6 +371,12 @@ def main():
     subparsers.add_parser("health", help="Check system health")
     subparsers.add_parser("db-status", help="Show database status")
     subparsers.add_parser("sync-status", help="Show data sync status")
+    subparsers.add_parser(
+        "qlib-convert-data", help="Convert tushare/akshare data to Qlib binary format"
+    )
+    subparsers.add_parser(
+        "data-catalog-refresh", help="Scan schemas and refresh qlib.data_catalog"
+    )
 
     user_parser = subparsers.add_parser("create-user", help="Create a new user")
     user_parser.add_argument("--username", required=True)
@@ -369,6 +401,8 @@ def main():
         "sync-status": cmd_sync_status,
         "create-user": cmd_create_user,
         "import-backfill-analysis": cmd_import_backfill_analysis,
+        "qlib-convert-data": cmd_qlib_convert_data,
+        "data-catalog-refresh": cmd_data_catalog_refresh,
     }
     return commands[args.command](args)
 

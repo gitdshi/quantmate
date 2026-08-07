@@ -345,6 +345,16 @@ def normalize_factor_expression(expression: str) -> str:
     for pattern, replacement in symbol_aliases.items():
         normalized = re.sub(pattern, replacement, normalized)
 
+    # TASK-009: final pass through the AST LaTeX translator to catch any
+    # remaining \frac / \sqrt / ^ constructs the domain-specific regexes
+    # above did not handle (e.g. nested structures from RD-Agent output).
+    try:
+        from app.domains.factors.expr_parser import latex_to_python
+
+        normalized = latex_to_python(normalized)
+    except Exception:
+        logger.debug("latex_to_python final pass failed", exc_info=True)
+
     return normalized
 
 
@@ -469,18 +479,28 @@ def compute_custom_factor(
 
     Returns a Series of factor values with the same index.
     """
-    _validate_expression(expression)
+    # TASK-009: use the AST-based safe evaluator instead of pd.eval.
+    from app.domains.factors.expr_parser import safe_eval
 
-    # Make column names available as variables
-    local_vars = dict(_EVAL_LOCALS)
-    for col in ohlcv.columns:
-        if isinstance(col, str) and _VALID_IDENTIFIER.match(col):
-            local_vars[col] = ohlcv[col]
+    # Allow any column that exists in the dataframe (callers may pass
+    # custom frames with pe/pb/etc.). The evaluator still rejects
+    # attribute access, imports, and other unsafe syntax.
+    allowed_cols = {str(c) for c in ohlcv.columns}
 
     try:
-        result = pd.eval(expression, local_dict=local_vars, engine="python")
-    except Exception as exc:
-        raise ValueError(f"Expression evaluation failed: {exc}") from exc
+        result = safe_eval(expression, ohlcv, allowed_columns=allowed_cols)
+    except ValueError:
+        # Fall back to the legacy evaluator for expressions that use
+        # ts_* rolling helpers not yet ported to expr_parser.
+        _validate_expression(expression)
+        local_vars = dict(_EVAL_LOCALS)
+        for col in ohlcv.columns:
+            if isinstance(col, str) and _VALID_IDENTIFIER.match(col):
+                local_vars[col] = ohlcv[col]
+        try:
+            result = pd.eval(expression, local_dict=local_vars, engine="python")
+        except Exception as exc:
+            raise ValueError(f"Expression evaluation failed: {exc}") from exc
 
     if isinstance(result, (int, float)):
         return pd.Series(result, index=ohlcv.index, name="factor_value")
@@ -548,8 +568,21 @@ def fetch_ohlcv(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     instruments: Optional[list[str]] = None,
+    adjust: str = "hfq",
 ) -> pd.DataFrame:
     """Fetch OHLCV data from tushare MySQL for factor computation.
+
+    Args:
+        start_date: Start date (inclusive).
+        end_date: End date (inclusive).
+        instruments: Optional list of tushare ts_codes (e.g. ``"000001.SZ"``).
+        adjust: Price adjustment mode.
+            ``"hfq"`` (default, post-adjustment) — prices are multiplied by
+                ``adj_factor``; series are continuous across dividend events,
+                which is what factor/backtest pipelines require.
+            ``"qfq"`` (pre-adjustment) — prices are scaled so the latest
+                observation matches the raw close.
+            ``"none"`` — return unadjusted prices (still includes ``factor``).
 
     Returns DataFrame indexed by (instrument, date) with columns:
         open, high, low, close, volume, amount, factor
@@ -594,6 +627,23 @@ def fetch_ohlcv(
         return df
 
     df["date"] = pd.to_datetime(df["date"])
+
+    # Apply price adjustment per instrument.
+    if adjust and adjust != "none":
+        df["factor"] = df.groupby("instrument")["factor"].ffill().fillna(1.0)
+        if adjust == "hfq":
+            # Post-adjustment: raw_price * adj_factor
+            for col in ("open", "high", "low", "close"):
+                df[col] = df[col] * df["factor"]
+        elif adjust == "qfq":
+            # Pre-adjustment: raw_price * (adj_factor / latest adj_factor per instrument)
+            df["_latest_factor"] = df.groupby("instrument")["factor"].transform("last")
+            for col in ("open", "high", "low", "close"):
+                df[col] = df[col] * df["factor"] / df["_latest_factor"]
+            df = df.drop(columns=["_latest_factor"])
+        else:
+            raise ValueError(f"Unsupported adjust mode: {adjust!r}. Use 'hfq', 'qfq', or 'none'.")
+
     df = df.set_index(["instrument", "date"]).sort_index()
     return df
 

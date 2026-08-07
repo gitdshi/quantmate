@@ -130,6 +130,12 @@ def run_qlib_backtest_task(
 
     This is an alternative to the vnpy backtest engine.
     Uses tushare/akshare data via Qlib's data layer.
+
+    Model reuse (TASK-005):
+        - If ``training_run_id`` is provided, load the persisted model from
+          disk instead of re-training. Raises if the run is missing/failed.
+        - If ``training_run_id`` is None, train a fresh model inline (legacy
+          behaviour) so existing callers keep working.
     """
     try:
         from app.infrastructure.qlib.qlib_config import ensure_qlib_initialized, SUPPORTED_STRATEGIES
@@ -156,45 +162,64 @@ def run_qlib_backtest_task(
         from qlib.utils import init_instance_by_config
         from qlib.contrib.evaluate import backtest_daily, risk_analysis
 
-        # Prepare dataset + model (either from existing run or fresh)
-        from app.infrastructure.qlib.qlib_config import SUPPORTED_MODELS, SUPPORTED_DATASETS
+        # Prepare dataset + model — reuse existing training run if provided.
+        service = _get_qlib_model_service()()
 
-        handler_class = SUPPORTED_DATASETS[factor_set]
-        handler_config = {
-            "class": handler_class,
-            "module_path": handler_class.rsplit(".", 1)[0],
-            "kwargs": {
-                "instruments": universe,
-                "start_time": start_date,
-                "end_time": end_date,
-            },
-        }
+        if training_run_id is not None:
+            logger.info(
+                "[qlib-worker] Reusing trained model run_id=%d (no re-training)",
+                training_run_id,
+            )
+            model, dataset = service.load_trained_model(training_run_id)
+        else:
+            logger.info(
+                "[qlib-worker] No training_run_id provided — training fresh %s model",
+                model_type,
+            )
+            # Train a fresh model inline and persist it so the resulting
+            # training run can be reused by future backtests.
+            from app.infrastructure.qlib.qlib_config import SUPPORTED_MODELS, SUPPORTED_DATASETS
 
-        dataset_config = {
-            "class": "DatasetH",
-            "module_path": "qlib.data.dataset",
-            "kwargs": {
-                "handler": handler_config,
-                "segments": {"test": (start_date, end_date)},
-            },
-        }
+            handler_class = SUPPORTED_DATASETS[factor_set]
+            handler_config = {
+                "class": handler_class,
+                "module_path": handler_class.rsplit(".", 1)[0],
+                "kwargs": {
+                    "instruments": universe,
+                    "start_time": start_date,
+                    "end_time": end_date,
+                },
+            }
+            dataset_config = {
+                "class": "DatasetH",
+                "module_path": "qlib.data.dataset",
+                "kwargs": {
+                    "handler": handler_config,
+                    "segments": {"test": (start_date, end_date)},
+                },
+            }
+            dataset = init_instance_by_config(dataset_config)
 
-        dataset = init_instance_by_config(dataset_config)
+            model_class_path = SUPPORTED_MODELS[model_type]
+            model_kwargs = hyperparams or {}
+            model_config = {
+                "class": model_class_path.split(".")[-1],
+                "module_path": model_class_path.rsplit(".", 1)[0],
+                "kwargs": model_kwargs,
+            }
+            model = init_instance_by_config(model_config)
+            model.fit(dataset)
 
-        # Build model and generate predictions
-        model_class_path = SUPPORTED_MODELS[model_type]
-        model_kwargs = hyperparams or {}
-        model_config = {
-            "class": model_class_path.split(".")[-1],
-            "module_path": model_class_path.rsplit(".", 1)[0],
-            "kwargs": model_kwargs,
-        }
+            # Persist the freshly trained model and link it to this backtest.
+            model_path = service._persist_model(
+                run_id=0,  # 0 = not tied to a model_training_runs row (ad-hoc)
+                model=model,
+                dataset_config=dataset_config,
+                model_config=model_config,
+            )
+            if model_path:
+                _update_qlib_backtest_model_path(job_id, model_path)
 
-        model = init_instance_by_config(model_config)
-
-        # If we have an existing training run, we should load its model
-        # For now, we train a fresh model on the available data
-        model.fit(dataset)
         pred = model.predict(dataset)
 
         # Run Qlib backtest with strategy
@@ -213,13 +238,21 @@ def run_qlib_backtest_task(
 
         # Extract statistics
         risk_df = risk_analysis(port_analysis["return"])
-        statistics = {}
+        raw_stats: Dict[str, Any] = {}
         if risk_df is not None and not risk_df.empty:
             for col in risk_df.columns:
                 for idx in risk_df.index:
                     key = f"{idx}_{col}" if len(risk_df.columns) > 1 else str(idx)
                     val = risk_df.loc[idx, col]
-                    statistics[key] = float(val) if val is not None else None
+                    raw_stats[key] = float(val) if val is not None else None
+        raw_stats["benchmark"] = benchmark
+        raw_stats["trading_days"] = len(port_analysis.get("return", [])) if isinstance(port_analysis, dict) else None
+
+        # Convert to unified schema (TASK-006).
+        from app.domains.backtests.adapters import from_qlib
+
+        unified_metrics = from_qlib(raw_stats, start_date, end_date)
+        statistics = unified_metrics.to_dict()
 
         result = {
             "job_id": job_id,
@@ -233,6 +266,7 @@ def run_qlib_backtest_task(
             "end_date": end_date,
             "benchmark": benchmark,
             "statistics": statistics,
+            "training_run_id": training_run_id,
             "completed_at": datetime.now().isoformat(),
         }
 
@@ -306,6 +340,25 @@ def _update_qlib_backtest_status(job_id: str, status: str, error: Optional[str] 
             conn.commit()
     except Exception as exc:
         logger.warning("[qlib-worker] Failed to update backtest status: %s", exc)
+
+
+def _update_qlib_backtest_model_path(job_id: str, model_path: str) -> None:
+    """Record the persisted model_path on the backtest row (for ad-hoc runs)."""
+    from sqlalchemy import text
+    from app.infrastructure.db.connections import connection
+
+    try:
+        with connection("qlib") as conn:
+            conn.execute(
+                text(
+                    "UPDATE qlib_backtest_results SET model_path = :mp WHERE job_id = :jid"
+                ),
+                {"mp": model_path, "jid": job_id},
+            )
+            conn.commit()
+    except Exception as exc:
+        # Non-fatal — the backtest itself already succeeded.
+        logger.warning("[qlib-worker] Failed to record model_path on backtest %s: %s", job_id, exc)
 
 
 def _complete_qlib_backtest(job_id: str, statistics: dict, portfolio_analysis: Optional[dict]) -> None:

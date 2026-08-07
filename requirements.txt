@@ -109,7 +109,7 @@ akshare>=1.18.0
 optuna>=3.6.0
 
 # Qlib — Microsoft AI quant platform (optional, enables AI model training & factor research)
-pyqlib>=0.9.0
+pyqlib>=0.9.6,<0.10.0
 scipy>=1.10.0
 
 # VNPy gateway packages (optional, for live trading)

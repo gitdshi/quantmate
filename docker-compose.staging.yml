@@ -43,10 +43,13 @@ services:
       - REFRESH_TOKEN_EXPIRE_DAYS=7
       # CORS Settings (Staging 允许测试域名)
       - CORS_ORIGINS=["http://localhost:5173","http://localhost:3000","http://127.0.0.1:5173"]
+      # Qlib data directory (persisted volume so conversions survive restarts)
+      - QLIB_DATA_DIR=/root/.qlib/qlib_data/cn_data
     ports:
       - "8000:8000"  # Staging 暴露端口便于测试
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - qlib_data:/root/.qlib/qlib_data
     networks:
       - quantmate_network
     healthcheck:
@@ -82,7 +85,12 @@ services:
       - REDIS_PORT=6379
       - WORKER_DEFAULT_QUEUE_NAMES=backtest,optimization,default,low,rdagent
       - DEBUG=false
+      - QLIB_DATA_DIR=/root/.qlib/qlib_data/cn_data
+      - QLIB_MODEL_DIR=/app/data/qlib_models
     command: ["python", "-m", "app.worker.service.run_worker"]
+    volumes:
+      - qlib_data:/root/.qlib/qlib_data
+      - qlib_models:/app/data/qlib_models
     networks:
       - quantmate_network
     deploy:
@@ -116,7 +124,10 @@ services:
       - REDIS_PORT=6379
       - DEBUG=false
       - CORS_ORIGINS=["http://localhost:5173","http://localhost:3000","http://127.0.0.1:5173"]
+      - QLIB_DATA_DIR=/root/.qlib/qlib_data/cn_data
     command: ["python", "-m", "app.domains.trading.paper_runtime_daemon"]
+    volumes:
+      - qlib_data:/root/.qlib/qlib_data
     networks:
       - quantmate_network
     restart: unless-stopped
@@ -145,7 +156,10 @@ services:
       - REDIS_PORT=6379
       - DEBUG=false
       - RDAGENT_LLM_MODEL=${RDAGENT_LLM_MODEL:-minimax-m2.5-free}
+      - QLIB_DATA_DIR=/root/.qlib/qlib_data/cn_data
     command: ["python", "-m", "app.datasync.scheduler", "--daemon"]
+    volumes:
+      - qlib_data:/root/.qlib/qlib_data
     networks:
       - quantmate_network
     restart: unless-stopped
@@ -171,7 +185,10 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - DEBUG=false
+      - QLIB_DATA_DIR=/root/.qlib/qlib_data/cn_data
     command: ["python", "-m", "app.datasync.scheduler", "--backfill-loop"]
+    volumes:
+      - qlib_data:/root/.qlib/qlib_data
     networks:
       - quantmate_network
     restart: unless-stopped
@@ -198,6 +215,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - rdagent_workspace_data:/tmp/rdagent_workspace
+      - qlib_data:/root/.qlib/qlib_data
     depends_on:
       redis:
         condition: service_healthy
@@ -264,6 +282,10 @@ volumes:
   redis_data:
     driver: local
   rdagent_workspace_data:
+    driver: local
+  qlib_data:
+    driver: local
+  qlib_models:
     driver: local
 
 networks:

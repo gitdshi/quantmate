@@ -2,6 +2,11 @@
 
 This daemon reconciles desired deployment state stored in the database with the
 actual in-process paper runtime sessions owned by PaperRuntimeService.
+
+TASK-011: optionally subscribe to a Redis pub/sub channel for incremental
+deployment changes instead of polling the full table every few seconds.
+The polling loop is kept as a fallback so the daemon still reconciles state
+if Redis is unavailable or notifications are missed.
 """
 
 from __future__ import annotations
@@ -11,16 +16,19 @@ from datetime import datetime
 import json
 import logging
 import socket
+import threading
 import time
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from sqlalchemy import text
 
 from app.domains.trading.paper_runtime_service import PaperRuntimeService
-from app.infrastructure.config import get_runtime_float
+from app.infrastructure.config import get_runtime_float, get_settings
 from app.infrastructure.db.connections import connection
 
 logger = logging.getLogger(__name__)
+
+REDIS_DEPLOYMENT_CHANNEL = "paper:deployment_changes"
 
 
 def _poll_interval_seconds() -> float:
@@ -31,16 +39,127 @@ def _poll_interval_seconds() -> float:
     )
 
 
+def _publish_deployment_change(action: str, deployment_id: int | str) -> None:
+    """Publish a deployment change event to Redis.
+
+    Best-effort: logs and swallows errors so the API call path is not blocked.
+    """
+    try:
+        from redis import Redis
+
+        settings = get_settings()
+        client = Redis(
+            host=settings.redis_host,
+            port=settings.redis_port,
+            db=settings.redis_db,
+            socket_timeout=2,
+            socket_connect_timeout=2,
+        )
+        client.publish(
+            REDIS_DEPLOYMENT_CHANNEL,
+            json.dumps(
+                {
+                    "action": action,
+                    "deployment_id": deployment_id,
+                    "timestamp": time.time(),
+                }
+            ),
+        )
+        client.close()
+    except Exception:
+        logger.debug(
+            "Failed to publish deployment change (action=%s id=%s)",
+            action,
+            deployment_id,
+            exc_info=True,
+        )
+
+
 class PaperRuntimeDaemon:
-    def __init__(self, runtime_service: PaperRuntimeService | None = None, worker_id: str | None = None) -> None:
+    def __init__(
+        self,
+        runtime_service: PaperRuntimeService | None = None,
+        worker_id: str | None = None,
+        use_pubsub: bool = True,
+    ) -> None:
         self.runtime_service = runtime_service or PaperRuntimeService()
         self.worker_id = worker_id or socket.gethostname()
+        self._use_pubsub = use_pubsub
+        self._pubsub_thread: Optional[threading.Thread] = None
+        self._stop_event = threading.Event()
+        # Used by the pubsub listener to force an immediate reconcile.
+        self._dirty_event = threading.Event()
 
     def run_forever(self) -> None:
         logger.info("[paper-runtime-daemon] started worker_id=%s", self.worker_id)
-        while True:
+
+        # Initial full reconcile.
+        self.run_once()
+
+        if self._use_pubsub:
+            self._start_pubsub_listener()
+
+        # Hybrid loop: wait for either a change notification or the poll
+        # interval to expire. The periodic poll is a safety net so missed
+        # pub/sub messages eventually get reconciled.
+        while not self._stop_event.is_set():
+            triggered = self._dirty_event.wait(timeout=_poll_interval_seconds())
+            if triggered:
+                self._dirty_event.clear()
             self.run_once()
-            time.sleep(_poll_interval_seconds())
+
+    # ── Pub/sub listener ────────────────────────────────────────────
+
+    def _start_pubsub_listener(self) -> None:
+        try:
+            from redis import Redis
+        except ImportError:
+            logger.warning("[paper-runtime-daemon] redis not installed, falling back to polling only")
+            return
+
+        settings = get_settings()
+
+        def _listen() -> None:
+            client = Redis(
+                host=settings.redis_host,
+                port=settings.redis_port,
+                db=settings.redis_db,
+                socket_timeout=None,
+                socket_connect_timeout=5,
+            )
+            while not self._stop_event.is_set():
+                try:
+                    pubsub = client.pubsub()
+                    pubsub.subscribe(REDIS_DEPLOYMENT_CHANNEL)
+                    logger.info(
+                        "[paper-runtime-daemon] subscribed to %s",
+                        REDIS_DEPLOYMENT_CHANNEL,
+                    )
+                    for message in pubsub.listen():
+                        if self._stop_event.is_set():
+                            break
+                        if message.get("type") != "message":
+                            continue
+                        # Any deployment change marks the daemon dirty so the
+                        # main loop runs an immediate reconcile.
+                        self._dirty_event.set()
+                except Exception:
+                    logger.exception(
+                        "[paper-runtime-daemon] pubsub listener crashed, retrying in 5s"
+                    )
+                    self._stop_event.wait(5)
+
+        self._pubsub_thread = threading.Thread(
+            target=_listen,
+            name="paper-runtime-pubsub",
+            daemon=True,
+        )
+        self._pubsub_thread.start()
+
+    def stop(self) -> None:
+        """Request the daemon to exit its main loop."""
+        self._stop_event.set()
+        self._dirty_event.set()
 
     def run_once(self) -> None:
         deployments = self._fetch_deployments()
@@ -241,9 +360,14 @@ class PaperRuntimeDaemon:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the paper runtime daemon")
     parser.add_argument("--once", action="store_true", help="Run a single reconciliation pass and exit")
+    parser.add_argument(
+        "--no-pubsub",
+        action="store_true",
+        help="Disable Redis pub/sub and rely on DB polling only (TASK-011)",
+    )
     args = parser.parse_args()
 
-    daemon = PaperRuntimeDaemon()
+    daemon = PaperRuntimeDaemon(use_pubsub=not args.no_pubsub)
     if args.once:
         daemon.run_once()
         return

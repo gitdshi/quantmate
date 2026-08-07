@@ -28,11 +28,15 @@ class CompositeBacktestEngine:
         constraints: MarketConstraints,
         initial_capital: float = 1_000_000.0,
         benchmark: str = "000300.SH",
+        fill_model: str = "close",
     ):
         self.orchestrator = orchestrator
         self.constraints = constraints
         self.initial_capital = initial_capital
         self.benchmark = benchmark
+        # TASK-010: unified fill-price model so backtest and paper agree.
+        from app.domains.composite.risk_model import FillPriceModel
+        self.fill_model = FillPriceModel.validate(fill_model)
 
     def run(
         self,
@@ -185,11 +189,27 @@ class CompositeBacktestEngine:
             },
         }
 
+        # Convert composite metrics to unified BacktestMetrics schema (TASK-006).
+        # Composite engine already emits a flat dict; pass it through.
+        try:
+            from app.domains.backtests.adapters import from_composite
+
+            start_date_str = (
+                str(trading_days[0]) if trading_days else None
+            )
+            end_date_str = (
+                str(trading_days[-1]) if trading_days else None
+            )
+            unified_metrics = from_composite(metrics, start_date_str, end_date_str).to_dict()
+        except Exception:
+            unified_metrics = None
+
         return {
             "equity_curve": portfolio.equity_curve,
             "trade_log": portfolio.trade_log,
             "position_history": portfolio.position_history[-5:],  # last 5 snapshots
             "metrics": metrics,
+            "unified_metrics": unified_metrics,
             "attribution": attribution,
         }
 

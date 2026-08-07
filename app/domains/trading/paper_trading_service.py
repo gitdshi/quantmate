@@ -126,6 +126,16 @@ class PaperTradingService:
             resolved_vt_symbol,
             execution_mode,
         )
+
+        # TASK-011: notify the paper runtime daemon via Redis pub/sub so it
+        # can reconcile immediately instead of waiting for the next poll.
+        try:
+            from app.domains.trading.paper_runtime_daemon import _publish_deployment_change
+
+            _publish_deployment_change("created", deployment_id)
+        except Exception:
+            logger.debug("Failed to publish deployment creation", exc_info=True)
+
         return {
             "success": True,
             "deployment_id": deployment_id,
@@ -206,7 +216,18 @@ class PaperTradingService:
                 {"did": deployment_id, "uid": user_id},
             )
             conn.commit()
-            return result.rowcount > 0
+            stopped = result.rowcount > 0
+
+        if stopped:
+            # TASK-011: notify daemon so it stops the runtime session promptly.
+            try:
+                from app.domains.trading.paper_runtime_daemon import _publish_deployment_change
+
+                _publish_deployment_change("stopped", deployment_id)
+            except Exception:
+                logger.debug("Failed to publish deployment stop", exc_info=True)
+
+        return stopped
 
     def get_deployment_runtime(self, deployment_id: int, user_id: int) -> Optional[Dict[str, Any]]:
         """Return desired and actual runtime state for a paper deployment."""

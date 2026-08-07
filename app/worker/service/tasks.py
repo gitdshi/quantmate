@@ -540,6 +540,24 @@ def run_backtest_task(
             "completed_at": datetime.now().isoformat(),
         }
 
+        # Convert raw vnpy statistics to the unified BacktestMetrics schema
+        # (TASK-006). Keep ``statistics`` above for backward compatibility.
+        try:
+            from app.domains.backtests.adapters import from_vnpy
+
+            raw_vnpy_stats = dict(statistics)
+            raw_vnpy_stats["benchmark_return"] = benchmark_return
+            raw_vnpy_stats["benchmark"] = benchmark
+            raw_vnpy_stats["total_trade_count"] = statistics.get("total_trade_count")
+            raw_vnpy_stats["win_rate"] = statistics.get("winning_rate")
+            raw_vnpy_stats["profit_loss_ratio"] = statistics.get("profit_factor")
+            raw_vnpy_stats["total_days"] = statistics.get("total_days")
+            result["unified_metrics"] = from_vnpy(
+                raw_vnpy_stats, start_date, end_date
+            ).to_dict()
+        except Exception:
+            logger.warning("[worker] Failed to build unified metrics", exc_info=True)
+
         # Save to database for permanent storage
         if user_id:
             # Read strategy_version from job metadata (set by submit_backtest)

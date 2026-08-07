@@ -100,6 +100,14 @@ def run_daily_sync(target_date: date | None = None, registry=None):
         "error": vnpy_result.error_message,
     }
 
+    # Refresh the data_catalog so RD-Agent sees newly synced tables/columns.
+    try:
+        from app.worker.service.data_catalog_tasks import enqueue_data_catalog_refresh
+
+        enqueue_data_catalog_refresh()
+    except Exception:
+        logger.warning("Failed to enqueue data_catalog refresh after daily sync", exc_info=True)
+
     return results
 
 

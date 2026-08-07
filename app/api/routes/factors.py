@@ -232,6 +232,18 @@ class MiningRequest(BaseModel):
     save_label: Optional[str] = None
 
 
+class PipelineRequest(BaseModel):
+    """Request body for the mine-and-screen pipeline (TASK-004)."""
+    source: str = "alpha158"  # alpha158 | custom | rdagent
+    universe: str = "csi300"
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    ic_threshold: float = 0.03
+    ir_threshold: float = 0.5
+    top_n: int = 20
+    auto_promote: bool = False
+
+
 @router.post("/screening/run")
 async def run_factor_screening(
     req: ScreeningRequest,
@@ -371,3 +383,34 @@ async def get_screening_details(
         "run": dict(run_row._mapping),
         "factors": [dict(r._mapping) for r in details],
     }
+
+
+# --- Mine-and-screen pipeline (TASK-004) ---
+
+
+@router.post("/mine-and-screen", status_code=status.HTTP_202_ACCEPTED)
+async def mine_and_screen(
+    req: PipelineRequest,
+    current_user: TokenData = Depends(get_current_user),
+):
+    """Trigger the full factor mining → screen → persist pipeline as a background job.
+
+    Returns the RQ job id so the client can poll for completion.
+    """
+    from app.worker.service.factor_tasks import enqueue_factor_pipeline
+
+    job_id = enqueue_factor_pipeline(
+        user_id=current_user.user_id,
+        source=req.source,
+        universe=req.universe,
+        start_date=req.start_date,
+        end_date=req.end_date,
+        auto_promote=req.auto_promote,
+    )
+    if not job_id:
+        raise APIError(
+            status_code=503,
+            code=ErrorCode.SERVICE_UNAVAILABLE,
+            message="Failed to enqueue factor pipeline job",
+        )
+    return {"job_id": job_id, "status": "queued", "source": req.source, "universe": req.universe}

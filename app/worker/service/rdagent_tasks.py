@@ -70,6 +70,18 @@ def _sanitize_error_text(error_text: Any) -> Optional[str]:
     return sanitized
 
 
+def _parse_iso_date(value: Any) -> Optional[date_type]:
+    """Parse an ISO ``YYYY-MM-DD`` string into a date; return None if blank/invalid."""
+    if not value:
+        return None
+    if isinstance(value, date_type):
+        return value
+    try:
+        return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return None
+
+
 def run_rdagent_mining_task(
     user_id: int,
     run_id: str,
@@ -165,6 +177,39 @@ def run_rdagent_mining_task(
             current_iteration=completed_iterations,
             total_iterations=_resolve_total_iterations(config_dict, completed_iterations),
         )
+
+        # TASK-004: auto-trigger factor evaluation pipeline for discovered
+        # factors so they get IC/IR metrics and persist into the screening
+        # tables without manual user action.
+        if factors:
+            try:
+                from app.domains.factors.pipeline import run_factor_mining_pipeline
+
+                universe = config_dict.get("universe", "csi300")
+                start_date_str = config_dict.get("start_date")
+                end_date_str = config_dict.get("end_date")
+                sd = _parse_iso_date(start_date_str)
+                ed = _parse_iso_date(end_date_str)
+
+                run_factor_mining_pipeline(
+                    user_id=user_id,
+                    source="rdagent",
+                    universe=universe,
+                    start_date=sd,
+                    end_date=ed,
+                    auto_promote=False,
+                )
+                logger.info(
+                    "[rdagent-worker] Auto-triggered factor pipeline for run %s (%d factors)",
+                    run_id,
+                    len(factors),
+                )
+            except Exception:
+                logger.warning(
+                    "[rdagent-worker] Failed to auto-trigger factor pipeline for run %s",
+                    run_id,
+                    exc_info=True,
+                )
 
         return {
             "run_id": run_id,

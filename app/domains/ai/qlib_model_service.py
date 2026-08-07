@@ -7,12 +7,16 @@ Data source: tushare/akshare via Qlib binary files (NOT vnpy DB).
 
 from __future__ import annotations
 
+import json
 import logging
-from typing import Any, Dict, List, Optional
+import os
+import pickle
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import text
 
-from app.infrastructure.db.connections import connection
+from app.infrastructure.db.connections import connection, get_qlib_engine
 from app.infrastructure.qlib.qlib_config import (
     SUPPORTED_MODELS,
     SUPPORTED_DATASETS,
@@ -20,6 +24,11 @@ from app.infrastructure.qlib.qlib_config import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# Directory where trained Qlib models are persisted as pickle files.
+# Mounted as a docker volume so models survive container restarts.
+MODEL_DIR = Path(os.getenv("QLIB_MODEL_DIR", "/app/data/qlib_models"))
 
 
 class QlibModelService:
@@ -122,8 +131,17 @@ class QlibModelService:
             # Save predictions to DB
             self._save_predictions(run_id, pred)
 
+            # Persist trained model to disk so future backtests can reuse it
+            # without re-training (TASK-005).
+            model_path = self._persist_model(
+                run_id,
+                model=model,
+                dataset_config=dataset_config,
+                model_config=model_config,
+            )
+
             # Update training run with metrics
-            self._complete_training_run(run_id, metrics)
+            self._complete_training_run(run_id, metrics, model_path=model_path)
 
             logger.info("[qlib-model] Training run %d completed: %s", run_id, metrics)
             return {
@@ -131,12 +149,84 @@ class QlibModelService:
                 "status": "completed",
                 "model_type": model_type,
                 "metrics": metrics,
+                "model_path": model_path,
             }
 
         except Exception as exc:
             self._fail_training_run(run_id, str(exc))
             logger.exception("[qlib-model] Training run %d failed", run_id)
             raise
+
+    # ------------------------------------------------------------------
+    # Model persistence (TASK-005: backtest model reuse)
+    # ------------------------------------------------------------------
+
+    def _persist_model(
+        self,
+        run_id: int,
+        model: Any,
+        dataset_config: Dict[str, Any],
+        model_config: Dict[str, Any],
+    ) -> str:
+        """Pickle the trained model + dataset config to MODEL_DIR.
+
+        Returns the absolute path of the saved model file.
+        Dataset itself is not pickled — it carries Qlib internal caches that
+        don't deserialize cleanly across processes. Callers rebuild it from
+        ``dataset_config`` via :meth:`load_trained_model`.
+        """
+        try:
+            MODEL_DIR.mkdir(parents=True, exist_ok=True)
+            model_path = MODEL_DIR / f"{run_id}.pkl"
+            payload = {
+                "model": model,
+                "dataset_config": dataset_config,
+                "model_config": model_config,
+            }
+            with open(model_path, "wb") as f:
+                pickle.dump(payload, f)
+            logger.info("[qlib-model] Persisted model to %s", model_path)
+            return str(model_path)
+        except Exception:
+            logger.exception("[qlib-model] Failed to persist model for run %d", run_id)
+            return ""
+
+    def load_trained_model(self, run_id: int) -> Tuple[Any, Any]:
+        """Load a trained model and rebuild its dataset.
+
+        Raises:
+            ValueError: if the training run is missing, not completed, or has
+                no model_path.
+            FileNotFoundError: if the model file no longer exists on disk.
+        """
+        run = self.get_training_run(run_id)
+        if not run:
+            raise ValueError(f"Training run not found: {run_id}")
+        if run.get("status") != "completed":
+            raise ValueError(
+                f"Training run {run_id} status is {run.get('status')!r}, expected 'completed'"
+            )
+        model_path_str = run.get("model_path")
+        if not model_path_str:
+            raise ValueError(f"Training run {run_id} has no model_path")
+
+        model_path = Path(model_path_str)
+        if not model_path.exists():
+            raise FileNotFoundError(f"Model file not found: {model_path}")
+
+        with open(model_path, "rb") as f:
+            payload = pickle.load(f)
+
+        # Rebuild dataset from the stored config so model.predict(dataset) works.
+        try:
+            from qlib.utils import init_instance_by_config  # type: ignore
+
+            dataset = init_instance_by_config(payload["dataset_config"])
+        except Exception:
+            logger.exception("[qlib-model] Failed to rebuild dataset for run %d", run_id)
+            raise
+
+        return payload["model"], dataset
 
     def get_predictions(
         self,
@@ -233,16 +323,23 @@ class QlibModelService:
             )
             conn.commit()
 
-    def _complete_training_run(self, run_id: int, metrics: Dict[str, Any]) -> None:
-        import json
-
+    def _complete_training_run(
+        self,
+        run_id: int,
+        metrics: Dict[str, Any],
+        model_path: Optional[str] = None,
+    ) -> None:
         with connection("qlib") as conn:
             conn.execute(
                 text(
                     "UPDATE model_training_runs SET status = 'completed', "
-                    "metrics = :metrics, completed_at = NOW() WHERE id = :rid"
+                    "metrics = :metrics, model_path = :mp, completed_at = NOW() WHERE id = :rid"
                 ),
-                {"metrics": json.dumps(metrics), "rid": run_id},
+                {
+                    "metrics": json.dumps(metrics),
+                    "mp": model_path or None,
+                    "rid": run_id,
+                },
             )
             conn.commit()
 
@@ -315,7 +412,11 @@ class QlibModelService:
 
     @staticmethod
     def _calculate_metrics(pred, dataset) -> Dict[str, Any]:
-        """Calculate IC, ICIR, and other metrics from predictions."""
+        """Calculate IC, ICIR, and other metrics from predictions.
+
+        Aligns pred and label on (datetime, instrument) before computing
+        correlation to avoid NaN results caused by misaligned indices.
+        """
         try:
             import pandas as pd
             from scipy import stats
@@ -327,31 +428,76 @@ class QlibModelService:
 
             label = test_data.iloc[:, 0] if isinstance(test_data, pd.DataFrame) else test_data
 
-            # Align predictions with labels
-            common_idx = pred.index.intersection(label.index)
-            if len(common_idx) == 0:
+            # Normalise pred to a Series
+            if isinstance(pred, pd.DataFrame):
+                pred_series = pred.iloc[:, 0]
+            else:
+                pred_series = pred
+
+            # Reset indices and rename columns so we can merge on
+            # (datetime, instrument). The Qlib MultiIndex is
+            # (instrument, datetime) but we tolerate either order.
+            pred_df = pred_series.reset_index()
+            if len(pred_df.columns) < 3:
+                logger.warning("[qlib-model] pred has unexpected shape: %s", pred_df.shape)
                 return {}
+            pred_df.columns = ["datetime", "instrument", "score"] if pred_df.columns[0] != "datetime" else ["instrument", "datetime", "score"]
 
-            pred_aligned = pred.loc[common_idx]
-            label_aligned = label.loc[common_idx]
+            label_df = label.reset_index()
+            if len(label_df.columns) < 3:
+                logger.warning("[qlib-model] label has unexpected shape: %s", label_df.shape)
+                return {}
+            label_df.columns = ["datetime", "instrument", "label"] if label_df.columns[0] != "datetime" else ["instrument", "datetime", "label"]
 
-            # Calculate Information Coefficient per date
-            if isinstance(pred_aligned, pd.Series):
-                pred_aligned.reset_index()
-            else:
-                pred_aligned.reset_index()
+            # Inner-join on (datetime, instrument)
+            merged = pd.merge(pred_df, label_df, on=["datetime", "instrument"], how="inner")
+            if merged.empty:
+                logger.warning("[qlib-model] No overlapping samples between pred and label")
+                return {"ic": None, "rank_ic": None, "prediction_count": 0}
 
-            if isinstance(label_aligned, pd.Series):
-                label_aligned.reset_index()
-            else:
-                label_aligned.reset_index()
+            # Overall IC (Pearson) and Rank IC (Spearman)
+            ic = merged["score"].corr(merged["label"])
+            rank_ic, _ = stats.spearmanr(merged["score"], merged["label"])
 
-            # Simple overall IC
-            ic, _ = stats.spearmanr(pred_aligned.values.flatten(), label_aligned.values.flatten())
+            # Per-date IC then average (standard Qlib ICIR definition)
+            daily_ic = (
+                merged.groupby("datetime")
+                .apply(lambda g: g["score"].corr(g["label"]) if len(g) > 1 else None)
+                .dropna()
+            )
+            daily_rank_ic = (
+                merged.groupby("datetime")
+                .apply(lambda g: stats.spearmanr(g["score"], g["label"])[0] if len(g) > 1 else None)
+                .dropna()
+            )
+
+            ic_mean = float(daily_ic.mean()) if not daily_ic.empty else None
+            ic_std = float(daily_ic.std()) if not daily_ic.empty else None
+            ir = float(ic_mean / ic_std) if ic_mean is not None and ic_std not in (None, 0) else None
+
+            rank_ic_mean = float(daily_rank_ic.mean()) if not daily_rank_ic.empty else None
+            rank_ic_std = float(daily_rank_ic.std()) if not daily_rank_ic.empty else None
+            rank_ir = (
+                float(rank_ic_mean / rank_ic_std)
+                if rank_ic_mean is not None and rank_ic_std not in (None, 0)
+                else None
+            )
+
+            def _round(v):
+                if v is None or pd.isna(v):
+                    return None
+                return round(float(v), 6)
 
             return {
-                "ic": round(float(ic), 6) if not pd.isna(ic) else None,
-                "prediction_count": len(common_idx),
+                "ic": _round(ic),
+                "rank_ic": _round(rank_ic),
+                "ic_mean": _round(ic_mean),
+                "ic_std": _round(ic_std),
+                "ir": _round(ir),
+                "rank_ic_mean": _round(rank_ic_mean),
+                "rank_ic_std": _round(rank_ic_std),
+                "rank_ir": _round(rank_ir),
+                "prediction_count": int(len(merged)),
             }
 
         except Exception as exc:

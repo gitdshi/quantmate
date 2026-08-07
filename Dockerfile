@@ -54,24 +54,23 @@ COPY requirements.txt ./
 ARG TARGETARCH
 ENV http_proxy= https_proxy= HTTP_PROXY= HTTPS_PROXY= no_proxy= NO_PROXY=
 RUN --mount=type=cache,target=/root/.cache/pip \
-    if [ "$TARGETARCH" = "arm64" ]; then \
-      grep -v '^pyqlib>=0\.9\.0$' requirements.txt > requirements.docker.txt; \
-    else \
-      cp requirements.txt requirements.docker.txt; \
-    fi \
+    cp requirements.txt requirements.docker.txt \
     && grep -Ev '^(pyqtgraph|PySide6|PySide6_Addons|PySide6_Essentials|QDarkStyle|QtPy|shiboken6|vnpy|vnpy_ctabacktester|vnpy_ctastrategy|vnpy_portfoliostrategy|vnpy_datamanager|vnpy_mysql|vnpy_sqlite|vnpy_tushare|rdagent|azureml-mlflow|mlflow|mlflow-skinny)==' requirements.docker.txt > requirements.docker.filtered.txt \
     && mv requirements.docker.filtered.txt requirements.docker.txt \
     && if [ -n "$PIP_INDEX_URL" ] && [ -n "$PIP_TRUSTED_HOST" ]; then \
       PIP_DISABLE_PIP_VERSION_CHECK=1 pip install \
+        --prefer-binary \
         --index-url "$PIP_INDEX_URL" \
         --trusted-host "$PIP_TRUSTED_HOST" \
         -r requirements.docker.txt; \
     elif [ -n "$PIP_INDEX_URL" ]; then \
       PIP_DISABLE_PIP_VERSION_CHECK=1 pip install \
+        --prefer-binary \
         --index-url "$PIP_INDEX_URL" \
         -r requirements.docker.txt; \
     else \
       PIP_DISABLE_PIP_VERSION_CHECK=1 pip install \
+        --prefer-binary \
         -r requirements.docker.txt; \
     fi \
     && if [ -n "$PIP_INDEX_URL" ] && [ -n "$PIP_TRUSTED_HOST" ]; then \

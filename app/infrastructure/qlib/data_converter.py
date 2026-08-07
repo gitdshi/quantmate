@@ -16,7 +16,7 @@ import logging
 from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
-from typing import Optional
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -26,6 +26,124 @@ from app.infrastructure.db.connections import connection as db_connection, get_q
 from app.infrastructure.qlib.qlib_config import QLIB_DATA_DIR
 
 logger = logging.getLogger(__name__)
+
+
+def _qlib_calendar_uses_timestamp() -> bool:
+    """Return True if the installed pyqlib expects Unix-timestamp calendars.
+
+    pyqlib >= 0.9.5 reads ``day.txt`` as integer Unix timestamps (seconds);
+    older versions expect ``YYYY-MM-DD`` strings. If pyqlib is not installed
+    we default to the modern (timestamp) format.
+    """
+    try:
+        import qlib  # noqa: F401
+        from packaging import version
+
+        return version.parse(qlib.__version__) >= version.parse("0.9.5")
+    except Exception:
+        # Conservative default: write timestamps (modern pyqlib).
+        return True
+
+
+def _write_calendar(calendars_dir: Path, calendar_dates: List[pd.Timestamp]) -> str:
+    """Write ``calendars/day.txt`` in the format expected by the installed pyqlib.
+
+    Returns the format used: ``"timestamp"`` or ``"string"``.
+    """
+    calendars_dir.mkdir(parents=True, exist_ok=True)
+
+    if _qlib_calendar_uses_timestamp():
+        # Modern pyqlib: integer Unix timestamps (seconds).
+        ts_values = pd.DatetimeIndex(calendar_dates).astype("int64") // 10**9
+        with open(calendars_dir / "day.txt", "w") as f:
+            for ts in ts_values:
+                f.write(f"{int(ts)}\n")
+        return "timestamp"
+
+    # Legacy pyqlib: ``YYYY-MM-DD`` strings.
+    with open(calendars_dir / "day.txt", "w") as f:
+        for dt in calendar_dates:
+            f.write(pd.Timestamp(dt).strftime("%Y-%m-%d") + "\n")
+    return "string"
+
+
+def _fetch_universe_data() -> Dict[str, List[Tuple[str, str, str]]]:
+    """Query tushare for instrument universes (all + index constituents).
+
+    Returns ``{market_name: [(instrument, start, end), ...]}`` where
+    instruments are converted to the Qlib naming convention (e.g. ``SZ000001``).
+    """
+    universes: Dict[str, List[Tuple[str, str, str]]] = {}
+
+    try:
+        with connection("tushare") as conn:
+            # All listed A-shares
+            try:
+                rows = conn.execute(
+                    text(
+                        "SELECT ts_code, list_date, delist_date "
+                        "FROM stock_basic WHERE list_status = 'L'"
+                    )
+                ).fetchall()
+                universes["all"] = [
+                    (
+                        _ts_code_to_qlib_instrument(r[0]),
+                        str(r[1]) if r[1] else "2010-01-01",
+                        str(r[2]) if r[2] else "2099-12-31",
+                    )
+                    for r in rows
+                ]
+            except Exception as exc:
+                logger.warning("[qlib-converter] Failed to fetch stock_basic: %s", exc)
+
+            # Index constituents: csi300 / csi500 / csi1000
+            index_map = {
+                "000300.SH": "csi300",
+                "000905.SH": "csi500",
+                "000852.SH": "csi1000",
+            }
+            for index_code, market_name in index_map.items():
+                try:
+                    rows = conn.execute(
+                        text(
+                            "SELECT ts_code, MIN(in_date) AS in_date, MAX(COALESCE(out_date, '2099-12-31')) AS out_date "
+                            "FROM index_weight WHERE index_code = :code "
+                            "GROUP BY ts_code"
+                        ),
+                        {"code": index_code},
+                    ).fetchall()
+                    universes[market_name] = [
+                        (
+                            _ts_code_to_qlib_instrument(r[0]),
+                            str(r[1]) if r[1] else "2010-01-01",
+                            str(r[2]) if r[2] else "2099-12-31",
+                        )
+                        for r in rows
+                    ]
+                except Exception as exc:
+                    logger.warning(
+                        "[qlib-converter] Failed to fetch %s constituents: %s", market_name, exc
+                    )
+    except Exception as exc:
+        logger.warning("[qlib-converter] Failed to fetch universe data: %s", exc)
+
+    return universes
+
+
+def _write_instruments(
+    instruments_dir: Path,
+    universe_data: Dict[str, List[Tuple[str, str, str]]],
+) -> None:
+    """Write one ``<market>.txt`` file per entry in ``universe_data``."""
+    instruments_dir.mkdir(parents=True, exist_ok=True)
+    for market, instruments in universe_data.items():
+        if not instruments:
+            continue
+        file_path = instruments_dir / f"{market}.txt"
+        with open(file_path, "w") as f:
+            for code, start, end in instruments:
+                f.write(f"{code}\t{start}\t{end}\n")
+        logger.info("[qlib-converter] Wrote %d instruments to %s", len(instruments), file_path)
 
 
 def _ts_code_to_qlib_instrument(ts_code: str) -> str:
@@ -227,32 +345,61 @@ def convert_to_qlib_format(
     _ensure_dir(calendars_dir)
     _ensure_dir(instruments_dir)
 
-    # Write calendar
+    # Write calendar in the format expected by the installed pyqlib version
     all_dates = sorted(df["date"].unique())
-    with open(calendars_dir / "day.txt", "w") as f:
-        for dt in all_dates:
-            f.write(pd.Timestamp(dt).strftime("%Y-%m-%d") + "\n")
+    calendar_format = _write_calendar(calendars_dir, all_dates)
 
-    # Write instruments file
-    instruments_data = []
-    feature_cols = ["open", "high", "low", "close", "volume", "amount", "factor"]
+    # Write instruments file(s): all + csi300/csi500/csi1000 (when available)
+    universe_data = _fetch_universe_data()
 
+    # Always include the instruments we actually have data for in "all",
+    # preferring tushare's full list when present but falling back to the
+    # data-derived list.
+    data_instruments: Dict[str, Tuple[str, str]] = {}
     for instrument, idf in df.groupby("instrument"):
         idf = idf.sort_values("date")
         inst_start = idf["date"].iloc[0].strftime("%Y-%m-%d")
         inst_end = idf["date"].iloc[-1].strftime("%Y-%m-%d")
-        instruments_data.append(f"{instrument}\t{inst_start}\t{inst_end}")
+        data_instruments[instrument] = (inst_start, inst_end)
 
-        # Write feature binary files
+    if not universe_data.get("all"):
+        universe_data["all"] = [
+            (inst, start, end) for inst, (start, end) in data_instruments.items()
+        ]
+    else:
+        # Restrict "all" to instruments we actually have features for
+        universe_data["all"] = [
+            (inst, start, end)
+            for inst, start, end in universe_data["all"]
+            if inst in data_instruments
+        ]
+        if not universe_data["all"]:
+            universe_data["all"] = [
+                (inst, start, end) for inst, (start, end) in data_instruments.items()
+            ]
+
+    # For index universes, also restrict to instruments we have data for
+    for market in ("csi300", "csi500", "csi1000"):
+        if market in universe_data:
+            universe_data[market] = [
+                (inst, start, end)
+                for inst, start, end in universe_data[market]
+                if inst in data_instruments
+            ]
+
+    _write_instruments(instruments_dir, universe_data)
+
+    # Write feature binary files
+    feature_cols = ["open", "high", "low", "close", "volume", "amount", "factor"]
+
+    for instrument, idf in df.groupby("instrument"):
+        idf = idf.sort_values("date")
         inst_dir = features_dir / str(instrument)
         _ensure_dir(inst_dir)
 
         for col in feature_cols:
             values = idf[col].values.astype(np.float32)
             values.tofile(str(inst_dir / f"{col}.day.bin"))
-
-    with open(instruments_dir / "all.txt", "w") as f:
-        f.write("\n".join(instruments_data) + "\n")
 
     # Log conversion to qlib DB
     _log_conversion(
@@ -263,7 +410,13 @@ def convert_to_qlib_format(
         date_end=date_max.date() if hasattr(date_max, "date") else date_max,
     )
 
-    logger.info("[qlib-converter] Conversion complete: %d instruments written to %s", instrument_count, target_dir)
+    logger.info(
+        "[qlib-converter] Conversion complete: %d instruments written to %s (calendar=%s, markets=%s)",
+        instrument_count,
+        target_dir,
+        calendar_format,
+        list(universe_data.keys()),
+    )
 
     return {
         "instrument_count": instrument_count,

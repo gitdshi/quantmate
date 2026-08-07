@@ -91,6 +91,15 @@ def _compute_factor_scores(
         normalize_factor_expression,
     )
 
+    # TASK-010: check factor cache before recomputing.
+    from app.domains.composite.factor_cache import get_factor_cache
+
+    cache = get_factor_cache()
+    cache_key = cache.make_key(expression, symbols, trading_day, trading_day)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached.reindex(symbols).dropna().astype(float)
+
     factor_frame = _build_factor_frame(trading_day, symbols, market_data, history_data)
     if factor_frame.empty:
         return pd.Series(dtype=float)
@@ -105,7 +114,13 @@ def _compute_factor_scores(
         factor_values = compute_custom_factor(normalized, eval_frame)
 
     scores = factor_values.groupby(level=0).last().dropna()
-    return scores[scores.index.isin(symbols)].astype(float)
+    result = scores[scores.index.isin(symbols)].astype(float)
+
+    # Persist to cache for reuse on subsequent days / runs.
+    if not result.empty:
+        cache.set(cache_key, result)
+
+    return result
 
 
 def _sort_symbols_by_factor(
