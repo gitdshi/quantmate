@@ -14,7 +14,8 @@ class TestQlibConfigExt:
         assert qlib_config.is_qlib_available() is False
 
     def test_init_qlib_returns_false_on_import_error_and_exception(self, monkeypatch):
-        qlib_config._qlib_initialized = False
+        # Reset the fork-safe pid guard so init runs
+        qlib_config._qlib_initialized_pid = None
         original_import = __import__
 
         def fake_import_missing(name, *args, **kwargs):
@@ -42,11 +43,12 @@ class TestQlibConfigExt:
             return original_import(name, *args, **kwargs)
 
         monkeypatch.setattr("builtins.__import__", fake_import_runtime)
-        qlib_config._qlib_initialized = False
+        qlib_config._qlib_initialized_pid = None
         assert qlib_config.init_qlib() is False
 
     def test_init_qlib_success_and_idempotent(self, monkeypatch):
-        qlib_config._qlib_initialized = False
+        # Reset the fork-safe pid guard so init runs
+        qlib_config._qlib_initialized_pid = None
         calls = []
         original_import = __import__
 

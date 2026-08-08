@@ -98,9 +98,10 @@ class TestConvertToQlibFormat:
     """Test binary conversion output."""
 
     @patch("app.infrastructure.qlib.data_converter._log_conversion")
+    @patch("app.infrastructure.qlib.data_converter._fetch_universe_data")
     @patch("app.infrastructure.qlib.data_converter.fetch_akshare_daily")
     @patch("app.infrastructure.qlib.data_converter.fetch_tushare_daily")
-    def test_convert_creates_files(self, mock_tushare, mock_akshare, mock_log):
+    def test_convert_creates_files(self, mock_tushare, mock_akshare, mock_universe, mock_log):
         """Verify conversion creates correct directory structure."""
         mock_tushare.return_value = pd.DataFrame({
             "ts_code": ["000001.SZ"] * 3,
@@ -114,6 +115,9 @@ class TestConvertToQlibFormat:
             "adj_factor": [1.0, 1.0, 1.0],
         })
         mock_akshare.return_value = pd.DataFrame()
+        mock_universe.return_value = {
+            "all": [("SZ000001", "2024-01-01", "2099-12-31")],
+        }
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("app.infrastructure.qlib.data_converter.QLIB_DATA_DIR", tmpdir):
@@ -134,8 +138,8 @@ class TestConvertToQlibFormat:
             assert os.path.isdir(calendars_dir)
             assert os.path.isdir(instruments_dir)
 
-            # Check instrument directory exists
-            assert os.path.isdir(os.path.join(features_dir, "SZ000001"))
+            # Check instrument directory exists (lowercase per Qlib convention)
+            assert os.path.isdir(os.path.join(features_dir, "sz000001"))
 
             # Check calendar file
             cal_path = os.path.join(calendars_dir, "day.txt")
