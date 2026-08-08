@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import date, datetime
+from datetime import date
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text

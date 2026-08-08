@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import text
 
-from app.infrastructure.db.connections import connection, get_qlib_engine
+from app.infrastructure.db.connections import connection
 from app.infrastructure.qlib.qlib_config import (
     SUPPORTED_MODELS,
     SUPPORTED_DATASETS,

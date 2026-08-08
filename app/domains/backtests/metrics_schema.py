@@ -9,7 +9,6 @@ omitted, so downstream consumers can rely on a stable set of keys.
 
 from __future__ import annotations
 
-import inspect
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, Optional
 

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 import traceback
-from datetime import date, datetime
+from datetime import datetime
 from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)

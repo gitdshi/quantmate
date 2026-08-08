@@ -28,8 +28,6 @@ def update_data_catalog() -> Dict[str, Any]:
 
     # Reuse the classification logic that lives next to the catalog table.
     from app.domains.factors.data_catalog import (
-        _classify_column,
-        _is_numeric_type,
         scan_database_columns,
     )
 
