@@ -69,6 +69,9 @@ def enqueue_factor_pipeline(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     auto_promote: bool = False,
+    ic_threshold: float = 0.03,
+    ir_threshold: float = 0.5,
+    top_n: int = 20,
 ) -> Optional[str]:
     """Enqueue the factor pipeline on the default queue.
 
@@ -86,6 +89,9 @@ def enqueue_factor_pipeline(
             start_date=start_date,
             end_date=end_date,
             auto_promote=auto_promote,
+            ic_threshold=ic_threshold,
+            ir_threshold=ir_threshold,
+            top_n=top_n,
             job_timeout=1800,
         )
         return job.id

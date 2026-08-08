@@ -222,7 +222,11 @@ def run_qlib_backtest_task(
 
         pred = model.predict(dataset)
 
-        # Run Qlib backtest with strategy
+        # Run Qlib backtest with strategy.
+        # Newer Qlib (>=0.9.6) changed backtest_daily() signature: it no longer
+        # accepts `pred` directly. Instead, the prediction is wired into the
+        # strategy config as the `signal` kwarg, and backtest_daily takes
+        # start_time/end_time/strategy.
         strategy_class_path = SUPPORTED_STRATEGIES.get(strategy_type, SUPPORTED_STRATEGIES["TopkDropout"])
         strategy_config = {
             "class": strategy_class_path.split(".")[-1],
@@ -230,11 +234,21 @@ def run_qlib_backtest_task(
             "kwargs": {"signal": pred, "topk": topk, "n_drop": n_drop},
         }
 
-        port_analysis, indicator = backtest_daily(
-            pred=pred,
-            strategy=strategy_config,
-            benchmark=benchmark,
-        )
+        try:
+            # New-style API (Qlib >= 0.9.6)
+            port_analysis, indicator = backtest_daily(
+                start_time=start_date,
+                end_time=end_date,
+                strategy=strategy_config,
+                benchmark=benchmark,
+            )
+        except TypeError:
+            # Fallback: old-style API accepting `pred`
+            port_analysis, indicator = backtest_daily(
+                pred=pred,
+                strategy=strategy_config,
+                benchmark=benchmark,
+            )
 
         # Extract statistics
         risk_df = risk_analysis(port_analysis["return"])

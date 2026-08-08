@@ -556,6 +556,14 @@ def compute_qlib_factor_set(
     if df is None or df.empty:
         raise RuntimeError(f"Qlib returned no data for {factor_set} / {instruments} / {start_date}-{end_date}")
 
+    # Alpha158/Alpha360 handlers return (datetime, instrument) index order,
+    # but the rest of our pipeline expects (instrument, date). Swap levels and
+    # normalize names so downstream alignment works correctly.
+    if isinstance(df.index, pd.MultiIndex) and df.index.nlevels == 2:
+        if list(df.index.names)[0] == "datetime":
+            df = df.swaplevel(0, 1)
+        df.index = df.index.set_names(["instrument", "date"])
+
     return df
 
 

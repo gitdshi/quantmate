@@ -6,6 +6,11 @@ remain minimal with only `main.py`.
 """
 
 import os
+# Qlib's contrib modules use MLflow for experiment tracking. Newer MLflow
+# versions disable the filesystem backend by default; opt in early (before any
+# mlflow import) so Qlib's internal recorder works without a DB backend.
+os.environ.setdefault("MLFLOW_ALLOW_FILE_STORE", "true")
+
 import sys
 from pathlib import Path
 

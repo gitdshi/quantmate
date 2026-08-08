@@ -73,6 +73,11 @@ def init_qlib(data_dir: Optional[str] = None, region: str = "cn") -> bool:
             return True
 
         try:
+            # Qlib's contrib modules use MLflow for experiment tracking. Newer
+            # MLflow versions disable the filesystem backend by default; opt
+            # in so Qlib's internal recorder works without a DB backend.
+            os.environ.setdefault("MLFLOW_ALLOW_FILE_STORE", "true")
+
             import qlib
             from qlib.config import REG_CN, REG_US
 

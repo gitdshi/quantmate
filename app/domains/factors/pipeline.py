@@ -45,9 +45,10 @@ def run_factor_mining_pipeline(
     run_label = f"{source}-{screening_id[:8]}"
 
     # Stage 1: Mine candidate factor expressions
-    factors = _mine_factors(source, universe, start_date, end_date)
+    # For alpha158, mining already returns evaluated factors with metrics.
+    mined_factors = _mine_factors(source, universe, start_date, end_date)
     logger.info(
-        "[pipeline %s] Mined %d factors from %s", screening_id, len(factors), source
+        "[pipeline %s] Mined %d factors from %s", screening_id, len(mined_factors), source
     )
 
     # Create screening_results parent row — returns the auto-increment run_id.
@@ -59,7 +60,7 @@ def run_factor_mining_pipeline(
         universe=universe,
         start_date=start_date,
         end_date=end_date,
-        total=len(factors),
+        total=len(mined_factors),
         config={
             "ic_threshold": ic_threshold,
             "ir_threshold": ir_threshold,
@@ -69,36 +70,58 @@ def run_factor_mining_pipeline(
     )
 
     # Stage 2+3: Evaluate each factor and collect metrics
+    # For alpha158, mining already returns dicts with metrics (ic_mean, ic_ir, etc.).
+    # For custom/rdagent, mining returns expression strings that need evaluation.
     results: List[Dict[str, Any]] = []
-    for factor_expr in factors:
-        try:
-            metrics = _evaluate_factor(
-                factor_expr=factor_expr,
-                source=source,
-                universe=universe,
-                start_date=start_date,
-                end_date=end_date,
-            )
+    for item in mined_factors:
+        if isinstance(item, dict) and "ic_mean" in item:
+            # Already evaluated by mining (alpha158)
+            metrics = dict(item)
+            factor_name = metrics.get("factor_name") or metrics.get("name") or "unknown"
             passed = (
-                abs(metrics.get("rank_ir", 0) or 0) >= ir_threshold
+                abs(metrics.get("ic_ir", 0) or metrics.get("rank_ir", 0) or 0) >= ir_threshold
                 and abs(metrics.get("ic_mean", 0) or 0) >= ic_threshold
             )
-            metrics["factor_name"] = factor_expr
+            metrics["factor_name"] = factor_name
             metrics["factor_source"] = source
             metrics["passed"] = passed
             results.append(metrics)
-        except Exception:
-            logger.exception(
-                "[pipeline %s] Failed to evaluate factor: %s", screening_id, factor_expr
+        else:
+            # Need to evaluate (custom / rdagent expressions)
+            factor_expr = item if isinstance(item, str) else (
+                item.get("expression") or item.get("factor_name") or item.get("name")
+                if isinstance(item, dict) else str(item)
             )
-            results.append(
-                {
-                    "factor_name": factor_expr,
-                    "factor_source": source,
-                    "passed": False,
-                    "error": True,
-                }
-            )
+            if not factor_expr:
+                continue
+            try:
+                metrics = _evaluate_factor(
+                    factor_expr=str(factor_expr),
+                    source=source,
+                    universe=universe,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+                passed = (
+                    abs(metrics.get("rank_ir", 0) or 0) >= ir_threshold
+                    and abs(metrics.get("ic_mean", 0) or 0) >= ic_threshold
+                )
+                metrics["factor_name"] = str(factor_expr)
+                metrics["factor_source"] = source
+                metrics["passed"] = passed
+                results.append(metrics)
+            except Exception:
+                logger.exception(
+                    "[pipeline %s] Failed to evaluate factor: %s", screening_id, factor_expr
+                )
+                results.append(
+                    {
+                        "factor_name": str(factor_expr),
+                        "factor_source": source,
+                        "passed": False,
+                        "error": True,
+                    }
+                )
 
     # Persist detail rows
     if run_id is not None:
@@ -109,7 +132,10 @@ def run_factor_mining_pipeline(
 
     # Stage 4: Rank
     passed_results = [r for r in results if r.get("passed")]
-    passed_results.sort(key=lambda r: abs(r.get("rank_ir", 0) or 0), reverse=True)
+    passed_results.sort(
+        key=lambda r: abs(r.get("rank_ir", 0) or r.get("ic_ir", 0) or 0),
+        reverse=True,
+    )
     top_factors = passed_results[:top_n]
 
     if run_id is not None:
@@ -171,16 +197,9 @@ def _mine_factors(
             end_date=ed,
             instruments=universe,
         )
-        # mine_alpha158_factors returns list[dict] with at least {"name", "expression"}
-        expressions: List[str] = []
-        for item in mined or []:
-            if isinstance(item, dict):
-                expr = item.get("expression") or item.get("name")
-                if expr:
-                    expressions.append(expr)
-            elif isinstance(item, str):
-                expressions.append(item)
-        return expressions
+        # mine_alpha158_factors returns list[dict] with metrics already computed.
+        # Return the dicts directly so the pipeline can skip re-evaluation.
+        return list(mined or [])
 
     if source == "custom":
         # Pull registered custom factors from the FactorLab table.
@@ -371,7 +390,7 @@ def _promote_factors(top_factors: List[Dict[str, Any]], universe: str) -> List[s
                         "name": name[:256],
                         "src": f.get("factor_source", "")[:64],
                         "uni": universe[:64],
-                        "rir": float(f.get("rank_ir") or 0),
+                        "rir": float(f.get("rank_ir") or f.get("ic_ir") or 0),
                     },
                 )
                 conn.commit()

@@ -31,18 +31,37 @@ logger = logging.getLogger(__name__)
 def _qlib_calendar_uses_timestamp() -> bool:
     """Return True if the installed pyqlib expects Unix-timestamp calendars.
 
-    pyqlib >= 0.9.5 reads ``day.txt`` as integer Unix timestamps (seconds);
-    older versions expect ``YYYY-MM-DD`` strings. If pyqlib is not installed
-    we default to the modern (timestamp) format.
+    pyqlib built from the microsoft/qlib GitHub source (v0.9.7 tag) reads
+    ``day.txt`` as ``YYYY-MM-DD`` strings via ``pd.Timestamp(x)``. Pre-built
+    wheels from PyPI (>= 0.9.5) use integer Unix timestamps. If pyqlib is not
+    installed we default to the string format which is safer.
     """
     try:
         import qlib  # noqa: F401
         from packaging import version
 
-        return version.parse(qlib.__version__) >= version.parse("0.9.5")
+        # Check if this is a source build (has no PyPI metadata) vs a wheel
+        # The source build from v0.9.7 tag uses string calendars
+        v = version.parse(qlib.__version__)
+        if v >= version.parse("0.9.5"):
+            # Try to detect source build vs wheel by checking if the package
+            # has dist-info (wheel) or not (source install)
+            import importlib.util
+            spec = importlib.util.find_spec("qlib")
+            if spec and spec.submodule_search_locations:
+                import os
+                pkg_dir = os.path.dirname(spec.origin)
+                parent = os.path.dirname(pkg_dir)
+                # Source installs don't have qlib-*.dist-info
+                has_dist_info = any(
+                    d.startswith("qlib-") and d.endswith(".dist-info")
+                    for d in os.listdir(parent)
+                )
+                return has_dist_info
+        return False
     except Exception:
-        # Conservative default: write timestamps (modern pyqlib).
-        return True
+        # Conservative default: write date strings.
+        return False
 
 
 def _write_calendar(calendars_dir: Path, calendar_dates: List[pd.Timestamp]) -> str:
@@ -106,9 +125,9 @@ def _fetch_universe_data() -> Dict[str, List[Tuple[str, str, str]]]:
                 try:
                     rows = conn.execute(
                         text(
-                            "SELECT ts_code, MIN(in_date) AS in_date, MAX(COALESCE(out_date, '2099-12-31')) AS out_date "
+                            "SELECT con_code, MIN(trade_date) AS in_date, MAX(trade_date) AS out_date "
                             "FROM index_weight WHERE index_code = :code "
-                            "GROUP BY ts_code"
+                            "GROUP BY con_code"
                         ),
                         {"code": index_code},
                     ).fetchall()
@@ -390,16 +409,44 @@ def convert_to_qlib_format(
     _write_instruments(instruments_dir, universe_data)
 
     # Write feature binary files
+    # Qlib's FileFeatureStorage expects each bin file to contain:
+    #   [start_index (float32), value_0, value_1, ..., value_N]
+    # where start_index is the calendar position of the first value.
+    # Instrument directory names MUST be lowercase (qlib lowercases
+    # instrument names when constructing file paths).
     feature_cols = ["open", "high", "low", "close", "volume", "amount", "factor"]
+    calendar_dates = sorted(df["date"].unique())
+    calendar_index = pd.DatetimeIndex(calendar_dates)
+    cal_pos = {d: i for i, d in enumerate(calendar_index)}
 
     for instrument, idf in df.groupby("instrument"):
         idf = idf.sort_values("date")
-        inst_dir = features_dir / str(instrument)
+        # Use lowercase instrument name for the directory
+        inst_dir = features_dir / str(instrument).lower()
         _ensure_dir(inst_dir)
 
+        # Find the calendar positions where this instrument has data
+        inst_dates = idf["date"].values
+        positions = sorted(cal_pos[d] for d in inst_dates if d in cal_pos)
+        if not positions:
+            continue
+        start_idx = positions[0]
+        end_idx = positions[-1]
+        n_values = end_idx - start_idx + 1
+
+        # Reindex data to the calendar range [start_idx, end_idx]
+        idf_indexed = idf.set_index("date")
         for col in feature_cols:
-            values = idf[col].values.astype(np.float32)
-            values.tofile(str(inst_dir / f"{col}.day.bin"))
+            values = np.full(n_values, np.nan, dtype=np.float32)
+            for pos in positions:
+                dt = calendar_index[pos]
+                if dt in idf_indexed.index:
+                    values[pos - start_idx] = idf_indexed.loc[dt, col]
+
+            # Write: [start_index (as float32), values...]
+            header = np.array([start_idx], dtype=np.float32)
+            out = np.hstack([header, values])
+            out.tofile(str(inst_dir / f"{col}.day.bin"))
 
     # Log conversion to qlib DB
     _log_conversion(

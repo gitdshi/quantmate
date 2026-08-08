@@ -406,6 +406,9 @@ async def mine_and_screen(
         start_date=req.start_date,
         end_date=req.end_date,
         auto_promote=req.auto_promote,
+        ic_threshold=req.ic_threshold,
+        ir_threshold=req.ir_threshold,
+        top_n=req.top_n,
     )
     if not job_id:
         raise APIError(

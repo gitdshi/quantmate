@@ -143,7 +143,8 @@ def mine_alpha158_factors(
     if df.empty:
         return []
 
-    # Compute forward returns from close price column
+    # Alpha158 handler returns only derived factor columns, not raw prices.
+    # Fetch close prices separately from Qlib to compute forward returns.
     close_col = None
     for col_name in df.columns:
         if isinstance(col_name, tuple):
@@ -154,16 +155,37 @@ def mine_alpha158_factors(
             close_col = col_name
             break
 
-    if close_col is None:
-        # Use last column as proxy or skip
-        logger.warning("[mining] Could not find close price column in Alpha158")
-        return []
-
-    close_prices = df[close_col]
+    if close_col is not None:
+        close_prices = df[close_col]
+    else:
+        # Fetch $close from Qlib directly
+        try:
+            from app.infrastructure.qlib.qlib_config import ensure_qlib_initialized
+            ensure_qlib_initialized()
+            from qlib.data import D
+            close_df = D.features(
+                D.instruments(instruments),
+                ["$close"],
+                start_time=start_date,
+                end_time=end_date,
+            )
+            if close_df is None or close_df.empty:
+                logger.warning("[mining] Could not fetch $close from Qlib for forward returns")
+                return []
+            close_prices = close_df["$close"]
+            # Normalize index names to (instrument, date)
+            if isinstance(close_prices.index, pd.MultiIndex):
+                close_prices.index = close_prices.index.set_names(["instrument", "date"])
+            logger.info("[mining] Fetched $close from Qlib: %d rows", len(close_prices))
+        except Exception as exc:
+            logger.warning("[mining] Failed to fetch $close from Qlib: %s", exc)
+            return []
     # Forward return per instrument
-    fwd_ret = close_prices.groupby(level=0).apply(lambda g: g.pct_change(1).shift(-1))
+    fwd_ret = close_prices.groupby(level=0).apply(lambda g: g.pct_change(1, fill_method=None).shift(-1))
     if isinstance(fwd_ret.index, pd.MultiIndex) and fwd_ret.index.nlevels > 2:
         fwd_ret = fwd_ret.droplevel(0)
+    if isinstance(fwd_ret.index, pd.MultiIndex):
+        fwd_ret.index = fwd_ret.index.set_names(["instrument", "date"])
     fwd_ret.name = "forward_return"
 
     results: list[dict[str, Any]] = []

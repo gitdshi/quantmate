@@ -45,6 +45,7 @@ services:
       - CORS_ORIGINS=["http://localhost:5173","http://localhost:3000","http://127.0.0.1:5173"]
       # Qlib data directory (persisted volume so conversions survive restarts)
       - QLIB_DATA_DIR=/root/.qlib/qlib_data/cn_data
+      - MLFLOW_ALLOW_FILE_STORE=true
     ports:
       - "8000:8000"  # Staging 暴露端口便于测试
     volumes:
@@ -87,6 +88,7 @@ services:
       - DEBUG=false
       - QLIB_DATA_DIR=/root/.qlib/qlib_data/cn_data
       - QLIB_MODEL_DIR=/app/data/qlib_models
+      - MLFLOW_ALLOW_FILE_STORE=true
     command: ["python", "-m", "app.worker.service.run_worker"]
     volumes:
       - qlib_data:/root/.qlib/qlib_data
