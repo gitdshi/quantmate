@@ -1844,6 +1844,18 @@ _PERMISSION_REQUIRED_CATALOG_KEYS: frozenset[str] = frozenset({
     "fut_weekly_monthly",
     "tmt_twincome",
     "tmt_twincomedetail",
+    # APIs that need higher Tushare points (5000+) than the staging token grants.
+    # Observed failing with "Permission or parameter error — interface unavailable".
+    "us_daily",
+    "us_daily_adj",
+    "hk_daily_adj",
+    "irm_qa_sz",
+    "irm_qa_sh",
+    "stk_account_old",
+    "opt_mins",
+    "ggt_monthly",
+    "fund_sales_ratio",
+    "fund_sales_vol",
 })
 
 _MULTI_FREQ_DATE_CATALOG_CONFIG: dict[str, dict[str, object]] = {

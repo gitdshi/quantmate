@@ -2,6 +2,8 @@ import time
 import logging
 import random
 import re
+import threading
+from datetime import date as _date
 
 import pandas as pd
 
@@ -38,6 +40,87 @@ class TushareQuotaExceededError(RuntimeError):
         self.api_name = api_name
         self.scope = scope
         self.retry_after = retry_after
+
+
+# ---------------------------------------------------------------------------
+# Proactive daily-quota tracker
+# ---------------------------------------------------------------------------
+# Tushare enforces per-API daily call limits (e.g. idx_factor_pro=5000/day,
+# cb_factor_pro=200/day, report_rc=10/day). The reactive retry logic in
+# ``call_pro`` only kicks in *after* the limit is hit, which means the worker
+# burns through the entire quota before pausing. The tracker below counts
+# successful + failed calls per API per day and short-circuits ``call_pro``
+# when the configured limit is reached, so we stop wasting worker cycles on
+# calls that are guaranteed to fail.
+
+# Known Tushare per-API daily quotas (subset observed in production errors).
+# APIs not listed here have no enforced daily limit (or unknown limit).
+_TUSHARE_DAILY_QUOTAS: dict[str, int] = {
+    "report_rc": 10,
+    "cb_factor_pro": 200,
+    "stk_factor_pro": 200,
+    "idx_factor_pro": 5000,
+    "fund_factor_pro": 5000,
+    "sge_daily": 5000,
+    "limit_list_d": 10000,
+    "ths_daily": 10000,
+    "fund_nav": 50000,  # 500/min → ~50000/day cap for daily tracking
+    "fund_portfolio": 50000,
+}
+
+
+class _DailyQuotaTracker:
+    """Thread-safe per-API daily call counter."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._counts: dict[tuple[str, _date], int] = {}
+        self._exhausted: dict[tuple[str, _date], float] = {}  # api+date -> retry_after_seconds
+
+    def _today(self) -> _date:
+        return _date.today()
+
+    def check(self, api_name: str) -> float | None:
+        """Return retry_after seconds if quota exhausted, else None."""
+        today = self._today()
+        key = (api_name, today)
+        with self._lock:
+            if key in self._exhausted:
+                return self._exhausted[key]
+        return None
+
+    def record_call(self, api_name: str) -> None:
+        today = self._today()
+        key = (api_name, today)
+        with self._lock:
+            self._counts[key] = self._counts.get(key, 0) + 1
+
+    def mark_exhausted(self, api_name: str, retry_after: float | None) -> None:
+        today = self._today()
+        key = (api_name, today)
+        with self._lock:
+            self._exhausted[key] = retry_after if retry_after and retry_after > 0 else 86400.0
+
+    def remaining(self, api_name: str) -> int | None:
+        """Return remaining calls for today, or None if no quota configured."""
+        limit = _TUSHARE_DAILY_QUOTAS.get(api_name)
+        if limit is None:
+            return None
+        today = self._today()
+        key = (api_name, today)
+        with self._lock:
+            used = self._counts.get(key, 0)
+        return max(0, limit - used)
+
+    def reset_if_new_day(self) -> None:
+        """Garbage-collect entries from previous days."""
+        today = self._today()
+        with self._lock:
+            self._counts = {k: v for k, v in self._counts.items() if k[1] == today}
+            self._exhausted = {k: v for k, v in self._exhausted.items() if k[1] == today}
+
+
+_quota_tracker = _DailyQuotaTracker()
 
 # DB engine is provided by DAO helpers backed by infrastructure connections.
 TS_TOKEN = get_runtime_str(env_keys="TUSHARE_TOKEN", default="")
@@ -745,6 +828,18 @@ def call_pro(api_name: str, max_retries: int = None, backoff_base: int = 5, **kw
     if not hasattr(call_pro, "_metrics_hook"):
         call_pro._metrics_hook = None
 
+    # Proactive daily-quota check: short-circuit before hitting the network
+    # if we already know the daily limit is exhausted for this API.
+    _quota_tracker.reset_if_new_day()
+    pre_check = _quota_tracker.check(api_name)
+    if pre_check is not None:
+        raise TushareQuotaExceededError(
+            api_name,
+            f"Proactive quota guard: {api_name} daily limit already exhausted",
+            scope="day",
+            retry_after=pre_check,
+        )
+
     start_time = None
     attempt = 0
     while attempt < max_retries:
@@ -755,6 +850,7 @@ def call_pro(api_name: str, max_retries: int = None, backoff_base: int = 5, **kw
                 raise AttributeError(f"Tushare pro has no api '{api_name}'")
             # filter out None kwargs to avoid sending empty params
             call_kwargs = {k: v for k, v in kwargs.items() if v is not None}
+            _quota_tracker.record_call(api_name)
             df = func(**call_kwargs)
             duration = time.time() - start_time
             rows = 0
@@ -793,6 +889,7 @@ def call_pro(api_name: str, max_retries: int = None, backoff_base: int = 5, **kw
                     rate_limit_scope,
                     error_msg,
                 )
+                _quota_tracker.mark_exhausted(api_name, parsed_wait)
                 raise TushareQuotaExceededError(
                     api_name,
                     error_msg,
@@ -817,6 +914,9 @@ def call_pro(api_name: str, max_retries: int = None, backoff_base: int = 5, **kw
                         retry_after=parsed_wait,
                     ) from e
                 raise
+            # Mark quota exhausted after repeated minute-scope rate limits
+            if _is_rate_limit_error(error_msg) and rate_limit_scope == "minute" and attempt >= max_retries - 1:
+                _quota_tracker.mark_exhausted(api_name, parsed_wait)
             if _is_rate_limit_error(error_msg) and parsed_wait is not None:
                 jitter = random.uniform(0.2, 1.0)
                 to_sleep = parsed_wait + jitter
