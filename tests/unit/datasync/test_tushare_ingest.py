@@ -74,6 +74,9 @@ class TestCallPro:
              patch(f"{_MOD}.pro", self._mock_pro):
             from app.datasync.service import tushare_ingest
             self.mod = tushare_ingest
+            # Reset the proactive quota tracker so state doesn't leak between tests
+            self.mod._quota_tracker._counts.clear()
+            self.mod._quota_tracker._exhausted.clear()
             yield
 
     def test_success(self):
