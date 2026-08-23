@@ -50,6 +50,17 @@ def _instrument_level(index: pd.Index) -> Optional[int]:
     return None
 
 
+def _date_level(index: pd.Index) -> Optional[int]:
+    """Return the level index of the date column, or None for single-stock frames."""
+    if not isinstance(index, pd.MultiIndex) or index.nlevels < 2:
+        return None
+    if "date" in index.names:
+        return index.names.index("date")
+    if "datetime" in index.names:
+        return index.names.index("datetime")
+    return 1
+
+
 def _by_instrument(series: pd.Series, operation) -> pd.Series:
     """Apply ``operation`` per-instrument when the Series has a MultiIndex."""
     level = _instrument_level(series.index)
@@ -59,8 +70,11 @@ def _by_instrument(series: pd.Series, operation) -> pd.Series:
 
 
 def _rank(x: pd.Series) -> pd.Series:
-    """Cross-sectional rank percentile (0..1)."""
-    return _by_instrument(x, lambda s: s.rank(pct=True))
+    """Cross-sectional rank percentile (0..1), ranked within each date."""
+    level = _date_level(x.index)
+    if level is None:
+        return x.rank(pct=True)
+    return x.groupby(level=level, group_keys=False).rank(pct=True)
 
 
 def _delay(x: pd.Series, n: int) -> pd.Series:

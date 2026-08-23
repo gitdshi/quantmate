@@ -117,7 +117,7 @@ class FactorEvaluationDao:
 
     def create(self, factor_id: int, start_date: str, end_date: str, metrics: Optional[dict] = None, **kwargs) -> int:
         fields = {"factor_id": factor_id, "start_date": start_date, "end_date": end_date}
-        for k in ("ic_mean", "ic_ir", "turnover", "long_ret", "short_ret", "long_short_ret"):
+        for k in ("ic_mean", "ic_ir", "turnover", "long_ret", "short_ret", "long_short_ret", "data_status", "data_note"):
             if k in kwargs:
                 fields[k] = kwargs[k]
         if metrics:

@@ -156,7 +156,13 @@ class TestFactorScreeningCoverage:
         mock_qlib.return_value = pd.DataFrame({"VOLUME": [1, 2], "OPEN": [3, 4]})
         from app.domains.factors.factor_screening import mine_alpha158_factors
 
-        result = mine_alpha158_factors()
+        # No CLOSE column → falls back to fetching $close from Qlib. Simulate
+        # Qlib being unavailable so the fallback returns [] deterministically.
+        with patch(
+            "app.infrastructure.qlib.qlib_config.ensure_qlib_initialized",
+            side_effect=RuntimeError("no qlib"),
+        ):
+            result = mine_alpha158_factors()
         assert result == []
 
     @patch("app.infrastructure.db.connections.connection")

@@ -48,7 +48,7 @@ class TestWindowRules:
         from app.datasync.service.init_service import _get_env_window_years
 
         with patch(f"{_MOD}._get_env", return_value="staging"):
-            assert _get_env_window_years() == 10
+            assert _get_env_window_years() == 3
 
     def test_prod_window_years(self):
         from app.datasync.service.init_service import _get_env_window_years

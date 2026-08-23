@@ -636,7 +636,7 @@ class TestTushareCatalogInterface:
 
         assert iface.supports_backfill() is True
         assert iface.supports_scheduled_sync() is True
-        assert iface.backfill_mode() == "date"
+        assert iface.backfill_mode() == "range"
         assert iface.requires_nonempty_trading_day_data() is False
         assert result.status == SyncStatus.SUCCESS
         assert result.rows_synced == 1
@@ -1022,7 +1022,7 @@ class TestTushareCatalogInterface:
 
         assert iface.supports_scheduled_sync() is True
         assert iface.supports_backfill() is True
-        assert iface.backfill_mode() == "date"
+        assert iface.backfill_mode() == "range"
         assert iface.requires_nonempty_trading_day_data() is True
         assert result.status == SyncStatus.SUCCESS
         assert result.rows_synced == 1

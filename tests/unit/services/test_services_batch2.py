@@ -197,11 +197,13 @@ class TestFactorScreening:
         cqfs.return_value = pd.DataFrame()
         assert mine_alpha158_factors() == []
 
+    @patch("app.infrastructure.qlib.qlib_config.ensure_qlib_initialized")
     @patch("app.domains.factors.factor_screening.compute_factor_metrics")
     @patch("app.domains.factors.factor_screening.compute_qlib_factor_set")
-    def test_mine_alpha158_no_close_col(self, cqfs, cfm):
+    def test_mine_alpha158_no_close_col(self, cqfs, cfm, ensure):
         from app.domains.factors.factor_screening import mine_alpha158_factors
         cqfs.return_value = pd.DataFrame({"factor1": [1, 2, 3]})
+        ensure.side_effect = RuntimeError("qlib unavailable")
         assert mine_alpha158_factors() == []
 
     @patch("app.domains.factors.factor_screening.compute_factor_metrics")

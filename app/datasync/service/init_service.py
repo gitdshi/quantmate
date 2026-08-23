@@ -20,7 +20,7 @@ from app.datasync.sync_mode import (
 )
 from app.datasync.table_manager import ensure_table
 from app.domains.extdata.dao.data_sync_status_dao import ensure_backfill_lock_table, ensure_tables
-from app.infrastructure.config import get_runtime_str
+from app.infrastructure.config import get_runtime_int, get_runtime_str
 from app.infrastructure.db.connections import get_quantmate_engine
 
 logger = logging.getLogger(__name__)
@@ -65,7 +65,7 @@ _TUSHARE_ITEM_METADATA_LEGACY_SQL = (
 DEFAULT_ENV_WINDOW_YEARS = {
     "dev": 1,
     "development": 1,
-    "staging": 10,
+    "staging": 3,
     "prod": 20,
     "production": 20,
 }
@@ -111,6 +111,14 @@ def _get_configured_sync_start_date(reference_date: date | None = None) -> date 
 
 def _get_env_floor_start_date(reference_date: date | None = None, env: str | None = None) -> date:
     resolved_reference = reference_date or date.today()
+    # Allow day-level window override for finer control (e.g., staging=180 days = 6 months)
+    window_days = get_runtime_int(
+        env_keys="SYNC_INIT_WINDOW_DAYS",
+        db_key="datasync.sync_init_window_days",
+        default=0,
+    )
+    if window_days > 0:
+        return resolved_reference - timedelta(days=window_days)
     window_years = _get_env_window_years(env)
     return resolved_reference - timedelta(days=365 * window_years)
 

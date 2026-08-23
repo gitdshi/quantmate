@@ -512,6 +512,64 @@ def compute_custom_factor(
 # ---------------------------------------------------------------------------
 
 
+def _clamp_qlib_window(start_date: str, end_date: str) -> tuple[str, str]:
+    """Clamp a requested date range to the available Qlib data calendar.
+
+    Qlib's official ``cn_data`` snapshot ends years before today, so factor
+    mining/backtest requests using recent default dates would otherwise return
+    an empty DataFrame. Clamp to the loaded calendar so the requested window
+    always overlaps real data, logging the adjustment when it happens.
+    """
+    from datetime import date as _date
+    from datetime import timedelta as _timedelta
+
+    from app.infrastructure.qlib.qlib_config import get_qlib_data_range
+
+    data_range = get_qlib_data_range()
+    if not data_range:
+        return start_date, end_date
+
+    rmin, rmax = data_range
+    # ISO strings compare lexicographically, but use real dates for span math below.
+    req_start = min(start_date, end_date)
+    req_end = max(start_date, end_date)
+    span_days = (_date.fromisoformat(req_end) - _date.fromisoformat(req_start)).days
+
+    if req_start > rmax:
+        # Requested window is entirely after the available data. Anchor a window
+        # of the same span at the end of the available data instead of falling
+        # back to the full (very long) history.
+        end = rmax
+        start = max((_date.fromisoformat(rmax) - _timedelta(days=span_days)).isoformat(), rmin)
+        logger.info(
+            "[factor-engine] Requested Qlib window %s–%s is after available data (ends %s); "
+            "using trailing window %s–%s",
+            start_date, end_date, rmax, start, end,
+        )
+        return start, end
+
+    if req_end < rmin:
+        start = rmin
+        end = min((_date.fromisoformat(rmin) + _timedelta(days=span_days)).isoformat(), rmax)
+        logger.info(
+            "[factor-engine] Requested Qlib window %s–%s is before available data (starts %s); "
+            "using leading window %s–%s",
+            start_date, end_date, rmin, start, end,
+        )
+        return start, end
+
+    clamped_start = max(req_start, rmin)
+    clamped_end = min(req_end, rmax)
+
+    if clamped_start != req_start or clamped_end != req_end:
+        logger.info(
+            "[factor-engine] Clamped Qlib window %s–%s -> %s–%s (available data %s–%s)",
+            start_date, end_date, clamped_start, clamped_end, rmin, rmax,
+        )
+
+    return clamped_start, clamped_end
+
+
 def compute_qlib_factor_set(
     factor_set: str = "Alpha158",
     instruments: str = "csi300",
@@ -526,6 +584,7 @@ def compute_qlib_factor_set(
     from app.infrastructure.qlib.qlib_config import (
         SUPPORTED_DATASETS,
         ensure_qlib_initialized,
+        get_qlib_data_range,
         is_qlib_available,
     )
 
@@ -536,6 +595,8 @@ def compute_qlib_factor_set(
         raise ValueError(f"Unsupported factor set: {factor_set}. Supported: {list(SUPPORTED_DATASETS.keys())}")
 
     ensure_qlib_initialized()
+
+    start_date, end_date = _clamp_qlib_window(start_date, end_date)
 
     from qlib.utils import init_instance_by_config
 
@@ -572,11 +633,53 @@ def compute_qlib_factor_set(
 # ---------------------------------------------------------------------------
 
 
+def _stock_daily_sync_dates(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+) -> tuple[Optional[set[date]], Optional[set[date]]]:
+    """Return (synced_dates, tracked_dates) for tushare.stock_daily sync status.
+
+    synced_dates  = trading dates with status 'success'.
+    tracked_dates = trading dates with any data_sync_status row (any status).
+
+    Returns (None, None) when data_sync_status is unavailable or unpopulated,
+    so callers keep/interpret all rows rather than silently dropping data.
+    """
+    try:
+        params: dict[str, Any] = {}
+        where: list[str] = ["source = 'tushare'", "interface_key = 'stock_daily'"]
+        if start_date:
+            where.append("sync_date >= :start")
+            params["start"] = start_date
+        if end_date:
+            where.append("sync_date <= :end")
+            params["end"] = end_date
+        where_sql = " AND ".join(where)
+
+        def _to_dates(rows: Any) -> set[date]:
+            return {r[0] if isinstance(r[0], date) else r[0].date() for r in rows}
+
+        with connection("quantmate") as conn:
+            synced_rows = conn.execute(
+                text(f"SELECT sync_date FROM data_sync_status WHERE {where_sql} AND status = 'success'"),
+                params,
+            ).fetchall()
+            tracked_rows = conn.execute(
+                text(f"SELECT sync_date FROM data_sync_status WHERE {where_sql}"),
+                params,
+            ).fetchall()
+        return _to_dates(synced_rows), _to_dates(tracked_rows)
+    except Exception:
+        logger.warning("[factor-engine] data_sync_status lookup failed; keeping all OHLCV rows", exc_info=True)
+        return None, None
+
+
 def fetch_ohlcv(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     instruments: Optional[list[str]] = None,
     adjust: str = "hfq",
+    only_synced: bool = False,
 ) -> pd.DataFrame:
     """Fetch OHLCV data from tushare MySQL for factor computation.
 
@@ -591,6 +694,9 @@ def fetch_ohlcv(
             ``"qfq"`` (pre-adjustment) — prices are scaled so the latest
                 observation matches the raw close.
             ``"none"`` — return unadjusted prices (still includes ``factor``).
+        only_synced: When True, restrict rows to trading dates whose
+            ``tushare.stock_daily`` sync status is 'success' in
+            ``data_sync_status``, skipping incomplete/unsynced dates.
 
     Returns DataFrame indexed by (instrument, date) with columns:
         open, high, low, close, volume, amount, factor
@@ -635,6 +741,13 @@ def fetch_ohlcv(
         return df
 
     df["date"] = pd.to_datetime(df["date"])
+
+    if only_synced:
+        synced_dates, _ = _stock_daily_sync_dates(start_date, end_date)
+        if synced_dates is not None:
+            df = df[df["date"].dt.date.isin(synced_dates)]
+            if df.empty:
+                return df
 
     # Apply price adjustment per instrument.
     if adjust and adjust != "none":

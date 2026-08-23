@@ -533,6 +533,30 @@ class TestExpressionEngineBatch11:
         assert len(result) == 3
         assert abs(result.iloc[0] - 1.05) < 0.01
 
+    def test_compute_custom_factor_rank_is_cross_sectional_per_date(self):
+        from app.domains.factors.expression_engine import compute_custom_factor
+        instruments = ["A", "B", "C"]
+        dates = pd.to_datetime(["2024-01-02", "2024-01-03"])
+        idx = pd.MultiIndex.from_product([instruments, dates], names=["instrument", "date"])
+        inst_map = {"A": 1.0, "B": 2.0, "C": 3.0}
+        close = pd.Series([inst_map[i] for i in idx.get_level_values(0)], index=idx)
+        ohlcv = pd.DataFrame({
+            "open": close, "high": close, "low": close, "close": close, "volume": 100.0,
+        }, index=idx)
+
+        result = compute_custom_factor("rank(close)", ohlcv)
+
+        # Within each date the ranks must be A < B < C (cross-sectional),
+        # not averaged across dates.
+        for d in dates:
+            a = result.loc[("A", d)]
+            b = result.loc[("B", d)]
+            c = result.loc[("C", d)]
+            assert a < b < c
+            assert abs(a - 1 / 3) < 1e-6
+            assert abs(b - 2 / 3) < 1e-6
+            assert abs(c - 1.0) < 1e-6
+
     def test_compute_qlib_factor_set(self):
         import sys
         mock_handler = MagicMock()

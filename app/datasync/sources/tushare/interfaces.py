@@ -14,8 +14,9 @@ from sqlalchemy import text
 
 from app.datasync.base import BaseIngestInterface, InterfaceInfo, SyncResult, SyncStatus
 from app.datasync.sources.tushare.sync_error_handling import handle_tushare_sync_exception, is_permission_error
-from app.datasync.sources.tushare.catalog_interfaces import _DEFAULT_API_PARAMS, TushareCatalogInterface, TushareCatalogSpec
+from app.datasync.sources.tushare.catalog_interfaces import _DEFAULT_API_PARAMS, _TRADE_DATE_APIS, TushareCatalogInterface, TushareCatalogSpec
 from app.datasync.sources.tushare import ddl
+from app.infrastructure.config import get_runtime_int
 from app.infrastructure.db.connections import get_tushare_engine
 
 logger = logging.getLogger(__name__)
@@ -304,6 +305,19 @@ def _sync_catalog_once(
         )
 
 
+def _get_per_symbol_concurrency() -> int:
+    """Return per-symbol API call concurrency for per-symbol catalog interfaces.
+
+    Controlled by BACKFILL_TUSHARE_CONCURRENCY (default 8). Set to 1 to keep
+    the original serial behaviour.
+    """
+    return max(1, get_runtime_int(
+        env_keys="BACKFILL_TUSHARE_CONCURRENCY",
+        db_key="datasync.backfill_source_concurrency.tushare",
+        default=8,
+    ))
+
+
 def _sync_catalog_by_entities(
     iface: TushareCatalogInterface,
     entities: list[str],
@@ -316,10 +330,188 @@ def _sync_catalog_by_entities(
         return SyncResult(SyncStatus.SUCCESS, 0, details={"entity_count": 0, "processed_count": 0})
 
     api_name = _catalog_api_name(iface)
+    max_workers = _get_per_symbol_concurrency()
+
+    if max_workers <= 1:
+        return _sync_catalog_by_entities_serial(iface, ordered_entities, params_builder, api_name)
+
+    # ---- Concurrent path ----
+    # Pre-infer schema with the first entity to avoid concurrent schema inference.
+    inferred_schema: dict[str, object] | None = None
+    first_entity = ordered_entities[0]
+    total_rows = 0
+    processed_count = 0
+    failed_entities: list[str] = []
+
+    first_params = dict(_DEFAULT_API_PARAMS.get(api_name, {}))
+    first_params.update(params_builder(first_entity))
+    try:
+        df = call_pro(api_name, **first_params)
+        processed_count = 1
+        inferred_schema, rows = _insert_catalog_dataframe(iface, df, inferred_schema)
+        total_rows = rows
+    except TushareQuotaExceededError as exc:
+        return SyncResult(
+            SyncStatus.RATE_LIMITED,
+            total_rows,
+            str(exc),
+            details=_build_entity_sync_details(
+                ordered_entities,
+                processed_count,
+                failed_entities,
+                quota_exceeded=True,
+                retry_after=getattr(exc, "retry_after", None),
+            ),
+        )
+    except Exception as exc:
+        if is_permission_error(str(exc)):
+            return handle_tushare_sync_exception(
+                logger,
+                f"{iface.info.interface_key} sync via entity loop",
+                exc,
+                allow_permission_partial=True,
+            )
+        failed_entities.append(str(first_entity))
+        logger.warning("%s sync failed for %s: %s", iface.info.interface_key, first_entity, exc)
+
+    remaining_entities = ordered_entities[1:]
+    total_entity_count = len(ordered_entities)
+    logger.info(
+        "%s per-symbol sync starting: total=%d workers=%d",
+        iface.info.interface_key,
+        total_entity_count,
+        max_workers,
+    )
+
+    def _sync_one_entity(entity: str) -> tuple[str, int, Exception | None]:
+        params = dict(_DEFAULT_API_PARAMS.get(api_name, {}))
+        params.update(params_builder(entity))
+        try:
+            df = call_pro(api_name, **params)
+            _, rows = _insert_catalog_dataframe(iface, df, inferred_schema)
+            return (entity, rows, None)
+        except Exception as exc:
+            return (entity, 0, exc)
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    quota_exceeded_exc: TushareQuotaExceededError | None = None
+    permission_denied = False
+
+    with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="tushare-persymbol") as executor:
+        future_to_entity = {
+            executor.submit(_sync_one_entity, entity): entity
+            for entity in remaining_entities
+        }
+
+        for future in as_completed(future_to_entity):
+            if quota_exceeded_exc is not None:
+                future.cancel()
+                continue
+
+            entity = future_to_entity[future]
+            try:
+                _, rows, exc = future.result()
+            except Exception as exc:
+                _, rows, exc = entity, 0, exc
+
+            processed_count += 1
+
+            if processed_count % 500 == 0:
+                logger.info(
+                    "%s progress: %d/%d entities processed, rows=%d",
+                    iface.info.interface_key,
+                    processed_count,
+                    total_entity_count,
+                    total_rows,
+                )
+
+            if exc is not None:
+                if isinstance(exc, TushareQuotaExceededError):
+                    quota_exceeded_exc = exc
+                    for f in future_to_entity:
+                        f.cancel()
+                    continue
+                if is_permission_error(str(exc)):
+                    permission_denied = True
+                    failed_entities.append(str(entity))
+                    for f in future_to_entity:
+                        f.cancel()
+                    continue
+                failed_entities.append(str(entity))
+                logger.warning("%s sync failed for %s: %s", iface.info.interface_key, entity, exc)
+            else:
+                total_rows += rows
+
+    if processed_count % 500 != 0 or processed_count >= total_entity_count:
+        logger.info(
+            "%s per-symbol sync done: processed=%d/%d rows=%d failed=%d",
+            iface.info.interface_key,
+            processed_count,
+            total_entity_count,
+            total_rows,
+            len(failed_entities),
+        )
+
+    if quota_exceeded_exc is not None:
+        return SyncResult(
+            SyncStatus.RATE_LIMITED,
+            total_rows,
+            str(quota_exceeded_exc),
+            details=_build_entity_sync_details(
+                ordered_entities,
+                processed_count,
+                failed_entities,
+                quota_exceeded=True,
+                retry_after=getattr(quota_exceeded_exc, "retry_after", None),
+            ),
+        )
+
+    if permission_denied:
+        return SyncResult(
+            SyncStatus.PARTIAL,
+            total_rows,
+            "Permission denied",
+            details=_build_entity_sync_details(
+                ordered_entities,
+                processed_count,
+                failed_entities,
+                permission_denied=True,
+            ),
+        )
+
+    details = _build_entity_sync_details(ordered_entities, processed_count, failed_entities)
+    if failed_entities and total_rows == 0:
+        return SyncResult(
+            SyncStatus.ERROR,
+            0,
+            f"Failed entities: {', '.join(failed_entities[:5])}",
+            details=details,
+        )
+    if failed_entities:
+        return SyncResult(
+            SyncStatus.PARTIAL,
+            total_rows,
+            f"Failed entities: {', '.join(failed_entities[:5])}",
+            details=details,
+        )
+    return SyncResult(SyncStatus.SUCCESS, total_rows, details=details)
+
+
+def _sync_catalog_by_entities_serial(
+    iface: TushareCatalogInterface,
+    ordered_entities: list[str],
+    params_builder,
+    api_name: str,
+) -> SyncResult:
+    """Serial per-entity sync (original behaviour, used when concurrency=1)."""
+    from app.datasync.service.tushare_ingest import TushareQuotaExceededError, call_pro
+
     inferred_schema: dict[str, object] | None = None
     total_rows = 0
     processed_count = 0
     failed_entities: list[str] = []
+    total_entity_count = len(ordered_entities)
 
     for entity in ordered_entities:
         params = dict(_DEFAULT_API_PARAMS.get(api_name, {}))
@@ -327,6 +519,14 @@ def _sync_catalog_by_entities(
         try:
             df = call_pro(api_name, **params)
             processed_count += 1
+            if processed_count % 500 == 0:
+                logger.info(
+                    "%s progress: %d/%d entities processed, rows=%d",
+                    iface.info.interface_key,
+                    processed_count,
+                    total_entity_count,
+                    total_rows,
+                )
             inferred_schema, rows = _insert_catalog_dataframe(iface, df, inferred_schema)
             total_rows += rows
         except TushareQuotaExceededError as exc:
@@ -364,6 +564,16 @@ def _sync_catalog_by_entities(
                 )
             failed_entities.append(str(entity))
             logger.warning("%s sync failed for %s: %s", iface.info.interface_key, entity, exc)
+
+    if processed_count % 500 != 0 or processed_count >= total_entity_count:
+        logger.info(
+            "%s per-symbol sync done: processed=%d/%d rows=%d failed=%d",
+            iface.info.interface_key,
+            processed_count,
+            total_entity_count,
+            total_rows,
+            len(failed_entities),
+        )
 
     details = _build_entity_sync_details(ordered_entities, processed_count, failed_entities)
     if failed_entities and total_rows == 0:
@@ -1813,7 +2023,6 @@ _PER_SYMBOL_DATE_CATALOG_CONFIG: dict[str, dict[str, tuple[str, ...] | str | boo
     "stk_managers": {"request_date_param": "ann_date", "extra_key_fields": ("name", "title", "lev", "begin_date"), "supports_range": True},
     "stk_rewards": {"request_date_param": "end_date", "extra_key_fields": ("ann_date", "name"), "supports_range": True},
     "cb_rating": {"request_date_param": "ann_date", "extra_key_fields": ("end_date", "rating_agency"), "supports_range": True},
-    "idx_factor_pro": {"request_date_param": "trade_date", "extra_key_fields": (), "supports_range": True},
 }
 
 # Catalog interfaces that need a single date parameter (not per-symbol)
@@ -1935,6 +2144,14 @@ def build_specialized_catalog_interface(spec: TushareCatalogSpec) -> BaseIngestI
     latest_key_fields = _PER_SYMBOL_LATEST_CATALOG_CONFIG.get(key)
     if latest_key_fields is not None:
         return TusharePerSymbolLatestCatalogInterface(spec, extra_key_fields=latest_key_fields)
+
+    # If the API supports batch query (by trade_date without ts_code), use the
+    # default TushareCatalogInterface (one-shot) instead of per-symbol looping.
+    # This reduces API calls from N_symbols (e.g. 5518 stocks) to 1 for daily
+    # market-data endpoints like adj_factor, block_trade, stk_factor_pro, etc.
+    api_name = str(spec.api_name or "").lower()
+    if api_name in _TRADE_DATE_APIS:
+        return None
 
     entity_binding = _resolve_catalog_entity_binding(spec)
     date_param = _resolve_catalog_date_param(spec)

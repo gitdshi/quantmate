@@ -208,6 +208,7 @@ _END_DATE_APIS = {
     "fina_mainbz_vip",
 }
 
+# APIs that accept start_date/end_date range parameters (with or without ts_code).
 _RANGE_APIS = {
     "ci_daily",
     "dc_daily",
@@ -369,6 +370,10 @@ class TushareCatalogInterface(BaseIngestInterface):
             return self._spec.backfill_mode
         if self._range_params() is not None:
             return "range"
+        # Trade-date APIs support start_date/end_date range queries, enabling
+        # multi-day backfill tasks to be merged into a single range API call.
+        if self._spec.api_name in _TRADE_DATE_APIS:
+            return "range"
         return "date"
 
     def requires_nonempty_trading_day_data(self) -> bool:
@@ -382,7 +387,7 @@ class TushareCatalogInterface(BaseIngestInterface):
         range_params = self._range_params()
         if not self.supports_backfill():
             return self.sync_date(end)
-        if range_params is None:
+        if range_params is None and self._spec.api_name not in _TRADE_DATE_APIS:
             return super().sync_range(start, end)
         return self._sync_with_params(self._build_params(start, end))
 
@@ -434,6 +439,13 @@ class TushareCatalogInterface(BaseIngestInterface):
             start_param, end_param = range_params
             params[start_param] = start.strftime("%Y%m%d")
             params[end_param] = end.strftime("%Y%m%d")
+            return params
+
+        # Trade-date APIs use start_date/end_date for range queries (start != end),
+        # but keep trade_date for single-day queries (sync_date).
+        if self._spec.api_name in _TRADE_DATE_APIS and start != end:
+            params["start_date"] = start.strftime("%Y%m%d")
+            params["end_date"] = end.strftime("%Y%m%d")
             return params
 
         date_param = self._date_param()

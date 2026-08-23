@@ -16,6 +16,7 @@ from typing import Any, Optional
 import pandas as pd
 
 from app.domains.factors.expression_engine import (
+    _clamp_qlib_window,
     augment_factor_eval_ohlcv,
     compute_custom_factor,
     compute_factor_metrics,
@@ -129,6 +130,8 @@ def mine_alpha158_factors(
 
     Returns top_n factors after filtering and deduplication.
     """
+    start_date, end_date = _clamp_qlib_window(start_date, end_date)
+
     try:
         df = compute_qlib_factor_set(
             factor_set="Alpha158",

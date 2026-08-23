@@ -60,6 +60,7 @@ class FactorService:
         from datetime import date as date_type
 
         from app.domains.factors.expression_engine import (
+            _stock_daily_sync_dates,
             augment_factor_eval_ohlcv,
             compute_custom_factor,
             compute_factor_metrics,
@@ -71,16 +72,29 @@ class FactorService:
         factor = self.get_factor(user_id, factor_id)
         expression = factor.get("expression", "")
 
+        data_status = "real"
+        data_note = ""
         try:
             sd = date_type.fromisoformat(start_date)
             ed = date_type.fromisoformat(end_date)
 
-            ohlcv = fetch_ohlcv(start_date=sd, end_date=ed)
+            synced_dates, tracked_dates = _stock_daily_sync_dates(sd, ed)
+            ohlcv = fetch_ohlcv(start_date=sd, end_date=ed, only_synced=True)
 
             if ohlcv.empty:
-                logger.warning("[factor-eval] No OHLCV data for %s–%s, using stub", start_date, end_date)
+                data_status = "fallback"
+                data_note = "无已同步的行情数据，指标为占位值"
+                logger.warning("[factor-eval] No synced OHLCV data for %s–%s, using stub", start_date, end_date)
                 metrics = self._stub_metrics()
             else:
+                if synced_dates is not None and tracked_dates is not None:
+                    unsynced = tracked_dates - synced_dates
+                    if unsynced:
+                        data_status = "partial"
+                        data_note = (
+                            f"已跳过 {len(unsynced)} 个未同步交易日，"
+                            f"使用 {len(synced_dates)} 个已同步交易日"
+                        )
                 eval_ohlcv = augment_factor_eval_ohlcv(ohlcv)
                 try:
                     factor_values = compute_custom_factor(expression, eval_ohlcv)
@@ -94,6 +108,8 @@ class FactorService:
                 metrics = compute_factor_metrics(factor_values, fwd_returns)
         except Exception:
             logger.exception("[factor-eval] Evaluation failed for factor %d, using stub", factor_id)
+            data_status = "failed"
+            data_note = "因子计算失败，指标为占位值"
             metrics = self._stub_metrics()
 
         eval_id = self._eval_dao.create(
@@ -101,6 +117,8 @@ class FactorService:
             start_date,
             end_date,
             metrics=metrics,
+            data_status=data_status,
+            data_note=data_note,
             **metrics,
         )
         return self._eval_dao.get(eval_id) or {"id": eval_id}

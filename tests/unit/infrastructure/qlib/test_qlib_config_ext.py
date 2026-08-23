@@ -71,7 +71,7 @@ class TestQlibConfigExt:
         monkeypatch.setattr("builtins.__import__", fake_import)
 
         assert qlib_config.init_qlib(data_dir="/tmp/qlib", region="us") is True
-        assert calls == [{"provider_uri": "/tmp/qlib", "region_config": "US"}]
+        assert calls == [{"provider_uri": "/tmp/qlib", "region": "US"}]
         assert qlib_config.init_qlib() is True
         assert len(calls) == 1
 

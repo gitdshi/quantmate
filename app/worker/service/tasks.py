@@ -20,6 +20,12 @@ from vnpy.trader.constant import Interval
 from vnpy.trader.optimize import OptimizationSetting
 from vnpy.trader.setting import SETTINGS as VNPY_SETTINGS
 
+# vn.py writes its own log file (<trader_dir>/log/vt_*.log) via vnpy.trader.logger
+# as a side effect of importing vnpy_ctastrategy. In headless worker/sandbox
+# environments that path is not writable, raising PermissionError at import time.
+# Disable vn.py file logging here (console logging on stdout is left intact).
+VNPY_SETTINGS["log.file"] = False
+
 # Configure vn.py DB backend before any code path can initialize the global database singleton.
 # This must run at import time in the worker process, otherwise vn.py may cache the SQLite backend.
 

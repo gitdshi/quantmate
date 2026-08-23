@@ -34,7 +34,7 @@ def get_quantmate_engine():
     global _quantmate_engine
     if _quantmate_engine is None:
         _quantmate_engine = create_engine(
-            settings.quantmate_db_url, pool_pre_ping=True, pool_size=10, max_overflow=20
+            settings.quantmate_db_url, pool_pre_ping=True, pool_size=15, max_overflow=25
         )
     return _quantmate_engine
 
@@ -55,7 +55,7 @@ def get_tushare_engine():
     global _tushare_engine
     if _tushare_engine is None:
         _tushare_engine = create_engine(
-            settings.tushare_db_url, pool_pre_ping=True, pool_size=10, max_overflow=20
+            settings.tushare_db_url, pool_pre_ping=True, pool_size=15, max_overflow=25
         )
     return _tushare_engine
 

@@ -82,9 +82,9 @@ def init_qlib(data_dir: Optional[str] = None, region: str = "cn") -> bool:
             from qlib.config import REG_CN, REG_US
 
             provider_uri = data_dir or QLIB_DATA_DIR
-            region_config = REG_CN if region == "cn" else REG_US
+            region_name = REG_CN if region == "cn" else REG_US
 
-            qlib.init(provider_uri=provider_uri, region_config=region_config)
+            qlib.init(provider_uri=provider_uri, region=region_name)
             _qlib_initialized_pid = current_pid
             logger.info(
                 "[qlib] Initialized (pid=%d, data_dir=%s, region=%s)",
@@ -115,3 +115,32 @@ def ensure_qlib_initialized() -> None:
     if _qlib_initialized_pid != os.getpid():
         if not init_qlib():
             raise RuntimeError("Qlib is not initialized. Ensure pyqlib is installed and data is available.")
+
+
+def get_qlib_data_range() -> Optional[tuple[str, str]]:
+    """Return (min_date, max_date) of the loaded Qlib day calendar, or None.
+
+    Useful to clamp a requested analysis window to the data that is actually
+    present. The official ``qlib_data_cn_1d`` snapshot ends well before today,
+    so naive defaults (e.g. 2023–2024) otherwise return empty results.
+    """
+    try:
+        ensure_qlib_initialized()
+    except RuntimeError:
+        return None
+
+    try:
+        import pandas as pd
+
+        from qlib.data import D
+
+        cal = D.calendar()
+        if cal is None or len(cal) == 0:
+            return None
+        return (
+            pd.Timestamp(cal[0]).strftime("%Y-%m-%d"),
+            pd.Timestamp(cal[-1]).strftime("%Y-%m-%d"),
+        )
+    except Exception:
+        logger.warning("[qlib] Failed to determine Qlib data date range", exc_info=True)
+        return None

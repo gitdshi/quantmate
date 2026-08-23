@@ -58,7 +58,7 @@ def _backfill_workers() -> int:
     return get_runtime_int(
         env_keys="BACKFILL_WORKERS",
         db_key="datasync.backfill_workers",
-        default=20,
+        default=30,
     )
 
 _FORCE_RETRY_ERROR_SIGNATURES: dict[tuple[str, str], tuple[str, ...]] = {

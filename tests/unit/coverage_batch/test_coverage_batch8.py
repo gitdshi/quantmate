@@ -1617,6 +1617,12 @@ class TestFactorScreeningMining:
     def test_mine_alpha158_no_close_col(self, monkeypatch):
         df = pd.DataFrame({"factor_a": [1, 2, 3]})
         monkeypatch.setattr(self.mod, "compute_qlib_factor_set", lambda **kw: df)
+        # No CLOSE column → falls back to fetching $close from Qlib. Simulate
+        # Qlib being unavailable so the fallback returns [] deterministically.
+        monkeypatch.setattr(
+            "app.infrastructure.qlib.qlib_config.ensure_qlib_initialized",
+            MagicMock(side_effect=RuntimeError("no qlib")),
+        )
         result = self.mod.mine_alpha158_factors(
             start_date="2024-01-01", end_date="2024-06-01"
         )
