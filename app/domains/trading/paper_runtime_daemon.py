@@ -311,7 +311,9 @@ class PaperRuntimeDaemon:
                         runtime_worker_id = :worker_id,
                         runtime_heartbeat_at = :heartbeat_at,
                         runtime_error = CASE WHEN :runtime_status = 'error' THEN :message ELSE NULL END,
-                        runtime_warning = CASE WHEN :runtime_status <> 'error' THEN :message ELSE runtime_warning END
+                        runtime_warning = CASE WHEN :runtime_status <> 'error' THEN :message ELSE runtime_warning END,
+                        status = CASE WHEN :runtime_status = 'running' THEN 'running' ELSE status END,
+                        stopped_at = CASE WHEN :runtime_status = 'running' THEN NULL ELSE stopped_at END
                     WHERE id = :deployment_id
                     """
                 ),

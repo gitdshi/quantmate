@@ -70,10 +70,20 @@ def _get_quote_price(quote: dict, fallback: float = 0.0) -> float:
 
 
 def _build_runtime_checkpoint(*, deployment_id: int, vt_symbols: list[str], gateway: Any, strategy: Any = None) -> Dict[str, Any]:
+    gateway_snapshot: Optional[Dict[str, Any]] = None
+    if gateway is not None:
+        gateway_snapshot = asdict(gateway.snapshot())
+        # Convert non-JSON-serializable values (e.g. datetime) to strings so the
+        # checkpoint can be persisted by PaperExecutionLedger.write_checkpoint.
+        gateway_snapshot = {
+            key: value.isoformat() if isinstance(value, (datetime, date)) else value
+            for key, value in gateway_snapshot.items()
+        }
+
     checkpoint = {
         "deployment_id": deployment_id,
         "vt_symbols": vt_symbols,
-        "gateway": asdict(gateway.snapshot()) if gateway is not None else None,
+        "gateway": gateway_snapshot,
         "captured_at": datetime.utcnow().isoformat(),
     }
     if strategy is not None:
