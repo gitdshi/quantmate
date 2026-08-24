@@ -10,6 +10,7 @@ import json
 import logging
 import uuid
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any, Optional
 
 from sqlalchemy import text
@@ -22,6 +23,14 @@ logger = logging.getLogger(__name__)
 
 def _now() -> datetime:
     return datetime.utcnow()
+
+
+def _json_default(value: Any) -> Any:
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
 
 class AutopilotDao:
@@ -181,7 +190,7 @@ class AutopilotDao:
                 ),
                 {
                     "status": status.value,
-                    "result": json.dumps(result) if result else None,
+                    "result": json.dumps(result, default=_json_default) if result else None,
                     "error": error,
                     "now": _now(),
                     "r": run_id,
@@ -254,7 +263,7 @@ class AutopilotDao:
                     "action": action,
                     "stype": subject_type,
                     "sid": subject_id,
-                    "summary": json.dumps(input_summary) if input_summary else None,
+                    "summary": json.dumps(input_summary, default=_json_default) if input_summary else None,
                     "reason": reason,
                     "approval": approval_status,
                 },

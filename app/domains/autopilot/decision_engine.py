@@ -68,8 +68,8 @@ def select_factors(
     rejected: List[Dict[str, str]] = []
     for c in candidates:
         m = _factor_metric(c)
-        if abs(m["ic_ir"]) < policies.ir_threshold:
-            rejected.append({"name": m["name"], "reason": "ic_ir below threshold"})
+        if abs(m["rank_ir"]) < policies.ir_threshold:
+            rejected.append({"name": m["name"], "reason": "rank_ir below threshold"})
             continue
         if abs(m["ic_mean"]) < policies.ic_threshold:
             rejected.append({"name": m["name"], "reason": "ic_mean below threshold"})

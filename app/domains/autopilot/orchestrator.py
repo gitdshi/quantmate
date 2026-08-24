@@ -423,11 +423,15 @@ class AutopilotOrchestrator:
     def _enqueue_factor_backtest(self, user_id: int, request_payload: dict[str, Any]) -> Optional[str]:
         from app.worker.service.config import get_queue
 
+        job_id = f"autopilot-bt-{int(time.time())}"
         job = get_queue("backtest").enqueue(
             "app.domains.factors.backtest_task.run_factor_backtest_task",
-            job_id=f"autopilot-bt-{int(time.time())}",
-            user_id=user_id,
-            request_payload=request_payload,
+            kwargs={
+                "job_id": job_id,
+                "user_id": user_id,
+                "request_payload": request_payload,
+            },
+            job_id=job_id,
             job_timeout=_JOB_TIMEOUT_SECONDS,
         )
         return job.id if job else None
