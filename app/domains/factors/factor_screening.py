@@ -196,6 +196,10 @@ def mine_alpha158_factors(
 
     for col in df.columns:
         col_name = str(col)
+        # Qlib Alpha158 handlers append a LABEL column (the ground-truth forward
+        # return) — that's not a tradeable factor, so exclude it from mining.
+        if "LABEL" in col_name.upper():
+            continue
         fv = df[col]
         try:
             metrics = compute_factor_metrics(fv, fwd_ret)

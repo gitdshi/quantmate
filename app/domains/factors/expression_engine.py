@@ -530,44 +530,43 @@ def _clamp_qlib_window(start_date: str, end_date: str) -> tuple[str, str]:
         return start_date, end_date
 
     rmin, rmax = data_range
-    # ISO strings compare lexicographically, but use real dates for span math below.
-    req_start = min(start_date, end_date)
-    req_end = max(start_date, end_date)
-    span_days = (_date.fromisoformat(req_end) - _date.fromisoformat(req_start)).days
+    range_start = _date.fromisoformat(rmin)
+    range_end = _date.fromisoformat(rmax)
 
-    if req_start > rmax:
-        # Requested window is entirely after the available data. Anchor a window
-        # of the same span at the end of the available data instead of falling
-        # back to the full (very long) history.
-        end = rmax
-        start = max((_date.fromisoformat(rmax) - _timedelta(days=span_days)).isoformat(), rmin)
+    req_start = _date.fromisoformat(min(start_date, end_date))
+    req_end = _date.fromisoformat(max(start_date, end_date))
+    # +1 so a single-day request still has a non-zero span.
+    span_days = (req_end - req_start).days + 1
+
+    overlap_start = max(req_start, range_start)
+    overlap_end = min(req_end, range_end)
+    overlap_days = (overlap_end - overlap_start).days + 1
+
+    # A tiny sliver of overlap (e.g. the requested window shares only 1-2 days with
+    # the available calendar) yields degenerate factor metrics — IC is computed across
+    # almost a single date. Snap the requested span to the nearest available edge so
+    # mining/backtest always runs over a meaningful window rather than a 2-day stub.
+    if overlap_days < min(span_days, 30):
+        if req_start < range_start:
+            start = range_start
+            end = min(range_start + _timedelta(days=span_days - 1), range_end)
+        else:
+            end = range_end
+            start = max(range_end - _timedelta(days=span_days - 1), range_start)
         logger.info(
-            "[factor-engine] Requested Qlib window %s–%s is after available data (ends %s); "
-            "using trailing window %s–%s",
-            start_date, end_date, rmax, start, end,
+            "[factor-engine] Requested Qlib window %s–%s overlaps available data (%s–%s) by only %d day(s); "
+            "snapping to %s–%s",
+            start_date, end_date, rmin, rmax, overlap_days, start, end,
         )
-        return start, end
+        return start.isoformat(), end.isoformat()
 
-    if req_end < rmin:
-        start = rmin
-        end = min((_date.fromisoformat(rmin) + _timedelta(days=span_days)).isoformat(), rmax)
-        logger.info(
-            "[factor-engine] Requested Qlib window %s–%s is before available data (starts %s); "
-            "using leading window %s–%s",
-            start_date, end_date, rmin, start, end,
-        )
-        return start, end
-
-    clamped_start = max(req_start, rmin)
-    clamped_end = min(req_end, rmax)
-
-    if clamped_start != req_start or clamped_end != req_end:
+    if overlap_start != req_start or overlap_end != req_end:
         logger.info(
             "[factor-engine] Clamped Qlib window %s–%s -> %s–%s (available data %s–%s)",
-            start_date, end_date, clamped_start, clamped_end, rmin, rmax,
+            start_date, end_date, overlap_start, overlap_end, rmin, rmax,
         )
 
-    return clamped_start, clamped_end
+    return overlap_start.isoformat(), overlap_end.isoformat()
 
 
 def compute_qlib_factor_set(
@@ -847,8 +846,10 @@ def compute_factor_metrics(
 
     Returns dict with: ic_mean, ic_std, ic_ir, turnover, long_ret, short_ret, long_short_ret
     """
-    # Align
-    aligned = pd.DataFrame({"factor": factor_values, "return": forward_returns}).dropna()
+    # Align (drop inf as well as NaN so a zero-price forward return can't leak
+    # Infinity into long/short returns).
+    aligned = pd.DataFrame({"factor": factor_values, "return": forward_returns})
+    aligned = aligned.replace([np.inf, -np.inf], np.nan).dropna()
     if aligned.empty or len(aligned) < 10:
         return {
             "ic_mean": 0.0, "ic_std": 0.0, "ic_ir": 0.0,

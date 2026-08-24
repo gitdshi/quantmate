@@ -9,9 +9,9 @@ EXAMPLE_FILE=.env.example
 INCOMING_EXAMPLE_FILE=.env.example.incoming
 DEPLOY_BACKEND_SCRIPT=deploy_backend_staging.sh
 DEPLOY_PORTAL_SCRIPT=deploy_portal_staging.sh
-IMAGE_SERVICES="api worker paper-runtime datasync datasync-backfill rdagent-service"
-POST_API_SERVICES="worker paper-runtime datasync datasync-backfill rdagent-service"
-ALL_SERVICES="api worker paper-runtime datasync datasync-backfill rdagent-service"
+IMAGE_SERVICES="api worker paper-runtime datasync datasync-backfill rdagent-service autopilot"
+POST_API_SERVICES="worker paper-runtime datasync datasync-backfill rdagent-service autopilot"
+ALL_SERVICES="api worker paper-runtime datasync datasync-backfill rdagent-service autopilot"
 DISK_USAGE_THRESHOLD_PERCENT="80"
 
 cleanup_staging_directory() {
@@ -240,7 +240,8 @@ if ! restart_services; then
     quantmate-paper-runtime-1 \
     quantmate-datasync-1 \
     quantmate-datasync-backfill-1 \
-    quantmate-rdagent-service-1; do
+    quantmate-rdagent-service-1 \
+    quantmate-autopilot-1; do
     docker rm -f "$name" >/dev/null 2>&1 || true
   done
   docker compose -f docker-compose.staging.yml rm -sf $ALL_SERVICES >/dev/null 2>&1 || true
