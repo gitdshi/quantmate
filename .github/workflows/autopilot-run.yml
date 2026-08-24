@@ -1,0 +1,87 @@
+name: Autopilot Run
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: "Run a single stage (leave empty to run the full --once DAG)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  run-autopilot:
+    name: Run Autopilot on Staging
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Trigger autopilot and verify tables
+        uses: appleboy/ssh-action@v1
+        env:
+          RUN_STAGE: ${{ github.event.inputs.stage }}
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          envs: RUN_STAGE
+          command_timeout: "40m"
+          script: |
+            set -e
+            CONTAINER=quantmate-autopilot-1
+
+            if docker ps --format '{{.Names}}' | grep -Fxq "$CONTAINER"; then
+              echo "==> Container $CONTAINER is running"
+            else
+              echo "ERROR: container $CONTAINER not found/running" >&2
+              exit 1
+            fi
+
+            if [ -n "$RUN_STAGE" ]; then
+              echo "==> Running autopilot single stage: $RUN_STAGE"
+              docker exec "$CONTAINER" python -m app.domains.autopilot.orchestrator --stage "$RUN_STAGE"
+            else
+              echo "==> Running autopilot full --once DAG"
+              docker exec "$CONTAINER" python -m app.domains.autopilot.orchestrator --once
+            fi
+
+            echo "==> Verifying autopilot tables (runs / stages / decisions)"
+            docker exec -i "$CONTAINER" python - <<'PY'
+            import json
+            from sqlalchemy import text
+            from app.infrastructure.db.connections import connection
+
+            with connection("quantmate") as conn:
+                run = conn.execute(text(
+                    "SELECT run_id, business_date, market, status, started_at, ended_at "
+                    "FROM autopilot_runs ORDER BY id DESC LIMIT 1"
+                )).first()
+
+                if not run:
+                    print("NO RUN FOUND in autopilot_runs")
+                    raise SystemExit(1)
+
+                run_id = run[0]
+                print("\n=== LATEST RUN ===")
+                print(json.dumps(dict(run._mapping), default=str, ensure_ascii=False))
+
+                print("\n=== STAGES ===")
+                stages = conn.execute(text(
+                    "SELECT stage, status, attempt, error, started_at, ended_at "
+                    "FROM autopilot_stages WHERE run_id = :rid ORDER BY id"
+                ), {"rid": run_id}).fetchall()
+                for s in stages:
+                    print(json.dumps(dict(s._mapping), default=str, ensure_ascii=False))
+
+                print("\n=== DECISIONS ===")
+                decisions = conn.execute(text(
+                    "SELECT decision_type, action, subject_type, subject_id, "
+                    "approval_status, reason FROM autopilot_decisions "
+                    "WHERE run_id = :rid ORDER BY id"
+                ), {"rid": run_id}).fetchall()
+                for d in decisions:
+                    print(json.dumps(dict(d._mapping), default=str, ensure_ascii=False))
+                if not decisions:
+                    print("(no decisions recorded)")
+            PY
