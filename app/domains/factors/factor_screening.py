@@ -17,6 +17,7 @@ import pandas as pd
 
 from app.domains.factors.expression_engine import (
     _clamp_qlib_window,
+    alpha158_name_to_expression,
     augment_factor_eval_ohlcv,
     compute_custom_factor,
     compute_factor_metrics,
@@ -209,7 +210,14 @@ def mine_alpha158_factors(
         if abs(metrics["ic_mean"]) < ic_threshold:
             continue
 
-        results.append({"factor_name": col_name, "factor_set": "Alpha158", **metrics})
+        results.append(
+            {
+                "factor_name": col_name,
+                "factor_set": "Alpha158",
+                "expression": alpha158_name_to_expression(col_name),
+                **metrics,
+            }
+        )
         factor_values[col_name] = fv
 
     # Sort by |IC|

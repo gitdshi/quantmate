@@ -358,6 +358,90 @@ def normalize_factor_expression(expression: str) -> str:
     return normalized
 
 
+# ---------------------------------------------------------------------------
+# Qlib field-expression translation (Alpha158 / Alpha360 feature names)
+# ---------------------------------------------------------------------------
+
+_QLIB_FUNC_MAP = {
+    "Ref": "delay",
+    "Mean": "ts_mean",
+    "Std": "ts_std",
+    "Slope": "ts_slope",
+    "Rsquare": "ts_rsquare",
+    "Resi": "ts_resi",
+    "Max": "ts_max",
+    "Min": "ts_min",
+    "Quantile": "ts_quantile",
+    "Rank": "ts_rank",
+    "IdxMax": "ts_idxmax",
+    "IdxMin": "ts_idxmin",
+    "Corr": "ts_corr",
+    "Greater": "maximum",
+    "Less": "minimum",
+    "Log": "log",
+    "Abs": "abs",
+    "Sum": "ts_sum",
+}
+
+_QLIB_FUNC_RE = re.compile(
+    r"\b(Ref|Mean|Std|Slope|Rsquare|Resi|Max|Min|Quantile|Rank|IdxMax|IdxMin|Corr|Greater|Less|Log|Abs|Sum)\b"
+)
+
+
+def translate_qlib_field_expression(field: str) -> str:
+    """Translate a Qlib field expression into the engine's pandas-eval subset.
+
+    Qlib factors are written like ``$low/$close`` or ``Mean($close, 5)/$close``,
+    with dollar-prefixed columns and Qlib operator names. This converts them to
+    ``low/close`` / ``ts_mean(close, 5)/close`` so ``compute_custom_factor`` and
+    the AST evaluator can execute them directly.
+    """
+    if not field:
+        return ""
+    expr = field.replace("$", "")
+    expr = _QLIB_FUNC_RE.sub(lambda match: _QLIB_FUNC_MAP[match.group(1)], expr)
+    return expr
+
+
+_ALPHA158_NAME_TO_FIELD: Optional[dict[str, str]] = None
+
+
+def _alpha158_name_to_field() -> dict[str, str]:
+    """Return ``{factor_name: qlib_field_expression}`` for the Alpha158 set.
+
+    The mapping is built from Qlib's own ``Alpha158DL.get_feature_config`` so it
+    always matches the columns produced by ``compute_qlib_factor_set("Alpha158")``.
+    """
+    global _ALPHA158_NAME_TO_FIELD
+    if _ALPHA158_NAME_TO_FIELD is not None:
+        return _ALPHA158_NAME_TO_FIELD
+
+    mapping: dict[str, str] = {}
+    try:
+        from qlib.contrib.data.loader import Alpha158DL
+
+        conf = {
+            "kbar": {},
+            "price": {"windows": [0], "feature": ["OPEN", "HIGH", "LOW", "VWAP"]},
+            "rolling": {},
+        }
+        fields, names = Alpha158DL.get_feature_config(conf)
+        mapping = dict(zip(names, fields))
+    except Exception:
+        logger.debug("[factor-engine] Alpha158 feature config lookup failed", exc_info=True)
+
+    _ALPHA158_NAME_TO_FIELD = mapping
+    return mapping
+
+
+def alpha158_name_to_expression(name: str) -> str:
+    """Return the executable expression for an Alpha158 feature name (e.g. LOW0 → low/close)."""
+    field = _alpha158_name_to_field().get(name)
+    if not field:
+        return ""
+    return translate_qlib_field_expression(field)
+
+
 def augment_factor_eval_ohlcv(ohlcv: pd.DataFrame) -> pd.DataFrame:
     """Add derived return columns used by discovered-factor expressions."""
     if ohlcv.empty:

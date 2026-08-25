@@ -104,6 +104,7 @@ def select_factors(
         factors.append(
             {
                 "name": m["name"],
+                "expression": c.get("expression") or m["name"],
                 "direction": direction,
                 "weight": weight,
                 "ic_mean": m["ic_mean"],

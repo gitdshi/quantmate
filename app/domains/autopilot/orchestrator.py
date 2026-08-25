@@ -474,7 +474,7 @@ class AutopilotOrchestrator:
                 return []
             rows = conn.execute(
                 text(
-                    "SELECT factor_name, ic_mean, rank_ir, metrics "
+                    "SELECT factor_name, ic_mean, rank_ir, expression, metrics "
                     "FROM factor_screening_details WHERE run_id = :rid ORDER BY rank_order ASC"
                 ),
                 {"rid": run_row[0]},
@@ -486,6 +486,7 @@ class AutopilotOrchestrator:
             metrics.setdefault("factor_name", row.factor_name)
             metrics.setdefault("ic_mean", float(row.ic_mean or 0))
             metrics.setdefault("rank_ir", float(row.rank_ir or 0))
+            metrics.setdefault("expression", row.expression or "")
             candidates.append(metrics)
         return candidates
 
@@ -504,6 +505,7 @@ class AutopilotOrchestrator:
             factors.append(
                 {
                     "name": c.get("factor_name") or c.get("name"),
+                    "expression": c.get("expression") or "",
                     "direction": 1.0 if ic_mean >= 0 else -1.0,
                     "weight": 1.0,
                 }

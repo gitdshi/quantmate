@@ -41,6 +41,15 @@ _UNARY_OPS = {
     ast.USub: operator.neg,
 }
 
+_CMP_OPS = {
+    ast.Gt: operator.gt,
+    ast.Lt: operator.lt,
+    ast.GtE: operator.ge,
+    ast.LtE: operator.le,
+    ast.Eq: operator.eq,
+    ast.NotEq: operator.ne,
+}
+
 # ── Allowed math / rolling functions ────────────────────────────────
 
 def _instrument_level(index: pd.Index) -> Optional[int]:
@@ -126,6 +135,84 @@ def _min_(x: pd.Series, n: int) -> pd.Series:
     return _by_instrument(x, lambda s: s.rolling(int(n), min_periods=1).min())
 
 
+def _maximum(a, b):
+    """Elementwise max (Qlib ``Greater``)."""
+    return np.maximum(a, b)
+
+
+def _minimum(a, b):
+    """Elementwise min (Qlib ``Less``)."""
+    return np.minimum(a, b)
+
+
+def _ts_rank(x: pd.Series, n: int) -> pd.Series:
+    return _by_instrument(x, lambda s: s.rolling(int(n)).rank(pct=True))
+
+
+def _ts_quantile(x: pd.Series, n: int, q: float) -> pd.Series:
+    return _by_instrument(x, lambda s: s.rolling(int(n)).quantile(float(q)))
+
+
+def _ts_idxmax(x: pd.Series, n: int) -> pd.Series:
+    """Days since the highest value within the trailing window (Qlib ``IdxMax``)."""
+    window = int(n)
+    return _by_instrument(
+        x,
+        lambda s: s.rolling(window).apply(
+            lambda w: float(window - 1 - int(np.argmax(w))), raw=True
+        ),
+    )
+
+
+def _ts_idxmin(x: pd.Series, n: int) -> pd.Series:
+    """Days since the lowest value within the trailing window (Qlib ``IdxMin``)."""
+    window = int(n)
+    return _by_instrument(
+        x,
+        lambda s: s.rolling(window).apply(
+            lambda w: float(window - 1 - int(np.argmin(w))), raw=True
+        ),
+    )
+
+
+def _ts_slope(x: pd.Series, n: int) -> pd.Series:
+    """Rolling OLS slope on a linear time trend (Qlib ``Slope``)."""
+    window = int(n)
+    t = np.arange(window, dtype=float)
+    return _by_instrument(
+        x,
+        lambda s: s.rolling(window).apply(
+            lambda w: float(np.polyfit(t, w, 1)[0]), raw=True
+        ),
+    )
+
+
+def _ts_rsquare(x: pd.Series, n: int) -> pd.Series:
+    """Rolling OLS R-squared (Qlib ``Rsquare``)."""
+    window = int(n)
+    t = np.arange(window, dtype=float)
+
+    def _r2(w):
+        slope, intercept = np.polyfit(t, w, 1)
+        ss_res = float(np.sum((w - (slope * t + intercept)) ** 2))
+        ss_tot = float(np.sum((w - w.mean()) ** 2))
+        return 1.0 - ss_res / ss_tot if ss_tot > 0 else 0.0
+
+    return _by_instrument(x, lambda s: s.rolling(window).apply(lambda w: _r2(w), raw=True))
+
+
+def _ts_resi(x: pd.Series, n: int) -> pd.Series:
+    """Rolling OLS residual of the latest point (Qlib ``Resi``)."""
+    window = int(n)
+    t = np.arange(window, dtype=float)
+
+    def _resi(w):
+        slope, intercept = np.polyfit(t, w, 1)
+        return float(w[-1] - (slope * t[-1] + intercept))
+
+    return _by_instrument(x, lambda s: s.rolling(window).apply(lambda w: _resi(w), raw=True))
+
+
 _ALLOWED_FUNCTIONS = {
     "abs": np.abs,
     "log": np.log,
@@ -155,7 +242,16 @@ _ALLOWED_FUNCTIONS = {
     "ts_min": _min_,
     "ts_sum": lambda x, n=20: _by_instrument(x, lambda s: s.rolling(int(n), min_periods=1).sum()),
     "ts_corr": _corr,
-    "ts_rank": lambda x, n=20: _by_instrument(x, lambda s: s.rolling(int(n)).rank(pct=True)),
+    "ts_rank": _ts_rank,
+    # Qlib-compatible functions (translated from Alpha158 field expressions).
+    "maximum": _maximum,
+    "minimum": _minimum,
+    "ts_quantile": _ts_quantile,
+    "ts_idxmax": _ts_idxmax,
+    "ts_idxmin": _ts_idxmin,
+    "ts_slope": _ts_slope,
+    "ts_rsquare": _ts_rsquare,
+    "ts_resi": _ts_resi,
 }
 
 # Default column whitelist (callers may override).
@@ -262,7 +358,14 @@ class ExpressionEvaluator(ast.NodeVisitor):
         raise ValueError("Boolean operators (and/or) not supported in factor expressions")
 
     def visit_Compare(self, node: ast.Compare) -> Any:
-        raise ValueError("Comparison operators not supported in factor expressions")
+        left = self.visit(node.left)
+        for op_node, comparator in zip(node.ops, node.comparators):
+            right = self.visit(comparator)
+            op_func = _CMP_OPS.get(type(op_node))
+            if op_func is None:
+                raise ValueError(f"Unsupported comparison operator: {type(op_node).__name__}")
+            left = op_func(left, right)
+        return left
 
     # Function calls — only whitelisted functions, no kwargs
     def visit_Call(self, node: ast.Call) -> Any:
