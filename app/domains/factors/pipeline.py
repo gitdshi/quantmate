@@ -349,7 +349,7 @@ def _save_screening_details(run_id: int, results: List[Dict[str, Any]]) -> None:
                 "factor_name": r.get("factor_name", "")[:200],
                 "factor_source": r.get("factor_source", "")[:64],
                 "ic_mean": float(r.get("ic_mean") or 0),
-                "rank_ir": float(r.get("rank_ir") or 0),
+                "rank_ir": float(r.get("rank_ir") or r.get("ic_ir") or 0),
                 "passed": 1 if r.get("passed") else 0,
                 "metrics": json.dumps(r),
             }

@@ -601,7 +601,7 @@ DB_SYSTEM_CONFIG_DEFINITIONS: tuple[SystemConfigDefinition, ...] = (
         label="IR threshold",
         description="Minimum absolute IC information ratio for factor selection.",
         value_type="float",
-        default_value="0.5",
+        default_value="0.1",
         legacy_env_keys="AUTOPILOT_IR_THRESHOLD",
     ),
     _cfg(

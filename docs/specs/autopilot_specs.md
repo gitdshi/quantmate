@@ -121,7 +121,7 @@
 | autopilot.kill_switch | AUTOPILOT_KILL_SWITCH | false | 全局 kill-switch：true 时禁止自动部署/下单 |
 | autopilot.approval_required | AUTOPILOT_APPROVAL_REQUIRED | true | 首日部署是否需要人工审批 |
 | autopilot.ic_threshold | AUTOPILOT_IC_THRESHOLD | 0.03 | 因子 |ic_mean| 下限 |
-| autopilot.ir_threshold | AUTOPILOT_IR_THRESHOLD | 0.5 | 因子 |ic_ir| 下限 |
+| autopilot.ir_threshold | AUTOPILOT_IR_THRESHOLD | 0.1 | 因子 |ic_ir| 下限 |
 | autopilot.corr_threshold | AUTOPILOT_CORR_THRESHOLD | 0.7 | 两两相关去重阈值 |
 | autopilot.turnover_cap | AUTOPILOT_TURNOVER_CAP | 0.5 | 换手率上限 |
 | autopilot.top_n_factor | AUTOPILOT_TOP_N_FACTOR | 10 | 最终选定因子数 |

@@ -45,7 +45,7 @@ class Policies:
             kill_switch=get_runtime_bool(env_keys="AUTOPILOT_KILL_SWITCH", db_key=f"{_DB_KEY_PREFIX}.kill_switch", default=False),
             approval_required=get_runtime_bool(env_keys="AUTOPILOT_APPROVAL_REQUIRED", db_key=f"{_DB_KEY_PREFIX}.approval_required", default=True),
             ic_threshold=get_runtime_float(env_keys="AUTOPILOT_IC_THRESHOLD", db_key=f"{_DB_KEY_PREFIX}.ic_threshold", default=0.03),
-            ir_threshold=get_runtime_float(env_keys="AUTOPILOT_IR_THRESHOLD", db_key=f"{_DB_KEY_PREFIX}.ir_threshold", default=0.5),
+            ir_threshold=get_runtime_float(env_keys="AUTOPILOT_IR_THRESHOLD", db_key=f"{_DB_KEY_PREFIX}.ir_threshold", default=0.1),
             corr_threshold=get_runtime_float(env_keys="AUTOPILOT_CORR_THRESHOLD", db_key=f"{_DB_KEY_PREFIX}.corr_threshold", default=0.7),
             turnover_cap=get_runtime_float(env_keys="AUTOPILOT_TURNOVER_CAP", db_key=f"{_DB_KEY_PREFIX}.turnover_cap", default=0.5),
             top_n_factor=get_runtime_int(env_keys="AUTOPILOT_TOP_N_FACTOR", db_key=f"{_DB_KEY_PREFIX}.top_n_factor", default=10),
