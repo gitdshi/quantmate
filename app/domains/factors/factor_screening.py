@@ -293,9 +293,11 @@ def save_screening_results(
                 text(
                     "INSERT INTO factor_screening_details "
                     "(run_id, rank_order, factor_name, factor_set, expression, "
-                    "ic_mean, ic_std, ic_ir, turnover, long_ret, short_ret, long_short_ret) "
+                    "ic_mean, ic_std, ic_ir, rank_ir, turnover, long_ret, short_ret, "
+                    "long_short_ret, metrics) "
                     "VALUES (:rid, :rank, :fname, :fset, :expr, "
-                    ":ic_mean, :ic_std, :ic_ir, :turnover, :long_ret, :short_ret, :lsr)"
+                    ":ic_mean, :ic_std, :ic_ir, :rank_ir, :turnover, :long_ret, "
+                    ":short_ret, :lsr, :metrics)"
                 ),
                 {
                     "rid": run_id,
@@ -306,10 +308,15 @@ def save_screening_results(
                     "ic_mean": r.get("ic_mean", 0),
                     "ic_std": r.get("ic_std", 0),
                     "ic_ir": r.get("ic_ir", 0),
+                    # The pipeline computes Spearman (rank) IC, so ic_ir is the
+                    # rank-IC information ratio. Persist it as rank_ir so the
+                    # decision engine's ir_threshold filter actually sees it.
+                    "rank_ir": r.get("rank_ir", r.get("ic_ir", 0)),
                     "turnover": r.get("turnover", 0),
                     "long_ret": r.get("long_ret", 0),
                     "short_ret": r.get("short_ret", 0),
                     "lsr": r.get("long_short_ret", 0),
+                    "metrics": json.dumps(r) if r else None,
                 },
             )
 
