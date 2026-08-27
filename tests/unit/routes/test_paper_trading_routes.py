@@ -214,11 +214,16 @@ class TestDeploy:
 
 class TestPaperOrders:
     @patch("app.api.routes.paper_trading.PaperExecutionLedger")
+    @patch("app.api.routes.paper_trading.RealtimeQuoteService")
     @patch("app.api.routes.paper_trading.OrderDao")
-    def test_create_paper_order_limit(self, MockDao, MockLedger, client):
+    def test_create_paper_order_limit(self, MockDao, MockQuoteSvc, MockLedger, client):
         instance = MockDao.return_value
         instance.create.return_value = 1
         instance.get_by_id.return_value = {"id": 1, "symbol": "000001.SZ", "status": "created"}
+        MockQuoteSvc.return_value.get_quote.return_value = {
+            "last_price": 10.5,
+            "prev_close": 10.5,
+        }
         resp = client.post("/api/v1/paper-trade/orders", json={
             "symbol": "000001.SZ", "direction": "buy",
             "order_type": "limit", "quantity": 100, "price": 10.5,
