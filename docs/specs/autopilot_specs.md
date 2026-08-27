@@ -119,7 +119,7 @@
 |---|---|---|---|
 | autopilot.enabled | AUTOPILOT_ENABLED | true | 总开关：false 时编排器不调度 |
 | autopilot.kill_switch | AUTOPILOT_KILL_SWITCH | false | 全局 kill-switch：true 时禁止自动部署/下单 |
-| autopilot.approval_required | AUTOPILOT_APPROVAL_REQUIRED | true | 首日部署是否需要人工审批 |
+| autopilot.approval_required | AUTOPILOT_APPROVAL_REQUIRED | false | 首日部署是否需要人工审批 |
 | autopilot.ic_threshold | AUTOPILOT_IC_THRESHOLD | 0.03 | 因子 |ic_mean| 下限 |
 | autopilot.ir_threshold | AUTOPILOT_IR_THRESHOLD | 0.1 | 因子 |ic_ir| 下限 |
 | autopilot.corr_threshold | AUTOPILOT_CORR_THRESHOLD | 0.7 | 两两相关去重阈值 |

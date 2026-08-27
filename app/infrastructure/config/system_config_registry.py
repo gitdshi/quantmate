@@ -583,7 +583,7 @@ DB_SYSTEM_CONFIG_DEFINITIONS: tuple[SystemConfigDefinition, ...] = (
         label="Approval required",
         description="Whether first-day automatic deployments require manual approval.",
         value_type="bool",
-        default_value="true",
+        default_value="false",
         legacy_env_keys="AUTOPILOT_APPROVAL_REQUIRED",
     ),
     _cfg(

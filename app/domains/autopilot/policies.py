@@ -43,7 +43,7 @@ class Policies:
         return cls(
             enabled=get_runtime_bool(env_keys="AUTOPILOT_ENABLED", db_key=f"{_DB_KEY_PREFIX}.enabled", default=True),
             kill_switch=get_runtime_bool(env_keys="AUTOPILOT_KILL_SWITCH", db_key=f"{_DB_KEY_PREFIX}.kill_switch", default=False),
-            approval_required=get_runtime_bool(env_keys="AUTOPILOT_APPROVAL_REQUIRED", db_key=f"{_DB_KEY_PREFIX}.approval_required", default=True),
+            approval_required=get_runtime_bool(env_keys="AUTOPILOT_APPROVAL_REQUIRED", db_key=f"{_DB_KEY_PREFIX}.approval_required", default=False),
             ic_threshold=get_runtime_float(env_keys="AUTOPILOT_IC_THRESHOLD", db_key=f"{_DB_KEY_PREFIX}.ic_threshold", default=0.03),
             ir_threshold=get_runtime_float(env_keys="AUTOPILOT_IR_THRESHOLD", db_key=f"{_DB_KEY_PREFIX}.ir_threshold", default=0.1),
             corr_threshold=get_runtime_float(env_keys="AUTOPILOT_CORR_THRESHOLD", db_key=f"{_DB_KEY_PREFIX}.corr_threshold", default=0.7),
