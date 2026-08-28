@@ -220,7 +220,7 @@ services:
       # Autopilot policy switches (all fall back to system_config/registry defaults)
       - AUTOPILOT_ENABLED=${AUTOPILOT_ENABLED:-true}
       - AUTOPILOT_KILL_SWITCH=${AUTOPILOT_KILL_SWITCH:-false}
-      - AUTOPILOT_APPROVAL_REQUIRED=${AUTOPILOT_APPROVAL_REQUIRED:-true}
+      - AUTOPILOT_APPROVAL_REQUIRED=${AUTOPILOT_APPROVAL_REQUIRED:-false}
       - AUTOPILOT_UNIVERSE=${AUTOPILOT_UNIVERSE:-csi300}
       - AUTOPILOT_INIT_BACKTEST_YEARS=${AUTOPILOT_INIT_BACKTEST_YEARS:-3}
     command: ["python", "-m", "app.domains.autopilot.orchestrator", "--daemon"]
