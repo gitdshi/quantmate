@@ -92,6 +92,7 @@ class PaperSettlementService:
 
             balance = float(acct.balance) if acct else 0
             frozen = float(acct.frozen) if acct else 0
+            initial_capital = float(initial_capital)
             total_equity = balance + frozen + total_market_value
             daily_pnl = total_equity - initial_capital
             total_pnl = total_equity - initial_capital
