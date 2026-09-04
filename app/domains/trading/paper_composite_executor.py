@@ -153,8 +153,8 @@ class PaperCompositeExecutor:
             )
 
             vt_symbols = _normalize_vt_symbols(vt_symbol)
-            vt_symbol_map = {code: item for item in vt_symbols if (code := _symbol_code(item))}
-            all_symbols = list(vt_symbol_map.keys())
+            vt_symbol_map = {_symbol_code(item): item for item in vt_symbols if _symbol_code(item)}
+            all_symbols = list(dict.fromkeys(vt_symbols))
             if not all_symbols:
                 raise ValueError("Composite paper deployment requires at least one symbol")
 
@@ -336,7 +336,7 @@ class PaperCompositeExecutor:
         positions: Dict[str, Dict[str, Any]] = {}
         today = date.today()
         for position in raw_positions:
-            symbol = _symbol_code(str(position.get("symbol") or ""))
+            symbol = str(position.get("symbol") or "").strip()
             if not symbol:
                 continue
 
@@ -366,7 +366,7 @@ class PaperCompositeExecutor:
             ).fetchall()
 
         return {
-            _symbol_code(str(row.symbol)): row.opened_at.date() if hasattr(row.opened_at, "date") else row.opened_at
+            str(row.symbol).strip(): row.opened_at.date() if hasattr(row.opened_at, "date") else row.opened_at
             for row in rows
             if getattr(row, "symbol", None) and getattr(row, "opened_at", None)
         }
