@@ -1,0 +1,99 @@
+name: Datasync Check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-datasync:
+    name: Check datasync & backfill on staging
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Inspect containers, logs, and sync backlog
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          command_timeout: "20m"
+          script: |
+            set -e
+
+            echo "===== CONTAINER STATUS ====="
+            docker ps -a --format '{{.Names}}\t{{.Status}}\tRestarts={{.RestartCount}}' \
+              | grep -E 'datasync|backfill' || echo "(no datasync/backfill containers)"
+
+            echo
+            echo "===== DATASYNC (daemon) LOG TAIL ====="
+            docker logs --tail 60 quantmate-datasync-1 2>&1 || echo "(no datasync container)"
+            echo
+            echo "===== BACKFILL LOOP LOG TAIL ====="
+            docker logs --tail 60 quantmate-datasync-backfill-1 2>&1 || echo "(no backfill container)"
+
+            echo
+            echo "===== SYNC BACKLOG ====="
+            docker exec -i quantmate-datasync-1 python - <<'PY'
+            import json
+            from datetime import datetime
+            from sqlalchemy import text
+            from app.infrastructure.db.connections import connection
+
+            with connection("quantmate") as conn:
+                print("--- backlog by status ---")
+                rows = conn.execute(text(
+                    "SELECT status, COUNT(*) AS cnt, "
+                    "MIN(sync_date) AS min_date, MAX(sync_date) AS max_date "
+                    "FROM data_sync_status GROUP BY status ORDER BY cnt DESC"
+                )).fetchall()
+                for r in rows:
+                    print(json.dumps(dict(r._mapping), default=str, ensure_ascii=False))
+
+                print("\n--- stale running (>1h since updated_at) ---")
+                rows = conn.execute(text(
+                    "SELECT source, interface_key, COUNT(*) AS cnt "
+                    "FROM data_sync_status "
+                    "WHERE status='running' AND updated_at < NOW() - INTERVAL 1 HOUR "
+                    "GROUP BY source, interface_key ORDER BY cnt DESC LIMIT 25"
+                )).fetchall()
+                for r in rows:
+                    print(json.dumps(dict(r._mapping), default=str, ensure_ascii=False))
+                if not rows:
+                    print("(none)")
+
+                print("\n--- rate_limited (top 15 by updated_at) ---")
+                rows = conn.execute(text(
+                    "SELECT source, interface_key, sync_date, retry_count, "
+                    "LEFT(error_message, 160) AS err, updated_at "
+                    "FROM data_sync_status WHERE status='rate_limited' "
+                    "ORDER BY updated_at DESC LIMIT 15"
+                )).fetchall()
+                for r in rows:
+                    print(json.dumps(dict(r._mapping), default=str, ensure_ascii=False))
+                if not rows:
+                    print("(none)")
+
+                print("\n--- recent errors (top 15 by updated_at) ---")
+                rows = conn.execute(text(
+                    "SELECT source, interface_key, sync_date, retry_count, "
+                    "LEFT(error_message, 200) AS err, updated_at "
+                    "FROM data_sync_status WHERE status='error' "
+                    "ORDER BY updated_at DESC LIMIT 15"
+                )).fetchall()
+                for r in rows:
+                    print(json.dumps(dict(r._mapping), default=str, ensure_ascii=False))
+                if not rows:
+                    print("(none)")
+
+                print("\n--- backfill lock ---")
+                rows = conn.execute(text(
+                    "SELECT id, is_locked, locked_at, locked_by, updated_at "
+                    "FROM backfill_lock WHERE id = 1"
+                )).fetchall()
+                for r in rows:
+                    print(json.dumps(dict(r._mapping), default=str, ensure_ascii=False))
+                if not rows:
+                    print("(no lock row)")
+            PY
