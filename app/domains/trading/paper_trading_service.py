@@ -48,6 +48,7 @@ class PaperTradingService:
         source_type = (strategy_source_type or _DEFAULT_STRATEGY_SOURCE_TYPE).strip().lower()
         strategy_name: Optional[str] = None
         resolved_vt_symbol = (vt_symbol or "").strip()
+        superseded_ids: list[int] = []
 
         with connection("quantmate") as conn:
             if source_type == _COMPOSITE_STRATEGY_SOURCE_TYPE:
@@ -88,6 +89,38 @@ class PaperTradingService:
                 if not row:
                     return {"success": False, "error": "Strategy not found"}
                 strategy_name = row.name
+
+            # Supersede any currently-running deployment on the same paper
+            # account so a single account never trades multiple strategies at
+            # once (avoids duplicate/overlapping orders).
+            if paper_account_id is not None:
+                superseded_ids = [
+                    int(r.id)
+                    for r in conn.execute(
+                        text("""
+                            SELECT id FROM paper_deployments
+                            WHERE paper_account_id = :paid
+                              AND COALESCE(desired_status, status, '') = 'running'
+                        """),
+                        {"paid": paper_account_id},
+                    ).fetchall()
+                ]
+                if superseded_ids:
+                    conn.execute(
+                        text("""
+                            UPDATE paper_deployments
+                            SET status = 'stopped',
+                                desired_status = 'stopped',
+                                runtime_status = CASE
+                                    WHEN runtime_status IN ('stopped', 'error') THEN runtime_status
+                                    ELSE 'stopping'
+                                END,
+                                stopped_at = COALESCE(stopped_at, NOW())
+                            WHERE paper_account_id = :paid
+                              AND COALESCE(desired_status, status, '') = 'running'
+                        """),
+                        {"paid": paper_account_id},
+                    )
 
             result = conn.execute(
                 text("""
@@ -133,8 +166,10 @@ class PaperTradingService:
             from app.domains.trading.paper_runtime_daemon import _publish_deployment_change
 
             _publish_deployment_change("created", deployment_id)
+            for superseded_id in superseded_ids:
+                _publish_deployment_change("stopped", superseded_id)
         except Exception:
-            logger.debug("Failed to publish deployment creation", exc_info=True)
+            logger.debug("Failed to publish deployment change", exc_info=True)
 
         return {
             "success": True,
