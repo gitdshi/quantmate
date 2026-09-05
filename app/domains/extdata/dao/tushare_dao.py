@@ -1074,6 +1074,8 @@ def _clean(v):
         return float(v)
     if isinstance(v, (np.bool_,)):
         return bool(v)
+    if isinstance(v, str) and not v.strip():
+        return None
     return v
 
 
@@ -1100,6 +1102,8 @@ def _to_date_value(value):
             return None
     except Exception:
         pass
+    if isinstance(value, str) and not value.strip():
+        return None
     try:
         return pd.to_datetime(value).date()
     except Exception:
