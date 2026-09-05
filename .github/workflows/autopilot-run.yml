@@ -84,4 +84,15 @@ jobs:
                     print(json.dumps(dict(d._mapping), default=str, ensure_ascii=False))
                 if not decisions:
                     print("(no decisions recorded)")
+
+                print("\n=== PAPER DEPLOYMENTS ===")
+                deployments = conn.execute(text(
+                    "SELECT id, paper_account_id, strategy_source_type, status, "
+                    "desired_status, runtime_status, started_at, stopped_at "
+                    "FROM paper_deployments ORDER BY paper_account_id, id"
+                )).fetchall()
+                for dep in deployments:
+                    print(json.dumps(dict(dep._mapping), default=str, ensure_ascii=False))
+                if not deployments:
+                    print("(no deployments recorded)")
             PY
