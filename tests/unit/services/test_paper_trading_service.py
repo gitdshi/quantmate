@@ -57,6 +57,7 @@ class TestPaperTradingService:
         insert_result = MagicMock(lastrowid=10)
         _mock_connection.execute.side_effect = [
             MagicMock(fetchone=MagicMock(return_value=strat_row)),
+            MagicMock(fetchall=MagicMock(return_value=[])),  # supersede lookup
             insert_result,
         ]
         result = _mod.PaperTradingService().deploy(
@@ -74,6 +75,7 @@ class TestPaperTradingService:
         insert_result = MagicMock(lastrowid=12)
         _mock_connection.execute.side_effect = [
             MagicMock(fetchone=MagicMock(return_value=composite_row)),
+            MagicMock(fetchall=MagicMock(return_value=[])),  # supersede lookup
             insert_result,
         ]
 
