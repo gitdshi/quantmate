@@ -66,6 +66,28 @@ class TestPaperTradingService:
         )
         assert isinstance(result, dict)
 
+    def test_deploy_supersedes_running_deployments(self, _mock_connection):
+        strat_row = MagicMock()
+        strat_row._mapping = {"id": 1, "name": "MA Cross", "class_name": "MaCross"}
+        insert_result = MagicMock(lastrowid=10)
+        _mock_connection.execute.side_effect = [
+            MagicMock(fetchone=MagicMock(return_value=strat_row)),
+            MagicMock(fetchall=MagicMock(return_value=[_row(id=99), _row(id=98)])),
+            MagicMock(),  # supersede UPDATE
+            insert_result,
+        ]
+
+        result = _mod.PaperTradingService().deploy(
+            user_id=1, strategy_id=1, vt_symbol="000001.SZ",
+            parameters={"fast": 5}, paper_account_id=1
+        )
+
+        assert isinstance(result, dict)
+        statements = [str(call.args[0]) for call in _mock_connection.execute.call_args_list]
+        update = next(s for s in statements if "UPDATE paper_deployments" in s)
+        assert "SET status = 'stopped'" in update
+        assert "desired_status = 'stopped'" in update
+
     def test_deploy_composite(self, _mock_connection, monkeypatch):
         composite_row = MagicMock()
         composite_row.id = 9
