@@ -1,5 +1,6 @@
 """Broker configuration routes (P2 Issue: Broker Config Management)."""
 
+import json
 from typing import Optional
 
 from fastapi import APIRouter, Depends, status
@@ -48,9 +49,9 @@ async def create_broker_config(req: BrokerConfigCreateRequest, current_user: Tok
     dao = BrokerConfigDao()
     config_id = dao.create(
         user_id=current_user.user_id,
-        broker_name=req.broker_name,
-        config=req.config,
-        is_paper=req.is_paper,
+        broker_type=req.broker_name,
+        name=req.broker_name,
+        config_json_encrypted=json.dumps(req.config),
     )
     return {"id": config_id, "message": "Broker config created"}
 
@@ -60,7 +61,14 @@ async def update_broker_config(
     config_id: int, req: BrokerConfigUpdateRequest, current_user: TokenData = Depends(get_current_user)
 ):
     """Update a broker configuration."""
-    updates = {k: v for k, v in req.model_dump().items() if v is not None}
+    updates: dict = {}
+    if req.broker_name is not None:
+        updates["broker_type"] = req.broker_name
+        updates["name"] = req.broker_name
+    if req.config is not None:
+        updates["config_json_encrypted"] = json.dumps(req.config)
+    if req.is_active is not None:
+        updates["is_active"] = req.is_active
     if not updates:
         raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message="No fields to update")
     dao = BrokerConfigDao()

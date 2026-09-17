@@ -52,7 +52,10 @@ class WatchlistDao:
     def create(self, user_id: int, name: str, description: Optional[str] = None) -> int:
         with connection("quantmate") as conn:
             result = conn.execute(
-                text("INSERT INTO watchlists (user_id, name, description) VALUES (:uid, :name, :desc)"),
+                text(
+                    "INSERT INTO watchlists (user_id, name, description, created_at)"
+                    " VALUES (:uid, :name, :desc, NOW())"
+                ),
                 {"uid": user_id, "name": name, "desc": description},
             )
             conn.commit()

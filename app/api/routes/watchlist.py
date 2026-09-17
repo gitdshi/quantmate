@@ -46,7 +46,10 @@ def _watchlist_owner_matches(request: Request, current_user: TokenData) -> bool:
 
     dao = WatchlistDao()
     watchlist = dao.get(int(watchlist_id))
-    return bool(watchlist and watchlist["user_id"] == current_user.user_id)
+    if not watchlist:
+        # Resource gone (e.g. already deleted): report 404, not a permission failure.
+        raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Watchlist not found")
+    return watchlist["user_id"] == current_user.user_id
 
 
 # --- Watchlist CRUD ---

@@ -15,6 +15,26 @@ from unittest.mock import patch
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+# Configure environment at import time (before any test module imports app code,
+# because route modules call get_settings() at module level during collection)
+os.environ["ENV"] = "test"
+os.environ["LOG_LEVEL"] = "DEBUG"
+os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
+os.environ["REDIS_URL"] = "redis://localhost:6379/1"
+# Disable external API calls by default
+os.environ["TUSHARE_TOKEN"] = "test_token_placeholder"
+# Required settings for Settings class validation
+os.environ.setdefault("SECRET_KEY", "test-secret-key-for-unit-tests-only-0123456789abcdef")
+os.environ.setdefault("MYSQL_PASSWORD", "test-password")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def setup_test_env() -> None:
+    """Clear cached settings so tests get fresh instances."""
+    from app.infrastructure.config.config import get_settings
+    get_settings.cache_clear()
+    logger.info("Test environment configured")
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Event Loop Fixtures
@@ -41,24 +61,6 @@ def install_session_event_loop(event_loop: asyncio.AbstractEventLoop) -> Generat
 # ─────────────────────────────────────────────────────────────────────────────
 # Environment Fixtures
 # ─────────────────────────────────────────────────────────────────────────────
-
-@pytest.fixture(scope="session", autouse=True)
-def setup_test_env() -> None:
-    """Configure environment for testing."""
-    os.environ["ENV"] = "test"
-    os.environ["LOG_LEVEL"] = "DEBUG"
-    os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
-    os.environ["REDIS_URL"] = "redis://localhost:6379/1"
-    # Disable external API calls by default
-    os.environ["TUSHARE_TOKEN"] = "test_token_placeholder"
-    # Required settings for Settings class validation
-    os.environ.setdefault("SECRET_KEY", "test-secret-key-for-unit-tests-only-0123456789abcdef")
-    os.environ.setdefault("MYSQL_PASSWORD", "test-password")
-    # Clear cached settings so tests get fresh instances
-    from app.infrastructure.config.config import get_settings
-    get_settings.cache_clear()
-    logger.info("Test environment configured")
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Database Fixtures

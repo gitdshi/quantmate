@@ -5,6 +5,7 @@ All SQL touching `quantmate.broker_configs` lives here.
 
 from __future__ import annotations
 
+import json
 
 from sqlalchemy import text
 
@@ -16,7 +17,7 @@ class BrokerConfigDao:
         with connection("quantmate") as conn:
             rows = conn.execute(
                 text("""
-                    SELECT id, user_id, broker_type, name, is_active, created_at, updated_at
+                    SELECT id, user_id, broker_type, name, config_json_encrypted, is_active, created_at, updated_at
                     FROM broker_configs WHERE user_id = :uid ORDER BY created_at DESC
                 """),
                 {"uid": user_id},
@@ -25,8 +26,8 @@ class BrokerConfigDao:
                 {
                     "id": r.id,
                     "user_id": r.user_id,
-                    "broker_type": r.broker_type,
-                    "name": r.name,
+                    "broker_name": r.name or r.broker_type,
+                    "config": json.loads(r.config_json_encrypted) if r.config_json_encrypted else {},
                     "is_active": bool(r.is_active),
                     "created_at": r.created_at,
                     "updated_at": r.updated_at,

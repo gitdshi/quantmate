@@ -28,7 +28,7 @@ class ApiKeyDao:
                     text("""
                         SELECT id, user_id, key_id, name, permissions, expires_at,
                                ip_whitelist, rate_limit, is_active, created_at, last_used_at
-                        FROM api_keys WHERE user_id = :uid ORDER BY created_at DESC
+                        FROM api_keys WHERE user_id = :uid AND is_active = 1 ORDER BY created_at DESC
                     """),
                     {"uid": user_id},
                 ).fetchall()
@@ -42,7 +42,7 @@ class ApiKeyDao:
         with connection("quantmate") as conn:
             try:
                 row = conn.execute(
-                    text("SELECT COUNT(*) as cnt FROM api_keys WHERE user_id = :uid"),
+                    text("SELECT COUNT(*) as cnt FROM api_keys WHERE user_id = :uid AND is_active = 1"),
                     {"uid": user_id},
                 ).fetchone()
             except (ProgrammingError, OperationalError) as exc:

@@ -89,8 +89,11 @@ async def update_indicator(
 async def delete_indicator(indicator_id: int, current_user: TokenData = Depends(get_current_user)):
     """Delete a custom indicator (cannot delete built-in)."""
     dao = IndicatorConfigDao()
+    indicator = dao.get_by_id(indicator_id)
+    if not indicator:
+        raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Indicator not found")
+    if indicator.get("is_builtin"):
+        raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message="Cannot delete built-in indicator")
     if not dao.delete(indicator_id):
-        raise APIError(
-            status_code=400, code=ErrorCode.VALIDATION_ERROR, message="Cannot delete built-in indicator or not found"
-        )
+        raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Indicator not found")
     return {"message": "Indicator deleted"}

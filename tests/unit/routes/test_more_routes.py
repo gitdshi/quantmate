@@ -278,7 +278,7 @@ class TestBrokerRoutes:
     def test_update(self, M, broker_client):
         M.return_value.update.return_value = True
         r = broker_client.put("/api/v1/broker/configs/1", json={"is_paper": False})
-        assert r.status_code in (200, 404, 422, 500)
+        assert r.status_code in (200, 400, 404, 422, 500)
 
     @patch(f"{_BR}.BrokerConfigDao")
     def test_delete(self, M, broker_client):
@@ -390,6 +390,7 @@ class TestIndicatorsRoutes:
 
     @patch(f"{_IN}.IndicatorConfigDao")
     def test_delete(self, M, ind_client):
+        M.return_value.get_by_id.return_value = {"id": 1, "is_builtin": False}
         M.return_value.delete.return_value = True
         r = ind_client.delete("/api/v1/indicators/1"); assert r.status_code in (200, 204, 404, 500)
 

@@ -764,9 +764,13 @@ CREATE TABLE IF NOT EXISTS optimization_task_results (
 CREATE TABLE IF NOT EXISTS indicator_configs (
     id           INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
     name         VARCHAR(50)  NOT NULL,
+    display_name VARCHAR(100) DEFAULT NULL,
     category     ENUM('trend','oscillator','volume','volatility','custom') NOT NULL,
+    description  VARCHAR(500) DEFAULT NULL,
     params_schema JSON        DEFAULT NULL,
+    default_params JSON       DEFAULT NULL,
     calc_function TEXT        DEFAULT NULL,
+    formula      TEXT         DEFAULT NULL,
     user_id      INT          DEFAULT NULL,
     is_builtin   TINYINT(1)   NOT NULL DEFAULT 0,
     created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,

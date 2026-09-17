@@ -100,6 +100,7 @@ class TestIndicators:
     @patch("app.api.routes.indicators.IndicatorConfigDao")
     def test_delete_indicator(self, MockDao, client):
         instance = MockDao.return_value
+        instance.get_by_id.return_value = {"id": 1, "is_builtin": False}
         instance.delete.return_value = True
         resp = client.delete("/api/v1/indicators/1")
         assert resp.status_code == 200
@@ -107,7 +108,14 @@ class TestIndicators:
     @patch("app.api.routes.indicators.IndicatorConfigDao")
     def test_delete_builtin_indicator(self, MockDao, client):
         instance = MockDao.return_value
-        instance.delete.return_value = False  # Built-in cannot be deleted
+        instance.get_by_id.return_value = {"id": 1, "is_builtin": True}
         resp = client.delete("/api/v1/indicators/1")
         assert resp.status_code == 400
+
+    @patch("app.api.routes.indicators.IndicatorConfigDao")
+    def test_delete_indicator_not_found(self, MockDao, client):
+        instance = MockDao.return_value
+        instance.get_by_id.return_value = None
+        resp = client.delete("/api/v1/indicators/999")
+        assert resp.status_code == 404
 
