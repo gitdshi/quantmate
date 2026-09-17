@@ -83,6 +83,17 @@ _RETRY_BACKOFF_MAX_SECONDS = 1800
 _LOCK_KEY = "autopilot:orchestrator:lock"
 _LOCK_TTL_SECONDS = 7200
 
+# Atomic compare-and-delete: redis-py GET returns bytes, so comparing the
+# token in Python (str == bytes is always False) would leak the lock until
+# its TTL. Doing it inside Redis avoids the type mismatch entirely.
+_RELEASE_LOCK_LUA = """
+if redis.call('get', KEYS[1]) == ARGV[1] then
+    return redis.call('del', KEYS[1])
+else
+    return 0
+end
+"""
+
 
 def _acquire_orchestrator_lock() -> Optional[str]:
     """Try to take the global orchestrator lock; return the token or None.
@@ -108,8 +119,7 @@ def _release_orchestrator_lock(token: Optional[str]) -> None:
     try:
         from app.worker.service.config import redis_conn
 
-        if redis_conn.get(_LOCK_KEY) == token:
-            redis_conn.delete(_LOCK_KEY)
+        redis_conn.eval(_RELEASE_LOCK_LUA, 1, _LOCK_KEY, token)
     except Exception:
         logger.debug("[autopilot] failed to release lock", exc_info=True)
 
