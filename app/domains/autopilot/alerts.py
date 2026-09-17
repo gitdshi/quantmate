@@ -14,6 +14,10 @@ logger = logging.getLogger(__name__)
 
 _DEDUPE_TTL_SECONDS = 3600
 
+# alert_history.level is ENUM('info','warning','severe'); map internal
+# operational levels onto it (log level keeps the original severity).
+_LEVEL_MAP = {"error": "severe", "critical": "severe", "warning": "warning", "warn": "warning", "info": "info"}
+
 
 def _redis_seen(dedupe_key: str) -> bool:
     try:
@@ -39,7 +43,7 @@ def emit_autopilot_alert(
     if dedupe_key and _redis_seen(dedupe_key):
         return
 
-    log = logger.error if level == "error" else logger.warning
+    log = logger.error if level in ("error", "severe", "critical") else logger.warning
     log("[autopilot-alert] %s", message)
 
     if user_id is None:
@@ -54,6 +58,7 @@ def emit_autopilot_alert(
     try:
         from app.domains.monitoring.dao.alert_dao import AlertHistoryDao
 
-        AlertHistoryDao().insert(rule_id=None, user_id=user_id or 0, level=level, message=f"[autopilot] {message}")
+        db_level = _LEVEL_MAP.get(level, "warning")
+        AlertHistoryDao().insert(rule_id=None, user_id=user_id or 0, level=db_level, message=f"[autopilot] {message}")
     except Exception:
         logger.debug("[autopilot-alert] failed to persist alert", exc_info=True)

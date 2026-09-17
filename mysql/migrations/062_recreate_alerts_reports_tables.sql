@@ -1,0 +1,66 @@
+-- Recreate alert/notification/report tables (SPEC-OPS-005 staging gap).
+--
+-- Migration 011 created these with CREATE TABLE IF NOT EXISTS, but the staging
+-- database lost all four tables after a later manual restore, and 011 is
+-- already recorded as applied so it will never re-run. Autopilot operational
+-- alerts persist into alert_history; without it, every alert insert fails
+-- silently. Idempotent: safe to run on environments that still have the
+-- tables.
+
+-- Alert rules
+CREATE TABLE IF NOT EXISTS `quantmate`.`alert_rules` (
+    id           INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    user_id      INT          NOT NULL,
+    name         VARCHAR(100) NOT NULL,
+    metric       VARCHAR(100) NOT NULL,
+    comparator   ENUM('gt','gte','lt','lte','eq','neq') NOT NULL,
+    threshold    DECIMAL(16,4) NOT NULL,
+    time_window  INT          DEFAULT NULL,
+    level        ENUM('info','warning','severe') NOT NULL DEFAULT 'warning',
+    is_active    TINYINT(1)   NOT NULL DEFAULT 1,
+    created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_ar_user (user_id),
+    CONSTRAINT fk_ar_user FOREIGN KEY (user_id) REFERENCES `quantmate`.`users`(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Alert history (target table for autopilot operational alerts)
+CREATE TABLE IF NOT EXISTS `quantmate`.`alert_history` (
+    id           INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    rule_id      INT          DEFAULT NULL,
+    user_id      INT          NOT NULL,
+    triggered_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    level        ENUM('info','warning','severe') NOT NULL,
+    message      TEXT         NOT NULL,
+    status       ENUM('unread','read','acknowledged') NOT NULL DEFAULT 'unread',
+    INDEX idx_ah_user (user_id),
+    INDEX idx_ah_date (triggered_at),
+    CONSTRAINT fk_ah_rule FOREIGN KEY (rule_id) REFERENCES `quantmate`.`alert_rules`(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Notification channels
+CREATE TABLE IF NOT EXISTS `quantmate`.`notification_channels` (
+    id            INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    user_id       INT          NOT NULL,
+    channel_type  ENUM('email','wechat','dingtalk','telegram','slack','webhook') NOT NULL,
+    config_json   JSON         NOT NULL,
+    is_active     TINYINT(1)   NOT NULL DEFAULT 1,
+    created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_nc_user (user_id),
+    CONSTRAINT fk_nc_user FOREIGN KEY (user_id) REFERENCES `quantmate`.`users`(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Reports
+CREATE TABLE IF NOT EXISTS `quantmate`.`reports` (
+    id           INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    user_id      INT          NOT NULL,
+    report_type  ENUM('daily','weekly','monthly','custom') NOT NULL,
+    period_start DATE         NOT NULL,
+    period_end   DATE         NOT NULL,
+    content_json JSON         DEFAULT NULL,
+    pdf_path     VARCHAR(500) DEFAULT NULL,
+    created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_rpt_user (user_id),
+    INDEX idx_rpt_date (period_start, period_end),
+    CONSTRAINT fk_rpt_user FOREIGN KEY (user_id) REFERENCES `quantmate`.`users`(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
