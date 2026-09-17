@@ -27,6 +27,7 @@ class PaperSettlementService:
         today = settlement_date or date.today()
         settled = 0
         errors = 0
+        fallback_valued_total = 0
 
         with connection("quantmate") as conn:
             accounts = conn.execute(
@@ -35,16 +36,32 @@ class PaperSettlementService:
 
         for acct in accounts:
             try:
-                self._settle_account(acct.id, acct.user_id, acct.market, acct.initial_capital, today)
+                fallback_valued_total += self._settle_account(acct.id, acct.user_id, acct.market, acct.initial_capital, today)
                 settled += 1
             except Exception:
                 logger.exception("Settlement failed for account %d", acct.id)
                 errors += 1
 
         logger.info("Settlement complete: settled=%d errors=%d date=%s", settled, errors, today)
-        return {"settled": settled, "errors": errors, "date": str(today)}
+        if fallback_valued_total:
+            try:
+                from app.domains.autopilot.alerts import emit_autopilot_alert
 
-    def _settle_account(self, account_id: int, user_id: int, market: str, initial_capital: float, today: date) -> None:
+                emit_autopilot_alert(
+                    f"settlement valued {fallback_valued_total} positions at avg cost (quotes unavailable)",
+                    level="warning",
+                    dedupe_key=f"settlement-fallback:{today}",
+                )
+            except Exception:
+                logger.debug("Failed to emit settlement fallback alert", exc_info=True)
+        return {
+            "settled": settled,
+            "errors": errors,
+            "date": str(today),
+            "fallback_valued_positions": fallback_valued_total,
+        }
+
+    def _settle_account(self, account_id: int, user_id: int, market: str, initial_capital: float, today: date) -> int:
         """Settle a single paper account: revalue positions, update market_value, snapshot."""
         from app.domains.market.realtime_quote_service import RealtimeQuoteService
 
@@ -63,25 +80,43 @@ class PaperSettlementService:
 
         # Build net position map: symbol → net_qty (buy positive, sell negative)
         positions: Dict[str, int] = {}
+        avg_costs: Dict[str, float] = {}
         for r in rows:
             qty = int(r.total_qty) if r.total_qty else 0
             if getattr(r, "side", "long") == "long":
                 positions[r.symbol] = positions.get(r.symbol, 0) + qty
             else:
                 positions[r.symbol] = positions.get(r.symbol, 0) - qty
+            cost = float(r.avg_cost) if getattr(r, "avg_cost", None) else 0.0
+            avg_costs[r.symbol] = max(avg_costs.get(r.symbol, 0.0), cost)
 
-        # Revalue with latest quotes
+        # Revalue with latest quotes; fall back to the position's average cost
+        # when the quote is unavailable or zero (SPEC-OPS-008). Valuing a
+        # failed quote at 0 used to understate equity and trigger wrong
+        # stop/reduce decisions in the adjust stage.
         quote_svc = RealtimeQuoteService()
         total_market_value = 0.0
+        fallback_valued = 0
         for symbol, net_qty in positions.items():
             if net_qty <= 0:
                 continue
+            price = 0.0
             try:
                 quote = quote_svc.get_quote(symbol, market)
                 price = quote.get("last_price") or quote.get("price") or quote.get("current") or 0
-                total_market_value += net_qty * float(price)
             except Exception:
                 logger.debug("Quote failed for %s during settlement", symbol)
+            price = float(price or 0)
+            if price <= 0:
+                price = avg_costs.get(symbol, 0.0)
+                if price <= 0:
+                    continue
+                fallback_valued += 1
+                logger.warning(
+                    "Settlement for account %d: quote unavailable for %s, valued at avg cost %.4f",
+                    account_id, symbol, price,
+                )
+            total_market_value += net_qty * price
 
         # Update account
         with connection("quantmate") as conn:
@@ -125,3 +160,4 @@ class PaperSettlementService:
             conn.commit()
 
         logger.info("Account %d settled: market_value=%.2f equity=%.2f", account_id, total_market_value, total_equity)
+        return fallback_valued

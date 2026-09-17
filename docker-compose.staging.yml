@@ -85,6 +85,10 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - WORKER_DEFAULT_QUEUE_NAMES=backtest,optimization,default,low,rdagent
+      # SPEC-OPS-007: rdagent jobs (up to several hours each) run on the
+      # dedicated worker-rdagent service below so they cannot starve the
+      # backtest/default queues that autopilot depends on.
+      - WORKER_EXCLUDE_QUEUES=rdagent
       - DEBUG=false
       - QLIB_DATA_DIR=/root/.qlib/qlib_data/cn_data
       - QLIB_MODEL_DIR=/app/data/qlib_models
@@ -100,6 +104,37 @@ services:
         limits:
           memory: 1G
           cpus: '1.0'
+
+  # Dedicated RD-Agent worker (SPEC-OPS-007): consumes only the rdagent queue
+  # so multi-hour mining jobs never block backtests or autopilot pipelines.
+  worker-rdagent:
+    image: ghcr.io/${GITHUB_OWNER:-gitdshi}/quantmate-api:${IMAGE_TAG:?IMAGE_TAG must be set in .env or environment}
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - APP_ENV=staging
+      - MYSQL_HOST=${MYSQL_HOST}
+      - MYSQL_PORT=3306
+      - MYSQL_USER=${MYSQL_USER:-quantmate}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - SECRET_KEY=${SECRET_KEY}
+      - TUSHARE_TOKEN=${TUSHARE_TOKEN}
+      - TUSHARE_TOKEN_POINTS=${TUSHARE_TOKEN_POINTS:-2000}
+      - TUSHARE_GRANTED_API_NAMES=${TUSHARE_GRANTED_API_NAMES:-}
+      - TUSHARE_DATABASE=tushare
+      - RDAGENT_SIDECAR_URL=http://rdagent-service:8001
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - DEBUG=false
+      - QLIB_DATA_DIR=/root/.qlib/qlib_data/cn_data
+      - MLFLOW_ALLOW_FILE_STORE=true
+    command: ["python", "-m", "app.worker.service.run_worker", "rdagent"]
+    volumes:
+      - qlib_data:/root/.qlib/qlib_data
+    networks:
+      - quantmate_network
+    restart: unless-stopped
 
   # Paper runtime daemon (reconciles desired/runtime state for paper deployments)
   paper-runtime:

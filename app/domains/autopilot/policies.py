@@ -38,6 +38,10 @@ class Policies:
 
     init_backtest_years: int
 
+    # Ops hardening (SPEC-OPS-001/002)
+    data_gate_deadline_hour: int
+    stage_max_attempts: int
+
     @classmethod
     def load(cls) -> "Policies":
         return cls(
@@ -58,4 +62,6 @@ class Policies:
             user_id=get_runtime_int(env_keys="AUTOPILOT_USER_ID", db_key=f"{_DB_KEY_PREFIX}.user_id", default=0),
             paper_account_id=get_runtime_int(env_keys="AUTOPILOT_PAPER_ACCOUNT_ID", db_key=f"{_DB_KEY_PREFIX}.paper_account_id", default=0),
             init_backtest_years=get_runtime_int(env_keys="AUTOPILOT_INIT_BACKTEST_YEARS", db_key=f"{_DB_KEY_PREFIX}.init_backtest_years", default=3),
+            data_gate_deadline_hour=get_runtime_int(env_keys="AUTOPILOT_DATA_GATE_DEADLINE_HOUR", db_key=f"{_DB_KEY_PREFIX}.data_gate_deadline_hour", default=9),
+            stage_max_attempts=get_runtime_int(env_keys="AUTOPILOT_STAGE_MAX_ATTEMPTS", db_key=f"{_DB_KEY_PREFIX}.stage_max_attempts", default=3),
         )

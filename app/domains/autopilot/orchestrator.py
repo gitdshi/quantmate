@@ -23,9 +23,11 @@ import argparse
 import json
 import logging
 import time
-from datetime import datetime
+import uuid
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
+from app.domains.autopilot.alerts import emit_autopilot_alert
 from app.domains.autopilot.dao.autopilot_dao import AutopilotDao
 from app.domains.autopilot.decision_engine import evaluate_performance, select_factors
 from app.domains.autopilot.deploy_bridge import (
@@ -71,17 +73,67 @@ _DATA_GATE_STAGES: frozenset[Stage] = frozenset(
     }
 )
 
+# Failed-stage retry backoff (SPEC-OPS-002): base seconds multiplied by
+# attempt count, capped. Computed from the stage's last ended_at.
+_RETRY_BACKOFF_BASE_SECONDS = 300
+_RETRY_BACKOFF_MAX_SECONDS = 1800
+
+# Redis mutex so the daemon and manual --once/--stage runs never interleave
+# (SPEC-OPS-004).
+_LOCK_KEY = "autopilot:orchestrator:lock"
+_LOCK_TTL_SECONDS = 7200
+
+
+def _acquire_orchestrator_lock() -> Optional[str]:
+    """Try to take the global orchestrator lock; return the token or None.
+
+    Degrades to "always acquired" when Redis is unreachable so a Redis outage
+    never stops the loop entirely (availability over strict mutual exclusion).
+    """
+    try:
+        from app.worker.service.config import redis_conn
+
+        token = uuid.uuid4().hex
+        if redis_conn.set(_LOCK_KEY, token, nx=True, ex=_LOCK_TTL_SECONDS):
+            return token
+        return None
+    except Exception:
+        logger.warning("[autopilot] lock backend unavailable; proceeding without lock")
+        return "nolock"
+
+
+def _release_orchestrator_lock(token: Optional[str]) -> None:
+    if not token or token == "nolock":
+        return
+    try:
+        from app.worker.service.config import redis_conn
+
+        if redis_conn.get(_LOCK_KEY) == token:
+            redis_conn.delete(_LOCK_KEY)
+    except Exception:
+        logger.debug("[autopilot] failed to release lock", exc_info=True)
+
 
 class AutopilotOrchestrator:
     """Executes autopilot stages in dependency order and persists runtime state."""
 
     def __init__(self, dao: Optional[AutopilotDao] = None) -> None:
         self.dao = dao or AutopilotDao()
+        self._last_rdagent_reap_at = 0.0
 
     # ── Public entry points ─────────────────────────────────────────────
 
     def run_once(self, start_at: Optional[Stage] = None) -> dict[str, Any]:
         """Run the full DAG (or a suffix) sequentially, ignoring the clock."""
+        token = _acquire_orchestrator_lock()
+        if token is None:
+            return {"status": "busy", "reason": "another orchestrator run holds the lock"}
+        try:
+            return self._run_once_locked(start_at)
+        finally:
+            _release_orchestrator_lock(token)
+
+    def _run_once_locked(self, start_at: Optional[Stage] = None) -> dict[str, Any]:
         self.dao.reset_running_runs_to_pending()
         policies = Policies.load()
         if not policies.enabled:
@@ -92,17 +144,26 @@ class AutopilotOrchestrator:
         start_idx = STAGE_ORDER.index(start_at) if start_at else 0
 
         for stage in STAGE_ORDER[start_idx:]:
-            self._execute_stage(run_id, stage, policies)
+            self._execute_stage(run_id, stage, policies, wait_for_data=False)
 
         self._sync_run_status(run_id)
         return {"status": "done", "run_id": run_id, "stages": self.dao.list_stages(run_id)}
 
     def run_single(self, stage: Stage) -> dict[str, Any]:
         """Run one stage in isolation (dependency ignored)."""
+        token = _acquire_orchestrator_lock()
+        if token is None:
+            return {"status": "busy", "reason": "another orchestrator run holds the lock"}
+        try:
+            return self._run_single_locked(stage)
+        finally:
+            _release_orchestrator_lock(token)
+
+    def _run_single_locked(self, stage: Stage) -> dict[str, Any]:
         self.dao.reset_running_runs_to_pending()
         policies = Policies.load()
         run = self._ensure_run()
-        self._execute_stage(run["run_id"], stage, policies)
+        self._execute_stage(run["run_id"], stage, policies, wait_for_data=False)
         self._sync_run_status(run["run_id"])
         return {"status": "done", "run_id": run["run_id"]}
 
@@ -120,6 +181,18 @@ class AutopilotOrchestrator:
     # ── Scheduling ──────────────────────────────────────────────────────
 
     def _tick(self) -> None:
+        token = _acquire_orchestrator_lock()
+        if token is None:
+            logger.info("[autopilot] another orchestrator run holds the lock; skipping tick")
+            return
+        try:
+            self._tick_locked()
+        finally:
+            _release_orchestrator_lock(token)
+
+    def _tick_locked(self) -> None:
+        self._maybe_reap_stale_rdagent_runs()
+
         policies = Policies.load()
         if not policies.enabled:
             return
@@ -140,23 +213,76 @@ class AutopilotOrchestrator:
             if current and current["status"] in {StageStatus.SUCCESS.value, StageStatus.SKIPPED.value}:
                 continue
 
+            if current and current["status"] == StageStatus.FAILED.value:
+                if not self._should_retry_failed(current, policies, stage, run_id):
+                    continue
+
             prev = previous_stage(stage)
             if prev:
                 prev_row = self.dao.get_stage(run_id, prev.value)
                 if not prev_row or prev_row["status"] != StageStatus.SUCCESS.value:
                     continue  # wait for dependency
 
-            self._execute_stage(run_id, stage, policies)
+            self._execute_stage(run_id, stage, policies, wait_for_data=True)
 
         self._sync_run_status(run_id)
 
+    def _maybe_reap_stale_rdagent_runs(self) -> None:
+        """Throttled rdagent zombie-run reaping (SPEC-OPS-006, every 10 min)."""
+        now = time.time()
+        if now - self._last_rdagent_reap_at < 600:
+            return
+        self._last_rdagent_reap_at = now
+        try:
+            from app.domains.factors.rdagent_service import reap_stale_rdagent_runs
+
+            reap_stale_rdagent_runs()
+        except Exception:
+            logger.debug("[autopilot] rdagent reaper failed", exc_info=True)
+
+    def _should_retry_failed(
+        self, stage_row: dict[str, Any], policies: Policies, stage: Stage, run_id: str
+    ) -> bool:
+        """SPEC-OPS-002: retry cap + exponential backoff for FAILED stages."""
+        attempt = int(stage_row.get("attempt") or 0)
+        if attempt >= policies.stage_max_attempts:
+            emit_autopilot_alert(
+                f"stage {stage.value} gave up after {attempt} attempts (run {run_id}): {stage_row.get('error')}",
+                dedupe_key=f"stage-gaveup:{run_id}:{stage.value}",
+            )
+            return False
+
+        backoff = min(_RETRY_BACKOFF_BASE_SECONDS * max(attempt, 1), _RETRY_BACKOFF_MAX_SECONDS)
+        ended_at = stage_row.get("ended_at")
+        if ended_at:
+            try:
+                ended = ended_at if isinstance(ended_at, datetime) else datetime.fromisoformat(str(ended_at))
+                if datetime.utcnow() < ended + timedelta(seconds=backoff):
+                    return False
+            except (TypeError, ValueError):
+                pass
+        return True
+
     # ── Stage execution ─────────────────────────────────────────────────
 
-    def _execute_stage(self, run_id: str, stage: Stage, policies: Policies) -> None:
+    def _execute_stage(
+        self, run_id: str, stage: Stage, policies: Policies, *, wait_for_data: bool = False
+    ) -> None:
         current = self.dao.get_stage(run_id, stage.value)
         if current and current["status"] == StageStatus.SUCCESS.value:
             logger.info("[autopilot %s] stage %s already succeeded; skip", run_id, stage.value)
             return
+
+        # Retry cap applies to manual runs too, so a scripted --once loop
+        # cannot spin on a deterministic failure forever (SPEC-OPS-002).
+        if current and current["status"] == StageStatus.FAILED.value:
+            attempt = int(current.get("attempt") or 0)
+            if attempt >= policies.stage_max_attempts:
+                emit_autopilot_alert(
+                    f"stage {stage.value} gave up after {attempt} attempts (run {run_id}): {current.get('error')}",
+                    dedupe_key=f"stage-gaveup:{run_id}:{stage.value}",
+                )
+                return
 
         if is_kill_switch_active(policies):
             self._ensure_stage_skipped(run_id, stage, "global kill-switch active")
@@ -165,7 +291,19 @@ class AutopilotOrchestrator:
         if stage in _DATA_GATE_STAGES:
             gate = data_quality_gate(business_date_cn(), policies)
             if not gate["ok"]:
+                # SPEC-OPS-001: in daemon mode keep the stage pending and retry
+                # on later ticks until the gate deadline; only then give up
+                # for the day (with an alert). Manual --once runs skip instead
+                # of waiting.
+                if wait_for_data and now_cn().hour < policies.data_gate_deadline_hour:
+                    logger.info("[autopilot %s] data gate not ready for %s: %s", run_id, stage.value, gate["reason"])
+                    self.dao.note_stage_error(run_id, stage.value, f"waiting for data: {gate['reason']}")
+                    return
                 self._ensure_stage_skipped(run_id, stage, gate["reason"])
+                emit_autopilot_alert(
+                    f"stage {stage.value} skipped, data gate not ready (run {run_id}): {gate['reason']}",
+                    dedupe_key=f"datagate-skip:{run_id}:{stage.value}",
+                )
                 return
 
         try:
@@ -348,6 +486,16 @@ class AutopilotOrchestrator:
             or f"deployed (deployment_id={deployment.get('deployment_id')})",
             approval_status=approval,
         )
+        if not deployment.get("success"):
+            # Deployment was soft-blocked (review rejection or pending
+            # approval). The stage still reports success, so make the block
+            # visible through an alert (SPEC-OPS-005).
+            emit_autopilot_alert(
+                f"deploy held (run {run_id}): {deployment.get('error')} "
+                f"[approval={approval}, composite={composite['id']}]",
+                level="warning",
+                dedupe_key=f"deploy-held:{run_id}",
+            )
         return {"composite_strategy_id": composite["id"], "deployment": deployment}
 
     def _run_premarket_check(self, run_id: str, policies: Policies) -> dict[str, Any]:
@@ -382,11 +530,40 @@ class AutopilotOrchestrator:
         return {"analytics": analytics}
 
     def _run_strategy_adjust(self, run_id: str, policies: Policies) -> dict[str, Any]:
+        from app.domains.autopilot.guardrails import intraday_circuit_breaker
+
         analysis_result = self.dao.get_stage_result(run_id, Stage.ANALYSIS.value) or {}
         analytics = analysis_result.get("analytics", analysis_result)
 
         history = self._load_performance_history(policies)
         action = evaluate_performance(analytics, policies, history=history)
+
+        # Wire the intraday circuit breaker so an equity drawdown / single-day
+        # loss forces a stop even when the rolling performance rules would not
+        # (SPEC-OPS-009).
+        if action["action"] != "stop":
+            breaker = intraday_circuit_breaker(analytics, policies)
+            if breaker.get("stop"):
+                action = {
+                    "action": "stop",
+                    "reason": f"intraday circuit breaker triggered: {analytics}",
+                    "feedback": action.get("feedback", []),
+                }
+
+        executed: dict[str, Any] = {"executed": False, "detail": None}
+        if action["action"] == "stop":
+            try:
+                user_id = resolve_user_id(policies)
+                account_id = resolve_paper_account(user_id, policies)
+                executed = self._execute_stop_decision(user_id, account_id)
+            except Exception as exc:
+                logger.exception("[autopilot %s] failed to execute stop decision", run_id)
+                executed = {"executed": False, "detail": f"execution failed: {exc}"}
+        elif action["action"] == "reduce":
+            executed = {
+                "executed": False,
+                "detail": "reduce deferred to research feedback (no after-hours execution path)",
+            }
 
         self.dao.record_decision(
             run_id,
@@ -396,10 +573,67 @@ class AutopilotOrchestrator:
             input_summary={
                 "sharpe_ratio": analytics.get("sharpe_ratio"),
                 "max_drawdown_pct": analytics.get("max_drawdown_pct"),
+                "executed": executed.get("executed"),
+                "execution_detail": executed.get("detail"),
             },
             reason=action["reason"],
         )
-        return action
+        if action["action"] == "stop":
+            emit_autopilot_alert(
+                f"stop decision executed={executed.get('executed')} (run {run_id}): {action['reason']} "
+                f"[detail={executed.get('detail')}]",
+                dedupe_key=f"stop-decision:{run_id}",
+            )
+        return {**action, "execution": executed}
+
+    def _execute_stop_decision(self, user_id: int, account_id: int) -> dict[str, Any]:
+        """Stop every running deployment on the autopilot paper account.
+
+        Positions are kept (no forced liquidation); the deployments stop
+        producing new orders. The next research cycle redeploys fresh.
+        """
+        from sqlalchemy import text as _text
+
+        with connection("quantmate") as conn:
+            stopped_ids = [
+                int(r.id)
+                for r in conn.execute(
+                    _text(
+                        "SELECT id FROM paper_deployments "
+                        "WHERE paper_account_id = :paid AND user_id = :uid "
+                        "AND COALESCE(desired_status, status, '') = 'running'"
+                    ),
+                    {"paid": account_id, "uid": user_id},
+                ).fetchall()
+            ]
+            if stopped_ids:
+                conn.execute(
+                    _text(
+                        "UPDATE paper_deployments "
+                        "SET status = 'stopped', desired_status = 'stopped', "
+                        "    runtime_status = CASE WHEN runtime_status IN ('stopped', 'error') "
+                        "        THEN runtime_status ELSE 'stopping' END, "
+                        "    stopped_at = COALESCE(stopped_at, NOW()) "
+                        "WHERE paper_account_id = :paid AND user_id = :uid "
+                        "AND COALESCE(desired_status, status, '') = 'running'"
+                    ),
+                    {"paid": account_id, "uid": user_id},
+                )
+                conn.commit()
+
+        if stopped_ids:
+            try:
+                from app.domains.trading.paper_runtime_daemon import _publish_deployment_change
+
+                for deployment_id in stopped_ids:
+                    _publish_deployment_change("stopped", deployment_id)
+            except Exception:
+                logger.debug("[autopilot] failed to publish stop notifications", exc_info=True)
+
+        return {
+            "executed": True,
+            "detail": f"stopped deployments {stopped_ids} on account {account_id}",
+        }
 
     # ── Helpers ─────────────────────────────────────────────────────────
 
@@ -563,10 +797,25 @@ class AutopilotOrchestrator:
         statuses = [s["status"] for s in stages]
         if StageStatus.FAILED.value in statuses:
             self.dao.update_run_status(run_id, RunStatus.FAILED)
-        elif len(stages) == len(STAGE_ORDER) and all(
-            s in {StageStatus.SUCCESS.value, StageStatus.SKIPPED.value} for s in statuses
-        ):
-            self.dao.update_run_status(run_id, RunStatus.SUCCESS)
+            return
+        if len(stages) < len(STAGE_ORDER):
+            return  # still in progress
+        if not all(s in {StageStatus.SUCCESS.value, StageStatus.SKIPPED.value} for s in statuses):
+            return  # still in progress
+        if StageStatus.SUCCESS.value not in statuses:
+            # Run finished with every stage skipped: nothing was accomplished.
+            # Surface it instead of masking as success (SPEC-OPS-003).
+            reasons = "; ".join(
+                f"{s['stage']}: {s.get('error') or 'skipped'}" for s in stages if s["status"] == StageStatus.SKIPPED.value
+            )
+            emit_autopilot_alert(
+                f"run {run_id} finished with all stages skipped: {reasons}",
+                level="warning",
+                dedupe_key=f"all-skipped:{run_id}",
+            )
+            self.dao.update_run_status(run_id, RunStatus.SKIPPED)
+            return
+        self.dao.update_run_status(run_id, RunStatus.SUCCESS)
 
     # ── Status reporting ────────────────────────────────────────────────
 

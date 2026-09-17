@@ -140,6 +140,7 @@ class PaperCompositeExecutor:
         emitted_signal_keys: set[str] = set()
         current_day = date.today()
         history_cache: Dict[str, Dict[str, Any]] = {}
+        crash_error = ""
         try:
             strategy, universe_components, trading_components, risk_components = self._load_composite_definition(
                 user_id=user_id,
@@ -266,21 +267,48 @@ class PaperCompositeExecutor:
                 )
 
                 stop_event.wait(_POLL_INTERVAL)
-        except Exception:
+        except Exception as exc:
             logger.exception("[paper-composite] Deployment %d crashed", deployment_id)
+            crash_error = str(exc)
         finally:
             self._threads.pop(deployment_id, None)
             self._stop_events.pop(deployment_id, None)
             self._gateways.pop(deployment_id, None)
             try:
                 with connection("quantmate") as conn:
-                    conn.execute(
-                        text("UPDATE paper_deployments SET status='stopped', stopped_at=NOW() WHERE id=:did AND status='running'"),
-                        {"did": deployment_id},
-                    )
+                    if stop_event.is_set():
+                        # Normal stop: runtime daemon already set desired_status.
+                        conn.execute(
+                            text("UPDATE paper_deployments SET status='stopped', stopped_at=NOW() WHERE id=:did AND status='running'"),
+                            {"did": deployment_id},
+                        )
+                    else:
+                        # Crash (SPEC-OPS-008): also clear desired_status so the
+                        # runtime daemon does not restart us into a crash-loop.
+                        # The next autopilot deploy (supersede) or a manual
+                        # re-enable restarts trading deliberately.
+                        conn.execute(
+                            text(
+                                "UPDATE paper_deployments SET status='stopped', desired_status='stopped', "
+                                "runtime_status='error', runtime_error=:err, stopped_at=NOW() "
+                                "WHERE id=:did AND status='running'"
+                            ),
+                            {"did": deployment_id, "err": crash_error[:500]},
+                        )
                     conn.commit()
             except Exception:
                 logger.debug("[paper-composite] failed to update stop status", exc_info=True)
+
+            if not stop_event.is_set():
+                try:
+                    from app.domains.autopilot.alerts import emit_autopilot_alert
+
+                    emit_autopilot_alert(
+                        f"paper deployment {deployment_id} crashed and was halted "
+                        f"(no auto-restart): {crash_error[:200]}"
+                    )
+                except Exception:
+                    logger.debug("[paper-composite] failed to emit crash alert", exc_info=True)
 
     @staticmethod
     def _load_composite_definition(*, user_id: int, composite_strategy_id: int) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
@@ -464,7 +492,39 @@ class PaperCompositeExecutor:
 
         market_price = float(order.price or 0)
         if market_price <= 0:
-            logger.warning("[paper-composite] No price for %s, skip order", order.symbol)
+            # SPEC-OPS-008: record the dropped order instead of silently
+            # skipping it, so missing quotes are visible in the orders table
+            # and through an alert.
+            _throttled_warning(deployment_id, "[paper-composite] No price for %s, order rejected", order.symbol)
+            try:
+                rejected_id = dao.create(
+                    user_id=user_id,
+                    symbol=order.symbol,
+                    direction=order.direction,
+                    order_type="market",
+                    quantity=order.quantity,
+                    price=None,
+                    mode="paper",
+                    paper_account_id=paper_account_id,
+                    paper_deployment_id=deployment_id,
+                )
+                dao.update_status(
+                    rejected_id,
+                    "rejected",
+                    filled_quantity=0,
+                    avg_fill_price=0,
+                    fee=0,
+                )
+                from app.domains.autopilot.alerts import emit_autopilot_alert
+
+                emit_autopilot_alert(
+                    f"paper order rejected (no price) deployment={deployment_id} "
+                    f"symbol={order.symbol} direction={order.direction} qty={order.quantity}",
+                    level="warning",
+                    dedupe_key=f"paper-noprice:{deployment_id}:{order.symbol}:{order.direction}",
+                )
+            except Exception:
+                logger.exception("[paper-composite] failed to record rejected order for %s", order.symbol)
             return
 
         fill_price = constraints.calculate_fill_price(market_price, order.direction)

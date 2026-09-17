@@ -264,16 +264,24 @@ def _call_sidecar_mining(
         "prompt_context": prompt_context,
     }
 
+    # SPEC-OPS-006: the HTTP timeout must cover the sidecar's full deadline
+    # (max_iterations * per-iteration timeout) instead of a fixed 4h default,
+    # so iterations > 8 are not cut off mid-run.
+    max_iterations = 1
     try:
-        with httpx.Client(
-            timeout=httpx.Timeout(
-                timeout=get_runtime_float(
-                    env_keys="RDAGENT_REQUEST_TIMEOUT_SECONDS",
-                    db_key="rdagent.request_timeout_seconds",
-                    default=14400.0,
-                )
-            )
-        ) as client:
+        max_iterations = max(1, int((config or {}).get("max_iterations") or 1))
+    except (TypeError, ValueError):
+        pass
+    from app.domains.factors.rdagent_service import compute_rdagent_job_timeout
+
+    request_timeout = get_runtime_float(
+        env_keys="RDAGENT_REQUEST_TIMEOUT_SECONDS",
+        db_key="rdagent.request_timeout_seconds",
+        default=float(compute_rdagent_job_timeout(max_iterations)),
+    )
+
+    try:
+        with httpx.Client(timeout=httpx.Timeout(timeout=request_timeout)) as client:
             resp = client.post(f"{sidecar_url}/mine", json=payload)
             resp.raise_for_status()
             return resp.json()

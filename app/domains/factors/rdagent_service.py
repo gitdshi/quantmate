@@ -447,6 +447,93 @@ def _get_run_status(run_id: str) -> Optional[str]:
         return row["status"] if row else None
 
 
+def _stale_run_threshold_seconds() -> int:
+    """Seconds after which a queued/running run is considered dead (SPEC-OPS-006)."""
+    from app.infrastructure.config import get_runtime_int
+
+    return get_runtime_int(
+        env_keys="RDAGENT_STALE_RUN_SECONDS",
+        db_key="rdagent.stale_run_seconds",
+        default=18000,  # 5h: one full mining run plus buffer
+    )
+
+
+def reap_stale_rdagent_runs() -> int:
+    """Mark zombie rdagent runs as failed (SPEC-OPS-006).
+
+    A run stuck in ``queued``/``running`` whose started_at (or created_at for
+    queued runs) is older than the stale threshold is dead: its worker job was
+    lost (worker crash, RQ kill after a timeout mismatch, sidecar container
+    restart wiping the in-memory process table). Without this reaper the run
+    stays ``running`` forever and pollutes every status surface.
+    """
+    threshold = _stale_run_threshold_seconds()
+    reaped: list[str] = []
+    try:
+        with connection(_RDAGENT_DB) as conn:
+            _ensure_rdagent_schema(conn)
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT run_id FROM rdagent_runs
+                    WHERE status IN ('queued', 'running')
+                      AND COALESCE(started_at, created_at) < (UTC_TIMESTAMP() - INTERVAL :secs SECOND)
+                    """
+                ),
+                {"secs": threshold},
+            ).fetchall()
+            reaped = [str(row[0]) for row in rows]
+            if reaped:
+                conn.execute(
+                    text(
+                        """
+                        UPDATE rdagent_runs
+                        SET status = 'failed',
+                            error_message = CONCAT(
+                                'Reaped stale run (no progress for > ',
+                                :secs, ' seconds); worker/sidecar likely died'
+                            ),
+                            completed_at = UTC_TIMESTAMP()
+                        WHERE status IN ('queued', 'running')
+                          AND COALESCE(started_at, created_at) < (UTC_TIMESTAMP() - INTERVAL :secs SECOND)
+                        """
+                    ),
+                    {"secs": threshold},
+                )
+                conn.commit()
+    except Exception:
+        logger.warning("rdagent stale-run reaper failed", exc_info=True)
+        return 0
+
+    if reaped:
+        logger.warning("Reaped %d stale rdagent runs: %s", len(reaped), ", ".join(reaped))
+        try:
+            from app.domains.autopilot.alerts import emit_autopilot_alert
+
+            emit_autopilot_alert(
+                f"reaped {len(reaped)} stale rdagent runs (no progress > {threshold}s): "
+                f"{', '.join(reaped[:10])}"
+            )
+        except Exception:
+            pass
+    return len(reaped)
+
+
+def compute_rdagent_job_timeout(max_iterations: int) -> int:
+    """RQ job timeout aligned with the sidecar's per-iteration deadline.
+
+    The sidecar allows ``max_iterations * RDAGENT_TIMEOUT_PER_ITERATION_SECONDS``
+    (plus a possible ollama retry). The RQ job timeout must cover that window
+    plus a buffer, otherwise the worker kills the job mid-run and the DB row
+    stays ``running`` forever (SPEC-OPS-006).
+    """
+    import os
+
+    per_iteration = int(os.getenv("RDAGENT_TIMEOUT_PER_ITERATION_SECONDS", "1800") or 1800)
+    iterations = max(1, int(max_iterations or 1))
+    return iterations * per_iteration + 600
+
+
 def _cancel_rq_job(run_id: str) -> bool:
     from rq.command import send_stop_job_command
     from rq.job import Job

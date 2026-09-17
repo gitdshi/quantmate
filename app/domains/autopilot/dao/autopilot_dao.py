@@ -199,6 +199,26 @@ class AutopilotDao:
             )
             conn.commit()
 
+    def note_stage_error(self, run_id: str, stage: str, error: str) -> None:
+        """Record a blocking reason on a stage without changing its status.
+
+        Used while the data-quality gate is waiting for data to become ready
+        (SPEC-OPS-001): the stage stays ``pending`` so the daemon retries it.
+        """
+        self.get_or_create_stage(run_id, stage)
+        with connection("quantmate") as conn:
+            conn.execute(
+                text(
+                    """
+                    UPDATE autopilot_stages
+                    SET error = :error, updated_at = :now
+                    WHERE run_id = :r AND stage = :s
+                    """
+                ),
+                {"error": error, "now": _now(), "r": run_id, "s": stage},
+            )
+            conn.commit()
+
     def get_stage(self, run_id: str, stage: str) -> Optional[dict[str, Any]]:
         with connection("quantmate") as conn:
             row = conn.execute(

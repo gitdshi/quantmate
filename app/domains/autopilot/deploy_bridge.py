@@ -122,6 +122,56 @@ def build_composite_strategy(
     return composite
 
 
+def _archive_previous_autopilot_composites(user_id: int, keep_composite_id: int) -> int:
+    """Soft-archive older Autopilot composites and their components (SPEC-OPS-010).
+
+    Every autopilot deploy creates a fresh composite + 3 components; without
+    archiving, these tables grow unboundedly. Only autopilot-named artifacts
+    are touched, and only via ``is_active = 0`` (soft delete, never physical).
+    """
+    from sqlalchemy import text
+
+    from app.infrastructure.db.connections import connection
+
+    archived = 0
+    with connection("quantmate") as conn:
+        result = conn.execute(
+            text(
+                """
+                UPDATE composite_strategies
+                SET is_active = 0, updated_at = NOW()
+                WHERE user_id = :uid
+                  AND id <> :keep
+                  AND name LIKE 'Autopilot Composite %'
+                  AND COALESCE(is_active, 1) = 1
+                """
+            ),
+            {"uid": user_id, "keep": keep_composite_id},
+        )
+        archived = result.rowcount or 0
+
+        conn.execute(
+            text(
+                """
+                UPDATE strategy_components sc
+                LEFT JOIN composite_component_bindings ccb
+                       ON ccb.component_id = sc.id AND ccb.composite_strategy_id = :keep
+                SET sc.is_active = 0, sc.updated_at = NOW()
+                WHERE sc.user_id = :uid
+                  AND ccb.id IS NULL
+                  AND (sc.name LIKE 'AP Universe %' OR sc.name LIKE 'AP Trading %' OR sc.name LIKE 'AP Risk %')
+                  AND COALESCE(sc.is_active, 1) = 1
+                """
+            ),
+            {"uid": user_id, "keep": keep_composite_id},
+        )
+        conn.commit()
+
+    if archived:
+        logger.info("Archived %d previous autopilot composites (kept %d)", archived, keep_composite_id)
+    return archived
+
+
 def deploy(
     user_id: int,
     composite_strategy_id: int,
@@ -153,7 +203,7 @@ def deploy(
         }
 
     service = PaperTradingService()
-    return service.deploy(
+    result = service.deploy(
         user_id=user_id,
         strategy_id=None,
         vt_symbol="",
@@ -164,6 +214,16 @@ def deploy(
         strategy_source_type="composite",
         composite_strategy_id=composite_strategy_id,
     )
+
+    # SPEC-OPS-010: only archive after a successful deploy so a failed or
+    # held deployment keeps its artifacts for inspection.
+    if result.get("success"):
+        try:
+            _archive_previous_autopilot_composites(user_id, composite_strategy_id)
+        except Exception:
+            logger.exception("Failed to archive previous autopilot composites")
+
+    return result
 
 
 def _ts() -> str:

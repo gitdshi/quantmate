@@ -40,6 +40,12 @@ QUEUES = None
 
 
 def get_default_queue_names() -> list[str]:
+    """Resolve the queue list for this worker.
+
+    SPEC-OPS-007: ``WORKER_EXCLUDE_QUEUES`` lets a deployment split slow
+    queues (e.g. rdagent, whose jobs can run for hours) onto a dedicated
+    worker while keeping the default behavior identical for everyone else.
+    """
     queue_names = get_runtime_csv(
         env_keys="WORKER_DEFAULT_QUEUE_NAMES",
         db_key="worker.default_queue_names",
@@ -47,12 +53,33 @@ def get_default_queue_names() -> list[str]:
     )
     if "rdagent" not in queue_names:
         queue_names.append("rdagent")
+
+    excluded = get_runtime_csv(
+        env_keys="WORKER_EXCLUDE_QUEUES",
+        db_key="worker.exclude_queue_names",
+        default=[],
+    )
+    if excluded:
+        queue_names = [name for name in queue_names if name not in excluded]
     return queue_names
+
+
+def _reap_stale_rdagent_runs() -> None:
+    """Best-effort zombie-run cleanup at worker startup (SPEC-OPS-006)."""
+    try:
+        from app.domains.factors.rdagent_service import reap_stale_rdagent_runs
+
+        reaped = reap_stale_rdagent_runs()
+        if reaped:
+            logger.info("Reaped %d stale rdagent runs at startup", reaped)
+    except Exception:
+        logger.warning("rdagent stale-run reaper failed at startup", exc_info=True)
 
 
 def main():
     from rq import Worker
 
+    _reap_stale_rdagent_runs()
     queue_names = sys.argv[1:] if len(sys.argv) > 1 else get_default_queue_names()
     available_queues = QUEUES if isinstance(QUEUES, dict) else get_queues()
     queues = [available_queues[name] for name in queue_names if name in available_queues]

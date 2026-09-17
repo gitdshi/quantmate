@@ -70,6 +70,7 @@ async def start_mining(
     from app.worker.service.config import get_queue
 
     q = get_queue("rdagent")
+    from app.domains.factors.rdagent_service import compute_rdagent_job_timeout
     from app.worker.service.rdagent_tasks import run_rdagent_mining_task
 
     q.enqueue(
@@ -78,6 +79,10 @@ async def start_mining(
         run_id=result["run_id"],
         config_dict=config.to_dict(),
         job_id=f"rdagent-{result['run_id']}",
+        # SPEC-OPS-006: align the RQ job timeout with the sidecar's
+        # max_iterations * per-iteration deadline, so long runs are not
+        # killed mid-flight by the queue's fixed default.
+        job_timeout=compute_rdagent_job_timeout(config.max_iterations),
     )
 
     return result

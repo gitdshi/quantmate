@@ -10,6 +10,7 @@ class RunStatus(str, Enum):
     RUNNING = "running"
     SUCCESS = "success"
     FAILED = "failed"
+    SKIPPED = "skipped"  # run finished with no stage succeeding (all skipped)
     ABORTED = "aborted"
 
 
