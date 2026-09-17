@@ -9,9 +9,9 @@ EXAMPLE_FILE=.env.example
 INCOMING_EXAMPLE_FILE=.env.example.incoming
 DEPLOY_BACKEND_SCRIPT=deploy_backend_staging.sh
 DEPLOY_PORTAL_SCRIPT=deploy_portal_staging.sh
-IMAGE_SERVICES="api worker paper-runtime datasync datasync-backfill rdagent-service autopilot"
-POST_API_SERVICES="worker paper-runtime datasync datasync-backfill rdagent-service autopilot"
-ALL_SERVICES="api worker paper-runtime datasync datasync-backfill rdagent-service autopilot"
+IMAGE_SERVICES="api worker worker-rdagent paper-runtime datasync datasync-backfill rdagent-service autopilot"
+POST_API_SERVICES="worker worker-rdagent paper-runtime datasync datasync-backfill rdagent-service autopilot"
+ALL_SERVICES="api worker worker-rdagent paper-runtime datasync datasync-backfill rdagent-service autopilot"
 DISK_USAGE_THRESHOLD_PERCENT="80"
 
 cleanup_staging_directory() {
@@ -237,6 +237,7 @@ if ! restart_services; then
   for name in \
     quantmate-api-1 \
     quantmate-worker-1 \
+    quantmate-worker-rdagent-1 \
     quantmate-paper-runtime-1 \
     quantmate-datasync-1 \
     quantmate-datasync-backfill-1 \
