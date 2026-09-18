@@ -424,7 +424,8 @@ class CompositeStrategyService:
         row = self._backtest_dao.get_by_job_id(job_id)
         if not row or row.get("user_id") != user_id:
             raise KeyError("Composite backtest not found")
-        self._backtest_dao.delete_for_user(row["id"], user_id)
+        # DAO signature is (user_id, backtest_id) — mind the order
+        self._backtest_dao.delete_for_user(user_id, row["id"])
 
         # Remove the unified backtest_history row so the deleted job does not
         # linger in the unified runs list.

@@ -388,25 +388,26 @@ class TestDeleteBacktest:
     @patch("app.domains.backtests.dao.backtest_history_dao.BacktestHistoryDao")
     def test_success_cleans_history_and_rq_job(self, MockHistoryDao):
         svc, _, _, cb = _make_svc()
-        cb.get_by_job_id.return_value = {"id": 1, "user_id": 1}
+        # distinct id/user to catch DAO argument-order bugs
+        cb.get_by_job_id.return_value = {"id": 7, "user_id": 3}
         with patch("app.worker.service.config.get_queue") as mock_q, \
              patch("rq.job.Job.fetch") as mock_fetch:
             mock_q.return_value = MagicMock()
-            svc.delete_backtest(1, "cbt_abc")
-        cb.delete_for_user.assert_called_once_with(1, 1)
-        MockHistoryDao.return_value.delete_single.assert_called_once_with("cbt_abc", 1)
+            svc.delete_backtest(3, "cbt_abc")
+        cb.delete_for_user.assert_called_once_with(3, 7)
+        MockHistoryDao.return_value.delete_single.assert_called_once_with("cbt_abc", 3)
         mock_fetch.return_value.delete.assert_called_once()
 
     @patch("app.domains.backtests.dao.backtest_history_dao.BacktestHistoryDao")
     def test_rq_cleanup_failure_is_swallowed(self, MockHistoryDao):
         svc, _, _, cb = _make_svc()
-        cb.get_by_job_id.return_value = {"id": 1, "user_id": 1}
+        cb.get_by_job_id.return_value = {"id": 7, "user_id": 3}
         with patch("app.worker.service.config.get_queue") as mock_q, \
              patch("rq.job.Job.fetch", side_effect=Exception("job gone")):
             mock_q.return_value = MagicMock()
-            svc.delete_backtest(1, "cbt_abc")  # must not raise
-        cb.delete_for_user.assert_called_once_with(1, 1)
-        MockHistoryDao.return_value.delete_single.assert_called_once_with("cbt_abc", 1)
+            svc.delete_backtest(3, "cbt_abc")  # must not raise
+        cb.delete_for_user.assert_called_once_with(3, 7)
+        MockHistoryDao.return_value.delete_single.assert_called_once_with("cbt_abc", 3)
 
     def test_not_found(self):
         svc, _, _, cb = _make_svc()
