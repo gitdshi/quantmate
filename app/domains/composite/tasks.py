@@ -130,6 +130,10 @@ def run_composite_backtest_task(
         extensions: Optional[Dict[str, Any]] = None,
         error: Optional[str] = None,
     ) -> None:
+        # Skip if the backtest was deleted while this task was queued/running —
+        # upserting here would resurrect a deleted job in the unified history.
+        if bt_dao.get_by_job_id(job_id) is None:
+            return
         BacktestHistoryDao().upsert_history(
             user_id=user_id,
             job_id=job_id,
@@ -160,6 +164,11 @@ def run_composite_backtest_task(
     try:
         # Mark as running
         bt_dao.update_status(job_id, "running")
+        if bt_dao.get_by_job_id(job_id) is None:
+            logger.info(
+                "[composite_bt] Job %s was deleted before execution; aborting", job_id
+            )
+            return {"status": "aborted"}
         logger.info(
             "[composite_bt] Starting job %s for composite %s (%s ~ %s)",
             job_id, composite_strategy_id, start_date, end_date,
