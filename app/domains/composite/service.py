@@ -426,6 +426,24 @@ class CompositeStrategyService:
             raise KeyError("Composite backtest not found")
         self._backtest_dao.delete_for_user(row["id"], user_id)
 
+        # Remove the unified backtest_history row so the deleted job does not
+        # linger in the unified runs list.
+        from app.domains.backtests.dao.backtest_history_dao import BacktestHistoryDao
+
+        BacktestHistoryDao().delete_single(job_id, user_id)
+
+        # Best-effort: drop the RQ job so a queued task cannot resurrect
+        # rows for a deleted backtest.
+        try:
+            from rq.job import Job
+
+            from app.worker.service.config import get_queue
+
+            queue = get_queue("backtest")
+            Job.fetch(job_id, connection=queue.connection).delete()
+        except Exception:
+            pass
+
 
 def _parse_json(val: Any) -> Any:
     """Parse a JSON string to dict, or return None."""
