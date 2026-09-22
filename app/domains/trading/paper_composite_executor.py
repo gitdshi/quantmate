@@ -11,7 +11,7 @@ import json
 import logging
 import threading
 from datetime import date, timedelta
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text
 
@@ -50,6 +50,11 @@ def _parse_json(value: Any) -> Dict[str, Any]:
 
 def _symbol_code(symbol: str) -> str:
     return symbol.split(".", 1)[0].strip() if symbol else ""
+
+
+def _prioritize_sells(orders: List[Order]) -> List[Order]:
+    """Return orders with sells first (stable) so freed cash funds the buys."""
+    return sorted(orders, key=lambda o: o.direction != "sell")
 
 
 class PaperCompositeExecutor:
@@ -138,6 +143,7 @@ class PaperCompositeExecutor:
         gateway: Any,
     ) -> None:
         emitted_signal_keys: set[str] = set()
+        rejected_order_keys: set[str] = set()
         current_day = date.today()
         history_cache: Dict[str, Dict[str, Any]] = {}
         crash_error = ""
@@ -171,6 +177,7 @@ class PaperCompositeExecutor:
                 today = date.today()
                 if today != current_day:
                     emitted_signal_keys.clear()
+                    rejected_order_keys.clear()
                     current_day = today
                     history_cache.clear()
 
@@ -226,6 +233,9 @@ class PaperCompositeExecutor:
                 orders = constraints.apply_t_plus_n(orders, buy_dates, today)
                 orders = constraints.apply_price_limits(orders, prev_close, prices)
                 orders = constraints.apply_lot_size(orders)
+                # Execute sells before buys: freed cash funds the buys in the
+                # same pass (fund freeze is checked against live balance).
+                orders = _prioritize_sells(orders)
 
                 for order in orders:
                     order_key = f"{today.isoformat()}:{order.symbol}:{order.direction}:{order.quantity}:{order.reason}"
@@ -253,6 +263,7 @@ class PaperCompositeExecutor:
                         constraints=constraints,
                         gateway=gateway,
                         vt_symbol=vt_symbol_map.get(order.symbol, order.symbol),
+                        rejected_keys=rejected_order_keys,
                     )
 
                 PaperExecutionLedger().write_checkpoint(
@@ -485,6 +496,7 @@ class PaperCompositeExecutor:
         constraints: MarketConstraints,
         gateway: Any,
         vt_symbol: str,
+        rejected_keys: Optional[set[str]] = None,
     ) -> None:
         acct_svc = PaperAccountService()
         dao = OrderDao()
@@ -496,35 +508,19 @@ class PaperCompositeExecutor:
             # skipping it, so missing quotes are visible in the orders table
             # and through an alert.
             _throttled_warning(deployment_id, "[paper-composite] No price for %s, order rejected", order.symbol)
-            try:
-                rejected_id = dao.create(
-                    user_id=user_id,
-                    symbol=order.symbol,
-                    direction=order.direction,
-                    order_type="market",
-                    quantity=order.quantity,
-                    price=None,
-                    mode="paper",
+            # Record once per symbol+direction per day (the executor loop
+            # re-emits the same order every poll cycle).
+            rejected_key = f"{order.symbol}:{order.direction}"
+            if rejected_keys is not None and rejected_key not in rejected_keys:
+                rejected_keys.add(rejected_key)
+                self._record_rejected_order(
+                    deployment_id=deployment_id,
                     paper_account_id=paper_account_id,
-                    paper_deployment_id=deployment_id,
+                    user_id=user_id,
+                    order=order,
+                    fill_price=None,
+                    reason="no_price",
                 )
-                dao.update_status(
-                    rejected_id,
-                    "rejected",
-                    filled_quantity=0,
-                    avg_fill_price=0,
-                    fee=0,
-                )
-                from app.domains.autopilot.alerts import emit_autopilot_alert
-
-                emit_autopilot_alert(
-                    f"paper order rejected (no price) deployment={deployment_id} "
-                    f"symbol={order.symbol} direction={order.direction} qty={order.quantity}",
-                    level="warning",
-                    dedupe_key=f"paper-noprice:{deployment_id}:{order.symbol}:{order.direction}",
-                )
-            except Exception:
-                logger.exception("[paper-composite] failed to record rejected order for %s", order.symbol)
             return
 
         fill_price = constraints.calculate_fill_price(market_price, order.direction)
@@ -556,6 +552,20 @@ class PaperCompositeExecutor:
                 if gateway_order_id and gateway is not None:
                     gateway.update_order_status(gateway_order_id, "rejected")
                 _throttled_warning(deployment_id, "[paper-composite] Insufficient funds for buy on %s", order.symbol)
+                # SPEC-OPS-008 parity with no-price rejections: record the
+                # dropped order once per symbol+direction per day so the
+                # deadlock is visible in the orders table and via an alert.
+                rejected_key = f"{order.symbol}:{order.direction}"
+                if rejected_keys is not None and rejected_key not in rejected_keys:
+                    rejected_keys.add(rejected_key)
+                    self._record_rejected_order(
+                        deployment_id=deployment_id,
+                        paper_account_id=paper_account_id,
+                        user_id=user_id,
+                        order=order,
+                        fill_price=fill_price,
+                        reason="insufficient_funds",
+                    )
                 return
             acct_svc.settle_buy(paper_account_id, total_cost, total_cost)
         else:
@@ -612,6 +622,49 @@ class PaperCompositeExecutor:
 
         if gateway_order_id and gateway is not None:
             gateway.update_order_status(gateway_order_id, "filled")
+
+    @staticmethod
+    def _record_rejected_order(
+        *,
+        deployment_id: int,
+        paper_account_id: int,
+        user_id: int,
+        order: Order,
+        fill_price: Optional[float],
+        reason: str,
+    ) -> None:
+        """Persist a rejected composite paper order and emit an alert."""
+        try:
+            dao = OrderDao()
+            rejected_id = dao.create(
+                user_id=user_id,
+                symbol=order.symbol,
+                direction=order.direction,
+                order_type="market",
+                quantity=order.quantity,
+                price=fill_price,
+                mode="paper",
+                paper_account_id=paper_account_id,
+                paper_deployment_id=deployment_id,
+            )
+            dao.update_status(
+                rejected_id,
+                "rejected",
+                filled_quantity=0,
+                avg_fill_price=0,
+                fee=0,
+            )
+
+            from app.domains.autopilot.alerts import emit_autopilot_alert
+
+            emit_autopilot_alert(
+                f"paper order rejected ({reason}) deployment={deployment_id} "
+                f"symbol={order.symbol} direction={order.direction} qty={order.quantity}",
+                level="warning",
+                dedupe_key=f"paper-{reason}:{deployment_id}:{order.symbol}:{order.direction}",
+            )
+        except Exception:
+            logger.exception("[paper-composite] failed to record rejected order for %s", order.symbol)
 
     @staticmethod
     def _write_signal(

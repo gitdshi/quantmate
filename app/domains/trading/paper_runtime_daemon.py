@@ -163,6 +163,12 @@ class PaperRuntimeDaemon:
 
     def run_once(self) -> None:
         deployments = self._fetch_deployments()
+        # A paper account must never be traded by two deployments at once:
+        # concurrent deployments double the cash demand (orders sized off
+        # the same account compete for the same balance) and corrupt
+        # positions. Keep the oldest desired-running deployment per
+        # account and stop the duplicates.
+        self._supersede_duplicate_account_deployments(deployments)
         desired_running: set[int] = set()
         handled: set[int] = set()
 
@@ -178,6 +184,53 @@ class PaperRuntimeDaemon:
         for deployment_id in list(self.runtime_service._sessions.keys()):
             if deployment_id not in desired_running and deployment_id not in handled:
                 self._ensure_stopped(deployment_id)
+
+    def _supersede_duplicate_account_deployments(self, deployments: list[Dict[str, Any]]) -> None:
+        """Stop all but the oldest desired-running deployment per account."""
+        keeper_by_account: Dict[int, int] = {}
+        duplicates: list[Dict[str, Any]] = []
+        for deployment in deployments:
+            if deployment["desired_status"] != "running":
+                continue
+            account_id = deployment.get("paper_account_id")
+            if account_id is None:
+                continue
+            keeper = keeper_by_account.get(account_id)
+            if keeper is None:
+                keeper_by_account[account_id] = deployment["id"]
+            else:
+                duplicates.append(deployment)
+
+        if not duplicates:
+            return
+
+        with connection("quantmate") as conn:
+            for deployment in duplicates:
+                conn.execute(
+                    text(
+                        """
+                        UPDATE paper_deployments
+                        SET desired_status = 'stopped',
+                            status = 'stopped',
+                            runtime_status = 'stopped',
+                            runtime_warning = CONCAT('superseded by deployment ',
+                                CAST(:keeper AS CHAR), ' on the same paper account'),
+                            stopped_at = COALESCE(stopped_at, NOW())
+                        WHERE id = :did AND desired_status = 'running'
+                        """
+                    ),
+                    {"did": deployment["id"], "keeper": keeper_by_account[deployment["paper_account_id"]]},
+                )
+            conn.commit()
+
+        for deployment in duplicates:
+            logger.warning(
+                "[paper-runtime-daemon] deployment %d superseded by deployment %d on account %d",
+                deployment["id"],
+                keeper_by_account[deployment["paper_account_id"]],
+                deployment["paper_account_id"],
+            )
+            deployment["desired_status"] = "stopped"
 
     def _ensure_running(self, deployment: Dict[str, Any]) -> None:
         deployment_id = deployment["id"]

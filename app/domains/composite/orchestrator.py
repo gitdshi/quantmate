@@ -361,6 +361,12 @@ class RiskRunner(ComponentRunner):
         orders: List[Order] = []
         current_count = len(positions)
 
+        # Budget tracking: buy orders must fit into the available cash.
+        # Without this cap, orders sized off total portfolio value keep
+        # exceeding the cash balance and get dropped on insufficient
+        # funds, deadlocking the deployment (no buys, no sells, forever).
+        remaining_cash = max(float(cash or 0.0), 0.0)
+
         # Stop-loss sell signals
         if stop_loss_pct:
             for sym, pos_info in positions.items():
@@ -387,8 +393,9 @@ class RiskRunner(ComponentRunner):
             if direction == "buy":
                 if current_count >= max_total:
                     continue  # max positions reached
-                # Size: allocate max_pos_pct of portfolio
-                alloc = portfolio_value * max_pos_pct
+                # Size: allocate max_pos_pct of portfolio, capped by the
+                # cash still available so the order can actually fill.
+                alloc = min(portfolio_value * max_pos_pct, remaining_cash)
                 quantity = int(alloc / px) if px > 0 else 0
                 if quantity > 0:
                     orders.append(
@@ -401,6 +408,7 @@ class RiskRunner(ComponentRunner):
                         )
                     )
                     current_count += 1
+                    remaining_cash -= quantity * px
 
             elif direction == "sell":
                 pos_info = positions.get(sym)

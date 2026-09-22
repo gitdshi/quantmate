@@ -94,6 +94,9 @@ class PaperTradingService:
             # account so a single account never trades multiple strategies at
             # once (avoids duplicate/overlapping orders).
             if paper_account_id is not None:
+                # FOR UPDATE serializes concurrent deploys on the same
+                # account so two requests cannot both see "no running
+                # deployment" and insert duplicates.
                 superseded_ids = [
                     int(r.id)
                     for r in conn.execute(
@@ -101,6 +104,7 @@ class PaperTradingService:
                             SELECT id FROM paper_deployments
                             WHERE paper_account_id = :paid
                               AND COALESCE(desired_status, status, '') = 'running'
+                            FOR UPDATE
                         """),
                         {"paid": paper_account_id},
                     ).fetchall()
