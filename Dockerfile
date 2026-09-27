@@ -132,6 +132,13 @@ RUN --mount=type=cache,target=/root/.cache/pip \
         "pyqlib>=0.9.6,<0.10.0"; \
     fi
 
+# Install rdagent from the official PyPI. It is filtered out of the mirror
+# install above (like pyqlib) but, unlike vnpy, needs its full dependency
+# tree — the rdagent-service sidecar shells out to the `rdagent` CLI for
+# factor mining, so it must exist in the image.
+RUN --mount=type=cache,target=/root/.cache/pip \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 pip install --prefer-binary "rdagent==0.8.0"
+
 # Copy application code
 COPY app/ ./app/
 COPY strategies/ ./strategies/

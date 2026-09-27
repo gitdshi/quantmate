@@ -99,6 +99,9 @@ PyJWT>=2.8.0
 redis>=5.0.0
 rq>=1.15.0
 rdagent==0.8.0
+# pytables — pandas HDFStore backend (rdagent sidecar seeds daily_pv.h5
+# via frame.to_hdf and qlib data is stored in .h5 format)
+tables==3.11.1
 azureml-mlflow==1.62.0.post2
 mlflow==3.9.0
 mlflow-skinny==3.9.0
