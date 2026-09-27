@@ -99,6 +99,9 @@ PyJWT>=2.8.0
 redis>=5.0.0
 rq>=1.15.0
 rdagent==0.8.0
+# rdagent 0.8.0 imports pydantic_ai.mcp.MCPServerStreamableHTTP, removed
+# in pydantic-ai 2.x — keep the 1.x line (last verified: 1.95.1, May 2026)
+pydantic-ai-slim[mcp,openai,prefect]<2
 # pytables — pandas HDFStore backend (rdagent sidecar seeds daily_pv.h5
 # via frame.to_hdf and qlib data is stored in .h5 format)
 tables==3.11.1

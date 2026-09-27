@@ -136,8 +136,11 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # install above (like pyqlib) but, unlike vnpy, needs its full dependency
 # tree — the rdagent-service sidecar shells out to the `rdagent` CLI for
 # factor mining, so it must exist in the image.
+# pydantic-ai-slim is pinned <2: rdagent 0.8.0 imports
+# pydantic_ai.mcp.MCPServerStreamableHTTP which 2.x removed.
 RUN --mount=type=cache,target=/root/.cache/pip \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 pip install --prefer-binary "rdagent==0.8.0"
+    PIP_DISABLE_PIP_VERSION_CHECK=1 pip install --prefer-binary \
+      "rdagent==0.8.0" "pydantic-ai-slim[mcp,openai,prefect]<2"
 
 # Copy application code
 COPY app/ ./app/
