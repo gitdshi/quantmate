@@ -249,6 +249,7 @@ class TradingRunner(ComponentRunner):
         - ``buy_all``: buy all universe symbols not in position
         """
         signals: List[Dict[str, Any]] = []
+        target_set: set[str] = set()
 
         factor_expression = str(self.config.get("factor_expression") or "").strip()
         if factor_expression and universe:
@@ -284,49 +285,50 @@ class TradingRunner(ComponentRunner):
                         "reason": f"factor_rank({self.name})",
                     }
                 )
-
-            if self.config.get("close_on_universe_exit", True):
-                for symbol in positions:
-                    if symbol not in target_set:
-                        signals.append(
-                            {
-                                "symbol": symbol,
-                                "direction": "sell",
-                                "strength": 1.0,
-                                "reason": f"factor_rebalance({self.name})",
-                            }
-                        )
-
-            return signals
-
-        buy_all = self.config.get("buy_all", True)
-        hold_days = self.config.get("hold_days")
-
-        if buy_all:
-            for sym in universe:
-                if sym not in positions:
-                    signals.append(
-                        {
-                            "symbol": sym,
-                            "direction": "buy",
-                            "strength": 1.0,
-                            "reason": f"universe_select({self.name})",
-                        }
-                    )
-
-        if hold_days and isinstance(hold_days, int):
-            for sym, pos_info in positions.items():
-                if sym in universe:
-                    held = pos_info.get("held_days", 0)
-                    if held >= hold_days:
+        else:
+            buy_all = self.config.get("buy_all", True)
+            if buy_all:
+                target_set = set(universe)
+                for sym in universe:
+                    if sym not in positions:
                         signals.append(
                             {
                                 "symbol": sym,
-                                "direction": "sell",
+                                "direction": "buy",
                                 "strength": 1.0,
-                                "reason": f"hold_days_exit({self.name}, {hold_days}d)",
+                                "reason": f"universe_select({self.name})",
                             }
                         )
+
+            hold_days = self.config.get("hold_days")
+            if hold_days and isinstance(hold_days, int):
+                for sym, pos_info in positions.items():
+                    if sym in universe:
+                        held = pos_info.get("held_days", 0)
+                        if held >= hold_days:
+                            signals.append(
+                                {
+                                    "symbol": sym,
+                                    "direction": "sell",
+                                    "strength": 1.0,
+                                    "reason": f"hold_days_exit({self.name}, {hold_days}d)",
+                                }
+                            )
+
+        # Unified exit rule: positions that dropped out of the target set are
+        # sold regardless of the signal mode (factor-ranked or buy_all). Without
+        # this, buy_all deployments accumulate positions forever.
+        if self.config.get("close_on_universe_exit", True):
+            for symbol in positions:
+                if symbol not in target_set:
+                    signals.append(
+                        {
+                            "symbol": symbol,
+                            "direction": "sell",
+                            "strength": 1.0,
+                            "reason": f"universe_exit({self.name})",
+                        }
+                    )
 
         return signals
 
@@ -387,8 +389,11 @@ class RiskRunner(ComponentRunner):
             sym = sig["symbol"]
             direction = sig["direction"]
             px = prices.get(sym, 0)
-            if px <= 0:
+            if direction == "buy" and px <= 0:
                 continue
+            # Sells pass through even without a price (quantity comes from the
+            # position) so the executor records a visible no-price rejection
+            # instead of the order silently disappearing here.
 
             if direction == "buy":
                 if current_count >= max_total:

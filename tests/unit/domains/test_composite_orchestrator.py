@@ -133,3 +133,77 @@ def test_buy_sizing_ignores_cash_when_alloc_smaller():
     )
     # portfolio_value (50k) * 0.1 = 5k < cash, so the standard sizing applies.
     assert orders[0].quantity == 500
+
+
+# ── buy_all branch must emit sells on universe exit (staging no-sell fix) ──
+
+
+def test_buy_all_emits_sell_for_universe_exit():
+    """buy_all (no factor_expression) deployments must sell positions that
+    dropped out of the universe — this is what kept deployment 10 long-only."""
+    orchestrator = CompositeStrategyOrchestrator(
+        universe_components=[
+            {"layer": "universe", "name": "u", "config": {}},
+        ],
+        trading_components=[
+            {"layer": "trading", "name": "t", "config": {"buy_all": True}},
+        ],
+        risk_components=[],
+    )
+    market_data = {
+        "AAA": {"open": 10, "high": 10, "low": 10, "close": 10, "volume": 10},
+        "BBB": {"open": 10, "high": 10, "low": 10, "close": 10, "volume": 10},
+    }
+    orders = orchestrator.run_day(
+        trading_day="2025-01-03",
+        all_symbols=["AAA", "BBB"],
+        market_data=market_data,
+        prices={"AAA": 10, "BBB": 10},
+        cash=10_000,
+        # CCC held but no longer in the universe -> must be sold.
+        positions={"CCC": {"quantity": 100, "avg_cost": 10, "held_days": 3}},
+        history_data=None,
+    )
+    assert {("CCC", "sell")} <= {(o.symbol, o.direction) for o in orders}
+    sell = next(o for o in orders if o.symbol == "CCC")
+    assert sell.quantity == 100  # sells must not be dropped by risk sizing
+
+
+def test_risk_runner_passes_sell_through_without_price():
+    """Sells have no price at signal time; the risk runner must not drop them."""
+    runner = _risk_runner()
+    orders = runner.filter_and_size(
+        signals=[{"symbol": "CCC", "direction": "sell", "strength": 1.0, "reason": "universe_exit(t)"}],
+        cash=1_000.0,
+        positions={"CCC": {"quantity": 150, "avg_cost": 10.0}},
+        prices={},  # no price for CCC — typical for universe-exit sells
+    )
+    assert [(o.symbol, o.direction, o.quantity) for o in orders] == [("CCC", "sell", 150)]
+
+
+# ── A-share odd-lot rule: sells pass, buys round (zero-lot sell fix) ──────
+
+
+def test_lot_size_sells_pass_through_unrounded():
+    from app.domains.composite.market_constraints import MarketConstraints, Order
+
+    mc = MarketConstraints(lot_size=100)
+    orders = [
+        Order(symbol="AAA", direction="sell", quantity=50, price=10.0),   # odd lot
+        Order(symbol="BBB", direction="sell", quantity=120, price=10.0),  # not a lot multiple
+        Order(symbol="CCC", direction="sell", quantity=0, price=10.0),    # zero qty dropped
+    ]
+    result = mc.apply_lot_size(orders)
+    assert [(o.symbol, o.quantity) for o in result] == [("AAA", 50), ("BBB", 120)]
+
+
+def test_lot_size_buys_still_round_to_lots():
+    from app.domains.composite.market_constraints import MarketConstraints, Order
+
+    mc = MarketConstraints(lot_size=100)
+    orders = [
+        Order(symbol="AAA", direction="buy", quantity=150, price=10.0),
+        Order(symbol="BBB", direction="buy", quantity=80, price=10.0),
+    ]
+    result = mc.apply_lot_size(orders)
+    assert [(o.symbol, o.quantity) for o in result] == [("AAA", 100)]

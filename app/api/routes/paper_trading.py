@@ -504,7 +504,7 @@ async def confirm_signal(signal_id: int, current_user: TokenData = Depends(get_c
     with connection("quantmate") as conn:
         row = conn.execute(
             text("""
-                SELECT id, user_id, paper_account_id, symbol, direction, quantity, suggested_price
+                SELECT id, user_id, paper_account_id, deployment_id, symbol, direction, quantity, suggested_price
                 FROM paper_signals
                 WHERE id = :sid AND user_id = :uid AND status = 'pending'
             """),
@@ -519,6 +519,18 @@ async def confirm_signal(signal_id: int, current_user: TokenData = Depends(get_c
     account = acct_svc.get_account(row.paper_account_id, current_user.user_id)
     if not account or account["status"] != "active":
         raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message="Paper account not active")
+
+    # Sells require enough position on the ledger (paper_position_lots),
+    # otherwise the fill would leave phantom inventory behind.
+    ledger = PaperExecutionLedger()
+    if row.direction == "sell":
+        pos_qty = ledger.get_position_quantity(row.paper_account_id, row.symbol)
+        if pos_qty < row.quantity:
+            raise APIError(
+                status_code=400,
+                code=ErrorCode.VALIDATION_ERROR,
+                message=f"Insufficient position for sell on {row.symbol}: {pos_qty} < {row.quantity}",
+            )
 
     market = account["market"]
     quote_svc = RealtimeQuoteService()
@@ -546,7 +558,7 @@ async def confirm_signal(signal_id: int, current_user: TokenData = Depends(get_c
         ok = acct_svc.freeze_funds(row.paper_account_id, total_cost)
         if not ok:
             raise APIError(status_code=400, code=ErrorCode.VALIDATION_ERROR, message="Insufficient funds")
-        acct_svc.settle_buy(row.paper_account_id, total_cost)
+        acct_svc.settle_buy(row.paper_account_id, total_cost, total_cost)
     else:
         proceeds = fill.fill_price * fill.fill_quantity - fill.fee.total
         acct_svc.settle_sell(row.paper_account_id, proceeds)
@@ -563,10 +575,27 @@ async def confirm_signal(signal_id: int, current_user: TokenData = Depends(get_c
         price=fill.fill_price,
         mode="paper",
         paper_account_id=row.paper_account_id,
+        paper_deployment_id=row.deployment_id,
         buy_date=today_str if row.direction == "buy" else None,
     )
     dao.update_status(order_id, "filled", filled_quantity=fill.fill_quantity, avg_fill_price=fill.fill_price, fee=fill.fee.total)
     dao.insert_trade(order_id, fill.fill_quantity, fill.fill_price, fill.fee.total)
+
+    # Keep the position-lots ledger in sync with the confirmed fill; without
+    # this, confirmed sells never reduce lots and positions look perpetual.
+    _safe_record_ledger(
+        lambda: ledger.record_fill(
+            user_id=current_user.user_id,
+            paper_account_id=row.paper_account_id,
+            deployment_id=row.deployment_id,
+            order_id=order_id,
+            symbol=row.symbol,
+            direction=row.direction,
+            quantity=fill.fill_quantity,
+            price=fill.fill_price,
+            fee=fill.fee.total,
+        )
+    )
 
     # Mark signal as confirmed
     with connection("quantmate") as conn:

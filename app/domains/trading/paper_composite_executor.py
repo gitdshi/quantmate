@@ -578,6 +578,19 @@ class PaperCompositeExecutor:
                     "[paper-composite] Insufficient position for sell on %s: %d < %d",
                     order.symbol, pos_qty, order.quantity,
                 )
+                # Record the dropped sell so it is visible in the orders table
+                # and via an alert instead of silently disappearing.
+                rejected_key = f"{order.symbol}:{order.direction}"
+                if rejected_keys is not None and rejected_key not in rejected_keys:
+                    rejected_keys.add(rejected_key)
+                    self._record_rejected_order(
+                        deployment_id=deployment_id,
+                        paper_account_id=paper_account_id,
+                        user_id=user_id,
+                        order=order,
+                        fill_price=fill_price,
+                        reason="insufficient_position",
+                    )
                 return
             proceeds = amount - fee
             acct_svc.settle_sell(paper_account_id, proceeds)

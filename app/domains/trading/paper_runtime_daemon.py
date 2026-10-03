@@ -430,6 +430,12 @@ def main() -> None:
     if args.once:
         daemon.run_once()
         return
+
+    # Start the pending limit/stop order matching worker alongside the daemon
+    # so paper orders placed by strategies actually get filled.
+    from app.domains.trading.paper_matching_worker import start_worker
+
+    start_worker()
     daemon.run_forever()
 
 

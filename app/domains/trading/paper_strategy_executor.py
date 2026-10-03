@@ -46,6 +46,61 @@ def _throttled_warning(deployment_id: int, message: str, *args: Any) -> None:
         logger.debug(message, *args)
 
 
+def _record_rejected_paper_order(
+    *,
+    deployment_id: int,
+    paper_account_id: int,
+    user_id: int,
+    symbol: str,
+    direction: str,
+    quantity: int,
+    price: Optional[float],
+    reason: str,
+    strategy_id: Optional[int] = None,
+) -> None:
+    """Persist a rejected paper order (orders table) and emit an alert.
+
+    Used when an order must be dropped at execution time (e.g. insufficient
+    position for a sell) so the failure is visible instead of silent.
+    Recording is throttled per (reason, deployment, symbol, direction) via the
+    same cooldown window as warnings.
+    """
+    from app.domains.trading.dao.order_dao import OrderDao
+
+    cooldown_key = (deployment_id, f"rejected:{reason}:{symbol}:{direction}")
+    now = time.monotonic()
+    if now - _warn_cooldowns.get(cooldown_key, 0.0) < _WARN_COOLDOWN_SECONDS:
+        return
+    _warn_cooldowns[cooldown_key] = now
+
+    try:
+        dao = OrderDao()
+        rejected_id = dao.create(
+            user_id=user_id,
+            symbol=symbol,
+            direction=direction,
+            order_type="market",
+            quantity=quantity,
+            price=price,
+            mode="paper",
+            paper_account_id=paper_account_id,
+            paper_deployment_id=deployment_id,
+            strategy_id=strategy_id,
+        )
+        dao.update_status(rejected_id, "rejected", filled_quantity=0, avg_fill_price=0, fee=0)
+
+        from app.domains.autopilot.alerts import emit_autopilot_alert
+
+        emit_autopilot_alert(
+            f"paper order rejected ({reason}) deployment={deployment_id} "
+            f"symbol={symbol} direction={direction} qty={quantity}",
+            level="warning",
+            dedupe_key=f"paper-{reason}:{deployment_id}:{symbol}:{direction}",
+        )
+    except Exception:
+        logger.exception("[paper-engine] failed to record rejected order for %s", symbol)
+
+
 def _normalize_vt_symbols(vt_symbol: str | list[str]) -> list[str]:
     if isinstance(vt_symbol, list):
         return [item.strip() for item in vt_symbol if item and item.strip()]
@@ -169,16 +224,81 @@ class _PaperCtaEngine:
 
         # Auto mode — execute through matching engine immediately
         vt_id = gateway_order_id or f"paper.{self.deployment_id}.{self._order_counter}"
-        self._execute_order(dir_str, qty, price, stop=stop, strategy=strategy, order_id=vt_id)
         if gateway_order_id is None:
             self._order_counter += 1
+
+        if stop and price > 0:
+            # Stop orders rest until the market reaches the stop price; the
+            # paper matching worker triggers and fills them. Filling instantly
+            # at the current price would ignore the stop condition entirely.
+            self._record_pending_stop_order(dir_str, qty, price, strategy=strategy)
+            return [vt_id]
+
+        self._execute_order(dir_str, qty, price, stop=stop, strategy=strategy, order_id=vt_id)
         return [vt_id]
 
     def cancel_order(self, strategy: Any, vt_orderid: str) -> None:
-        logger.info("[paper-engine] cancel_order ignored for %s", vt_orderid)
+        logger.info("[paper-engine] cancel_order for %s", vt_orderid)
+        self._cancel_pending_orders()
 
     def cancel_all(self, strategy: Any) -> None:
-        logger.info("[paper-engine] cancel_all ignored for deployment %d", self.deployment_id)
+        logger.info("[paper-engine] cancel_all for deployment %d", self.deployment_id)
+        self._cancel_pending_orders()
+
+    def _cancel_pending_orders(self) -> None:
+        """Cancel this deployment's resting paper orders (created/submitted)."""
+        try:
+            with connection("quantmate") as conn:
+                result = conn.execute(
+                    text(
+                        """
+                        UPDATE orders
+                        SET status = 'cancelled', updated_at = NOW()
+                        WHERE paper_deployment_id = :did AND mode = 'paper'
+                          AND status IN ('created', 'submitted')
+                        """
+                    ),
+                    {"did": self.deployment_id},
+                )
+                conn.commit()
+                if result.rowcount:
+                    logger.info(
+                        "[paper-engine] Cancelled %d pending orders for deployment %d",
+                        result.rowcount,
+                        self.deployment_id,
+                    )
+        except Exception:
+            logger.exception("[paper-engine] Failed to cancel pending orders for deployment %d", self.deployment_id)
+
+    def _record_pending_stop_order(self, direction: str, quantity: int, price: float, strategy: Any = None) -> None:
+        """Persist a resting stop order for the matching worker to trigger."""
+        from datetime import date
+
+        from app.domains.trading.dao.order_dao import OrderDao
+
+        symbol_code = self.vt_symbol.split(".")[0] if "." in self.vt_symbol else self.vt_symbol
+        try:
+            dao = OrderDao()
+            dao.create(
+                user_id=self.user_id,
+                symbol=symbol_code,
+                direction=direction,
+                order_type="stop",
+                quantity=quantity,
+                price=price,
+                stop_price=price,
+                mode="paper",
+                paper_account_id=self.paper_account_id,
+                paper_deployment_id=self.deployment_id,
+                buy_date=date.today().isoformat() if direction == "buy" else None,
+                strategy_id=self._get_strategy_id(),
+            )
+            logger.info(
+                "[paper-engine] Stop order recorded: %s %s %d @ stop %.4f",
+                direction, symbol_code, quantity, price,
+            )
+        except Exception:
+            logger.exception("[paper-engine] Failed to record stop order for %s", symbol_code)
 
     def write_log(self, msg: str, strategy: Any = None) -> None:
         logger.info("[paper-engine][%d] %s", self.deployment_id, msg)
@@ -194,9 +314,15 @@ class _PaperCtaEngine:
         return 1
 
     def load_bar(self, vt_symbol: str, days: int, interval, callback, use_database: bool = False) -> None:
+        """Warm up the strategy by replaying history bars through ``callback``.
+
+        vn.py calls this from ``CtaTemplate.on_init``; the callback is
+        ``strategy.on_bar``. Replaying through the callback is what marks an
+        ``ArrayManager`` as inited — returning a plain list leaves the strategy
+        uninitialized and it never emits signals.
+        """
         from app.domains.market.service import MarketService
 
-        bars = []
         history_bars: list[dict[str, Any]] = []
         try:
             lookback_days = max(int(days or 0), 1)
@@ -206,21 +332,25 @@ class _PaperCtaEngine:
         except Exception:
             logger.debug("[paper-engine] load_bar history fallback for %s", vt_symbol, exc_info=True)
 
+        bars = []
         for history_bar in history_bars[-max(int(days or 0), 1):]:
             bar = PaperStrategyExecutor._history_to_bar(history_bar, vt_symbol)
             if bar is not None:
                 bars.append(bar)
 
-        if bars:
-            return bars
+        if not bars:
+            gateway = self._get_gateway()
+            quote = gateway.get_last_tick(vt_symbol) if gateway is not None else None
+            if quote is not None:
+                bar = PaperStrategyExecutor._quote_to_bar(quote, vt_symbol)
+                if bar is not None:
+                    bars.append(bar)
 
-        gateway = self._get_gateway()
-        quote = gateway.get_last_tick(vt_symbol) if gateway is not None else None
-        if quote is None:
-            return []
-        bar = PaperStrategyExecutor._quote_to_bar(quote, vt_symbol)
-        if bar is not None:
-            return [bar]
+        for bar in bars:
+            try:
+                callback(bar)
+            except Exception:
+                logger.exception("[paper-engine] load_bar callback failed for %s", vt_symbol)
         return []
 
     def load_tick(self, vt_symbol: str, days: int, callback) -> None:
@@ -324,6 +454,17 @@ class _PaperCtaEngine:
                     "[paper-engine] Insufficient position for sell on %s: %d < %d",
                     symbol_code, pos_qty, fill.fill_quantity,
                 )
+                _record_rejected_paper_order(
+                    deployment_id=self.deployment_id,
+                    paper_account_id=self.paper_account_id,
+                    user_id=self.user_id,
+                    symbol=symbol_code,
+                    direction=direction,
+                    quantity=quantity,
+                    price=fill.fill_price,
+                    reason="insufficient_position",
+                    strategy_id=self._get_strategy_id(),
+                )
                 return
             proceeds = fill.fill_price * fill.fill_quantity - fill.fee.total
             acct_svc.settle_sell(self.paper_account_id, proceeds)
@@ -357,7 +498,7 @@ class _PaperCtaEngine:
                 payload={"gateway_order_id": order_id, "stop": stop},
             )
         except Exception:
-            logger.warning("[paper-engine] Failed to record ledger fill", exc_info=True)
+            logger.exception("[paper-engine] Failed to record ledger fill")
         if gateway is not None and order_id:
             gateway.update_order_status(order_id, "filled")
         if strategy is not None:
@@ -611,6 +752,21 @@ class PaperStrategyExecutor:
             symbol = vt_symbol.split(".")[0] if "." in vt_symbol else vt_symbol
             market = engine._get_market()
 
+            # BarData is the primary CTA feed (on_bar drives ArrayManager).
+            # TickData is only fed when the strategy actually overrides the
+            # base-class on_tick — every CtaTemplate has the attribute, so the
+            # previous hasattr check fed ticks to (no-op) base implementations
+            # and never reached on_bar.
+            tick_overridden = False
+            try:
+                from vnpy_ctastrategy import CtaTemplate
+
+                tick_overridden = type(strategy_instance).on_tick is not CtaTemplate.on_tick
+            except ImportError:
+                tick_overridden = hasattr(type(strategy_instance), "on_tick") and (
+                    not hasattr(strategy_instance, "on_bar")
+                )
+
             while not stop_event.is_set():
                 try:
                     quote = quote_svc.get_quote(symbol, market)
@@ -618,9 +774,9 @@ class PaperStrategyExecutor:
                         gateway.publish_tick(vt_symbol, quote)
                     tick = self._quote_to_tick(quote, vt_symbol)
                     bar = self._quote_to_bar(quote, vt_symbol)
-                    if tick is not None and hasattr(strategy_instance, "on_tick"):
+                    if tick_overridden and tick is not None:
                         strategy_instance.on_tick(tick)
-                    elif bar:
+                    if bar is not None:
                         strategy_instance.on_bar(bar)
                     PaperExecutionLedger().write_checkpoint(
                         deployment_id=deployment_id,
@@ -634,7 +790,7 @@ class PaperStrategyExecutor:
                         ),
                     )
                 except Exception:
-                    logger.debug("[paper-executor] Quote/bar error for %s", vt_symbol, exc_info=True)
+                    logger.exception("[paper-executor] Main loop error for deployment %s (%s)", deployment_id, vt_symbol)
 
                 stop_event.wait(_POLL_INTERVAL)
 

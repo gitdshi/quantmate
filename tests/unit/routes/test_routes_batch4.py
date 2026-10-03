@@ -273,7 +273,7 @@ class TestPaperTradingRoutes:
         conn_fn.return_value.__enter__ = lambda s: ctx
         conn_fn.return_value.__exit__ = MagicMock(return_value=False)
         signal = SimpleNamespace(
-            id=1, user_id=1, paper_account_id=5, symbol="000001.SZ",
+            id=1, user_id=1, paper_account_id=5, deployment_id=7, symbol="000001.SZ",
             direction="buy", quantity=100, suggested_price=10.0,
         )
         ctx.execute.return_value.fetchone.return_value = signal
@@ -407,28 +407,31 @@ class TestPaperTradingRoutes:
         assert r.status_code == 201
 
     # ── confirm signal: sell path ──
+    @patch("app.api.routes.paper_trading.PaperExecutionLedger")
     @patch("app.api.routes.paper_trading.connection")
     @patch("app.api.routes.paper_trading.OrderDao")
     @patch("app.api.routes.paper_trading.try_fill_market_order")
     @patch("app.api.routes.paper_trading.PaperAccountService")
     @patch("app.api.routes.paper_trading.RealtimeQuoteService")
-    def test_confirm_signal_sell(self, quote_cls, acct_cls, fill_fn, dao_cls, conn_fn):
+    def test_confirm_signal_sell(self, quote_cls, acct_cls, fill_fn, dao_cls, conn_fn, ledger_cls):
         ctx = MagicMock()
         conn_fn.return_value.__enter__ = lambda s: ctx
         conn_fn.return_value.__exit__ = MagicMock(return_value=False)
         signal = SimpleNamespace(
-            id=1, user_id=1, paper_account_id=5, symbol="000001.SZ",
+            id=1, user_id=1, paper_account_id=5, deployment_id=7, symbol="000001.SZ",
             direction="sell", quantity=50, suggested_price=11.0,
         )
         ctx.execute.return_value.fetchone.return_value = signal
         acct_cls.return_value.get_account.return_value = {"status": "active", "market": "CN"}
         quote_cls.return_value.get_quote.return_value = {"last_price": 11.0}
+        ledger_cls.return_value.get_position_quantity.return_value = 100
         fill_result = MagicMock(filled=True, fill_price=11.0, fill_quantity=50)
         fill_result.fee = MagicMock(total=0.5)
         fill_fn.return_value = fill_result
         dao_cls.return_value.create.return_value = 2
         r = client().post("/api/v1/paper-trade/signals/1/confirm")
         assert r.status_code == 200
+        ledger_cls.return_value.record_fill.assert_called_once()
 
     # ── confirm signal: no market price ──
     @patch("app.api.routes.paper_trading.connection")
@@ -439,7 +442,7 @@ class TestPaperTradingRoutes:
         conn_fn.return_value.__enter__ = lambda s: ctx
         conn_fn.return_value.__exit__ = MagicMock(return_value=False)
         signal = SimpleNamespace(
-            id=1, user_id=1, paper_account_id=5, symbol="000001.SZ",
+            id=1, user_id=1, paper_account_id=5, deployment_id=7, symbol="000001.SZ",
             direction="buy", quantity=100, suggested_price=10.0,
         )
         ctx.execute.return_value.fetchone.return_value = signal
@@ -456,7 +459,7 @@ class TestPaperTradingRoutes:
         conn_fn.return_value.__enter__ = lambda s: ctx
         conn_fn.return_value.__exit__ = MagicMock(return_value=False)
         signal = SimpleNamespace(
-            id=1, user_id=1, paper_account_id=5, symbol="000001.SZ",
+            id=1, user_id=1, paper_account_id=5, deployment_id=7, symbol="000001.SZ",
             direction="buy", quantity=100, suggested_price=10.0,
         )
         ctx.execute.return_value.fetchone.return_value = signal
@@ -474,7 +477,7 @@ class TestPaperTradingRoutes:
         conn_fn.return_value.__enter__ = lambda s: ctx
         conn_fn.return_value.__exit__ = MagicMock(return_value=False)
         signal = SimpleNamespace(
-            id=1, user_id=1, paper_account_id=5, symbol="000001.SZ",
+            id=1, user_id=1, paper_account_id=5, deployment_id=7, symbol="000001.SZ",
             direction="buy", quantity=100, suggested_price=10.0,
         )
         ctx.execute.return_value.fetchone.return_value = signal
@@ -495,7 +498,7 @@ class TestPaperTradingRoutes:
         conn_fn.return_value.__enter__ = lambda s: ctx
         conn_fn.return_value.__exit__ = MagicMock(return_value=False)
         signal = SimpleNamespace(
-            id=1, user_id=1, paper_account_id=5, symbol="000001.SZ",
+            id=1, user_id=1, paper_account_id=5, deployment_id=7, symbol="000001.SZ",
             direction="buy", quantity=100, suggested_price=10.0,
         )
         ctx.execute.return_value.fetchone.return_value = signal

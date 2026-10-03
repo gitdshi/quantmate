@@ -21,6 +21,7 @@ from app.domains.trading.paper_strategy_executor import (
     _build_runtime_checkpoint,
     _get_quote_price,
     _normalize_vt_symbols,
+    _record_rejected_paper_order,
     _split_vt_symbol,
     _throttled_warning,
     PaperStrategyExecutor,
@@ -213,6 +214,17 @@ class _PaperPortfolioEngine:
                     self.deployment_id,
                     "[paper-portfolio] Insufficient position for sell on %s: %d < %d",
                     symbol, pos_qty, fill.fill_quantity,
+                )
+                _record_rejected_paper_order(
+                    deployment_id=self.deployment_id,
+                    paper_account_id=self.paper_account_id,
+                    user_id=self.user_id,
+                    symbol=symbol,
+                    direction=direction,
+                    quantity=quantity,
+                    price=fill.fill_price,
+                    reason="insufficient_position",
+                    strategy_id=self._get_strategy_id(),
                 )
                 return
             proceeds = fill.fill_price * fill.fill_quantity - fill.fee.total
@@ -460,7 +472,7 @@ class PaperPortfolioExecutor:
                         ),
                     )
                 except Exception:
-                    logger.debug("[paper-portfolio] Quote/bar error for deployment %s", deployment_id, exc_info=True)
+                    logger.exception("[paper-portfolio] Main loop error for deployment %s", deployment_id)
 
                 stop_event.wait(_POLL_INTERVAL)
 

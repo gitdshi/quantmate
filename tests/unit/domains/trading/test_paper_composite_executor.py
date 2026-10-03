@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from app.domains.composite.market_constraints import MarketConstraints, Order
 from app.domains.trading.paper_composite_executor import (
@@ -110,12 +110,14 @@ def test_successful_buy_does_not_record_rejection(MockDao, MockAcct, MockLedger)
     assert rejected_keys == set()
 
 
+@patch("app.domains.autopilot.alerts.emit_autopilot_alert")
 @patch("app.domains.trading.paper_composite_executor.PaperExecutionLedger")
 @patch("app.domains.trading.paper_composite_executor.PaperAccountService")
 @patch("app.domains.trading.paper_composite_executor.OrderDao")
-def test_insufficient_sell_position_records_nothing(MockDao, MockAcct, MockLedger):
-    """Sell without enough position is skipped silently (no cash impact)."""
+def test_insufficient_sell_position_records_rejected_order(MockDao, MockAcct, MockLedger, MockAlert):
+    """Sell without enough position is recorded as a rejected order (not silently dropped)."""
     dao = MockDao.return_value
+    dao.create.return_value = 321
     ledger = MockLedger.return_value
     ledger.get_position_quantity.return_value = 100  # less than order qty 400
 
@@ -125,5 +127,8 @@ def test_insufficient_sell_position_records_nothing(MockDao, MockAcct, MockLedge
 
     executor._execute_order(order=order, rejected_keys=rejected_keys, **_execute_order_args())
 
-    dao.create.assert_not_called()
-    assert rejected_keys == set()
+    dao.create.assert_called_once()
+    dao.update_status.assert_called_once_with(321, "rejected", filled_quantity=0, avg_fill_price=0, fee=0)
+    assert rejected_keys == {"600018.SH:sell"}
+    MockAlert.assert_called_once()
+    assert "insufficient_position" in MockAlert.call_args.args[0]

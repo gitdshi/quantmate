@@ -91,10 +91,12 @@ def _tick() -> None:
     # 4. Try to match each order
     from app.domains.trading.matching_engine import match_order
     from app.domains.trading.dao.order_dao import OrderDao
-    from app.domains.trading.dao.paper_account_dao import PaperAccountDao
+    from app.domains.trading.paper_account_service import PaperAccountService
+    from app.domains.trading.paper_execution_ledger import PaperExecutionLedger
 
     dao = OrderDao()
-    acct_dao = PaperAccountDao()
+    acct_svc = PaperAccountService()
+    ledger = PaperExecutionLedger()
 
     for order in pending:
         sym = order["symbol"]
@@ -118,9 +120,37 @@ def _tick() -> None:
         if not result.filled:
             continue
 
-        # Fill the order
         order_id = order["id"]
         fee_total = result.fee.total if result.fee else 0.0
+        account_id = order.get("paper_account_id")
+
+        # ── Settle funds + position lots ─────────────────────
+        rejected = False
+        if account_id:
+            if order["direction"] == "buy":
+                total_cost = result.fill_price * result.fill_quantity + fee_total
+                if order["order_type"] == "limit":
+                    # Limit buys were pre-frozen at submission time by the API.
+                    frozen_amount = (order.get("price") or result.fill_price) * order["quantity"] * 1.003
+                    acct_svc.settle_buy(account_id, frozen_amount, total_cost)
+                else:
+                    # Stop orders from the strategy engine are not pre-frozen.
+                    if not acct_svc.freeze_funds(account_id, total_cost):
+                        rejected = True
+                    else:
+                        acct_svc.settle_buy(account_id, total_cost, total_cost)
+            else:
+                pos_qty = ledger.get_position_quantity(account_id, sym)
+                if pos_qty < result.fill_quantity:
+                    rejected = True
+                else:
+                    proceeds = result.fill_price * result.fill_quantity - fee_total
+                    acct_svc.settle_sell(account_id, proceeds)
+
+        if rejected:
+            dao.update_status(order_id, "rejected", filled_quantity=0, avg_fill_price=0, fee=0)
+            _emit_rejection_alert(order, "matching_settlement_failed")
+            continue
 
         dao.update_status(
             order_id,
@@ -131,21 +161,42 @@ def _tick() -> None:
         )
         dao.insert_trade(order_id, result.fill_quantity, result.fill_price, fee_total)
 
-        # Settle account funds
-        account_id = order.get("paper_account_id")
+        # Keep position lots in sync so future sells see the updated inventory.
         if account_id:
-            if order["direction"] == "buy":
-                frozen_amount = (order.get("price") or result.fill_price) * order["quantity"] * 1.003
-                actual_cost = result.fill_price * result.fill_quantity + fee_total
-                acct_dao.settle_buy(account_id, frozen_amount, actual_cost)
-            else:
-                proceeds = result.fill_price * result.fill_quantity - fee_total
-                acct_dao.settle_sell(account_id, proceeds)
+            try:
+                ledger.record_fill(
+                    user_id=order["user_id"],
+                    paper_account_id=account_id,
+                    deployment_id=order.get("paper_deployment_id"),
+                    order_id=order_id,
+                    symbol=sym,
+                    direction=order["direction"],
+                    quantity=result.fill_quantity,
+                    price=result.fill_price,
+                    fee=fee_total,
+                    payload={"source": "paper_matching_worker"},
+                )
+            except Exception:
+                logger.exception("[paper-worker] Failed to record ledger fill for order %d", order_id)
 
         logger.info(
             "[paper-worker] Order %d filled: %s %s %d @ %.4f fee=%.4f",
             order_id, order["direction"], sym, result.fill_quantity, result.fill_price, fee_total,
         )
+
+
+def _emit_rejection_alert(order: Dict[str, Any], reason: str) -> None:
+    try:
+        from app.domains.autopilot.alerts import emit_autopilot_alert
+
+        emit_autopilot_alert(
+            f"paper order rejected ({reason}) order={order['id']} symbol={order['symbol']} "
+            f"direction={order['direction']} qty={order['quantity']}",
+            level="warning",
+            dedupe_key=f"paper-{reason}:{order['id']}",
+        )
+    except Exception:
+        logger.debug("[paper-worker] failed to emit rejection alert", exc_info=True)
 
 
 # ── Helpers ─────────────────────────────────────────────────
@@ -156,8 +207,8 @@ def _fetch_pending_orders() -> List[Dict[str, Any]]:
     with connection("quantmate") as conn:
         rows = conn.execute(
             text("""
-                SELECT o.id, o.symbol, o.direction, o.order_type, o.quantity, o.price,
-                       o.stop_price, o.paper_account_id,
+                SELECT o.id, o.user_id, o.paper_deployment_id, o.symbol, o.direction, o.order_type,
+                       o.quantity, o.price, o.stop_price, o.paper_account_id,
                        COALESCE(pa.market, 'CN') as market
                 FROM orders o
                 LEFT JOIN paper_accounts pa ON o.paper_account_id = pa.id
@@ -171,6 +222,8 @@ def _fetch_pending_orders() -> List[Dict[str, Any]]:
         return [
             {
                 "id": r.id,
+                "user_id": r.user_id,
+                "paper_deployment_id": r.paper_deployment_id,
                 "symbol": r.symbol,
                 "direction": r.direction,
                 "order_type": r.order_type,

@@ -91,11 +91,20 @@ class MarketConstraints:
         return filtered
 
     def apply_lot_size(self, orders: List[Order]) -> List[Order]:
-        """Round order quantities to lot size multiples."""
+        """Round BUY order quantities to lot size multiples; pass SELLs through.
+
+        A-share rule: odd lots (e.g. 50 shares left after partial fills) can be
+        sold but not bought. Rounding sells down to lot multiples would strand
+        sub-lot positions forever.
+        """
         if self.lot_size <= 1:
             return orders
         result = []
         for o in orders:
+            if o.direction == "sell":
+                if o.quantity > 0:
+                    result.append(o)
+                continue
             rounded_qty = (o.quantity // self.lot_size) * self.lot_size
             if rounded_qty > 0:
                 result.append(

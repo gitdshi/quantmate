@@ -85,8 +85,10 @@ class TestPaperCtaEngine:
 
         bars = e.load_bar("000001.SZSE", 2, None, callback)
 
-        assert bars == [{"close": 10.1}, {"close": 10.2}]
-        callback.assert_not_called()
+        # History bars must be replayed through the callback so the strategy's
+        # ArrayManager becomes inited (vn.py contract). The return value stays [].
+        assert bars == []
+        assert [c.args[0] for c in callback.call_args_list] == [{"close": 10.1}, {"close": 10.2}]
 
     def test_load_bar_falls_back_to_quote_when_history_missing(self, monkeypatch, _patch_conn):
         e = self._make_engine(_patch_conn)
@@ -105,8 +107,8 @@ class TestPaperCtaEngine:
 
         bars = e.load_bar("000001.SZSE", 5, None, callback)
 
-        assert bars == [{"price": 10.5}]
-        callback.assert_not_called()
+        assert bars == []
+        assert [c.args[0] for c in callback.call_args_list] == [{"price": 10.5}]
 
     def test_get_pricetick(self, _patch_conn):
         e = self._make_engine(_patch_conn)
@@ -287,14 +289,21 @@ class TestPaperStrategyExecutor:
         created = {}
 
         class FakeStrategy:
+            # Real (non-mock) bound methods so the tick_overridden probe sees
+            # class-level functions like a genuine CtaTemplate subclass.
             def __init__(self, engine, strategy_name, vt_symbol, parameters):
                 self.inited = False
                 self.trading = False
                 self.on_init = MagicMock()
                 self.on_start = MagicMock()
-                self.on_bar = MagicMock()
                 self.on_stop = MagicMock()
                 created["instance"] = self
+
+            def on_tick(self, tick):
+                pass  # not overridden semantics: base-class no-op shape
+
+            def on_bar(self, bar):
+                pass
 
         monkeypatch.setattr("app.api.services.strategy_service.compile_strategy", lambda code, cls: FakeStrategy)
 
@@ -333,10 +342,14 @@ class TestPaperStrategyExecutor:
                 self.trading = False
                 self.on_init = MagicMock()
                 self.on_start = MagicMock()
-                self.on_tick = MagicMock()
-                self.on_bar = MagicMock()
                 self.on_stop = MagicMock()
                 created["instance"] = self
+
+            def on_tick(self, tick):
+                created.setdefault("ticks", []).append(tick)
+
+            def on_bar(self, bar):
+                created.setdefault("bars", []).append(bar)
 
         monkeypatch.setattr("app.api.services.strategy_service.compile_strategy", lambda code, cls: FakeStrategy)
 
@@ -368,5 +381,8 @@ class TestPaperStrategyExecutor:
             gateway=PaperGateway("PAPER.2"),
         )
 
-        created["instance"].on_tick.assert_called_once()
-        created["instance"].on_bar.assert_not_called()
+        # A strategy that overrides on_tick (its method differs from the base
+        # CtaTemplate no-op) is fed ticks. Bars are also delivered — on_bar is
+        # the primary CTA feed and drives the ArrayManager.
+        assert created.get("ticks"), "FAIL: tick strategy did not receive ticks"
+        assert created.get("bars"), "FAIL: tick strategy should still receive bars"
